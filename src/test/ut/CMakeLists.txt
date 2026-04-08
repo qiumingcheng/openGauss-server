@@ -19,6 +19,7 @@ endif()
 
 add_subdirectory(demo)
 add_subdirectory(db4ai)
+add_subdirectory(cascades)
 
-set(UT_TEST_TARGET_LIST ut_demo_test ut_direct_ml_test)
+set(UT_TEST_TARGET_LIST ut_demo_test ut_direct_ml_test ut_cascades_test)
 add_custom_target(all_ut_test_opengauss DEPENDS ${UT_TEST_TARGET_LIST} COMMAND echo "end unit test all...")
