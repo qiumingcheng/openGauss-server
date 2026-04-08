@@ -1,0 +1,19 @@
+# cascades/operator/CMakeLists.txt
+set(CASCADES_OPERATOR_SOURCES
+    ${CASCADES_OPERATOR_SOURCES}
+    ${CMAKE_CURRENT_SOURCE_DIR}/operators.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/operators/logical_join.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/operators/logical_inner_join.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/operators/physical_hash_join.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/operators/physical_merge_join.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/operators/physical_nest_loop.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/operators/physical_scan.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/operators/logical_filter.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/operators/logical_project.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/operators/logical_scan.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/operators/physical_sort.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/operators/logical_aggregate.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/operators/physical_hash_agg.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/operators/physical_exchange.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/operators/logical_subquery.cpp
+    PARENT_SCOPE)

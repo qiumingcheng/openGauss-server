@@ -1,0 +1,34 @@
+#pragma once
+
+namespace cascades {
+
+#pragma once
+
+enum class RuleType {
+    // Transformation rules
+    TF_JOIN_COMMUTATIVITY,
+    TF_JOIN_ASSOCIATIVITY,
+    TF_PREDICATE_PUSH_DOWN,
+    TF_FILTER_MERGE,
+    TF_COLUMN_PRUNE,
+    TF_OUTER_JOIN_SIMPLIFY,
+    TF_CROSS_JOIN_ELIMINATE,
+    TF_DUPLICATE_JOIN_ELIMINATION,
+    TF_SORT_ELIMINATION,
+    TF_AGGREGATION_SIMPLIFY,
+    TF_SUBQUERY_UNNEST,
+    TF_CONSTANT_FOLD,
+
+    // Implementation rules
+    IMP_HASH_JOIN,
+    IMP_MERGE_JOIN,
+    IMP_NESTLOOP_JOIN,
+    IMP_HASH_AGG,
+    IMP_SORT,
+    IMP_SCAN,
+    IMP_INDEX_SCAN,
+
+    NUM_RULES
+};
+
+}

@@ -1,0 +1,16 @@
+#pragma once
+// Forwarding header - includes all operator class headers
+#include "operators/logical_join.h"
+#include "operators/logical_inner_join.h"
+#include "operators/physical_hash_join.h"
+#include "operators/physical_merge_join.h"
+#include "operators/physical_nest_loop.h"
+#include "operators/physical_scan.h"
+#include "operators/logical_filter.h"
+#include "operators/logical_project.h"
+#include "operators/logical_scan.h"
+#include "operators/physical_sort.h"
+#include "operators/logical_aggregate.h"
+#include "operators/physical_hash_agg.h"
+#include "operators/physical_exchange.h"
+#include "operators/logical_subquery.h"
