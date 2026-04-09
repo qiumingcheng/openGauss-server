@@ -2172,6 +2172,18 @@ static void InitConfigureNamesBool()
             NULL,
             NULL
         },
+        {{"enable_cascades_optimizer",
+            PGC_USERSET,
+            NODE_SINGLENODE,
+            QUERY_TUNING,
+            gettext_noop("Enable Cascades optimizer for query planning"),
+            NULL},
+            &u_sess->attr.attr_sql.enable_cascades_optimizer,
+            false,
+            NULL,
+            NULL,
+            NULL
+        },
         {{"sql_note",
             PGC_USERSET,
             NODE_SINGLENODE,
