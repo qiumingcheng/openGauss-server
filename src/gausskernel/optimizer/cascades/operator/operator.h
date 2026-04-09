@@ -1,4 +1,7 @@
 #pragma once
+#include "nodes/parsenodes.h"
+#include "postgres.h"
+#include "pgxc/locator.h"
 #include <string>
 #include <vector>
 #include <memory>

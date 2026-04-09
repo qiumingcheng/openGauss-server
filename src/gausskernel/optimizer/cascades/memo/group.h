@@ -1,4 +1,5 @@
 #pragma once
+#include "postgres.h"
 #include "group_expression.h"
 #include "../property/logical_property.h"
 #include "../statistics/statistics.h"

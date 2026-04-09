@@ -3,6 +3,7 @@
 #include "../memo/opt_expression.h"
 #include "../statistics/statistics.h"
 #include "optimizer/planmain.h"
+#include "nodes/parsenodes.h"
 #include "optimizer/pathnode.h"
 #include "nodes/relation.h"
 #include "nodes/makefuncs.h"

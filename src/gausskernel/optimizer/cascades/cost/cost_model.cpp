@@ -3,6 +3,7 @@
 #include "../memo/group.h"
 #include "../statistics/statistics.h"
 #include "../operator/operator.h"
+#include "nodes/parsenodes.h"
 #include "optimizer/pathnode.h"
 
 namespace cascades {

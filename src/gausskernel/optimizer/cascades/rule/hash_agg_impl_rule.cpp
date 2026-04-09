@@ -1,3 +1,6 @@
+#include "nodes/parsenodes.h"
+#include "postgres.h"
+#include "knl/knl_variable.h"
 #include "hash_agg_impl_rule.h"
 #include "../operator/operators.h"
 #include "../memo/opt_expression.h"
@@ -5,9 +8,7 @@
 #include "../memo/group_expression.h"
 #include "../optimizer/optimizer_context.h"
 #include "optimizer/pathnode.h"
-#include "nodes/relation.h"
-#include "nodes/plannodes.h"
-#include "optimizer/clauses.h"
+#include "optimizer/planner.h"
 #include "catalog/pg_operator.h"
 #include "nodes/makefuncs.h"
 

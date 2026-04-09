@@ -126,6 +126,7 @@ set(CASCADES_SOURCES
 )
 
 add_library(cascadesoptimizer OBJECT ${CASCADES_SOURCES})
+target_compile_definitions(cascadesoptimizer PRIVATE PGXC)
 target_include_directories(cascadesoptimizer PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../../../../src/include
     /usr/include
@@ -138,6 +139,7 @@ set(CASCADES_PLANNER_SOURCES
 )
 
 add_library(cascades_planner OBJECT ${CASCADES_PLANNER_SOURCES})
+target_compile_definitions(cascades_planner PRIVATE PGXC)
 target_include_directories(cascades_planner PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../../../../src/include
 )

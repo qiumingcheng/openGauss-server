@@ -4,6 +4,7 @@
 #include "../memo/group.h"
 #include "../memo/group_expression.h"
 #include "../optimizer/optimizer_context.h"
+#include "nodes/parsenodes.h"
 #include "optimizer/pathnode.h"
 #include "nodes/relation.h"
 

@@ -1,3 +1,4 @@
+#include "nodes/parsenodes.h"
 #include "index_scan_impl_rule.h"
 #include "../operator/operators.h"
 #include "../memo/opt_expression.h"

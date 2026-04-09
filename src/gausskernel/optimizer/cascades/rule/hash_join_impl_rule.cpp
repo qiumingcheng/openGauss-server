@@ -1,3 +1,4 @@
+#include "nodes/parsenodes.h"
 #include "hash_join_impl_rule.h"
 #include "../operator/operators.h"
 #include "../memo/opt_expression.h"
@@ -10,8 +11,6 @@
 #include "optimizer/restrictinfo.h"
 #include "optimizer/clauses.h"
 #include "optimizer/planmain.h"
-#include "utils/lsyscache.h"
-#include "utils/typcache.h"
 #include "catalog/pg_operator.h"
 
 namespace cascades {
