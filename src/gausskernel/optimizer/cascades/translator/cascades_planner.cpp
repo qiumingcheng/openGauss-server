@@ -20,16 +20,10 @@
 #include "../property/physical_property_set.h"
 #include "../memo/opt_expression.h"
 
-/*
- * GUC parameter to enable/disable Cascades optimizer
- * Default is off to maintain compatibility with standard planner
- */
-bool enable_cascades_optimizer = false;
-
 PlannedStmt* cascades_planner(Query* parse, int cursorOptions, ParamListInfo boundParams)
 {
     ereport(LOG, (errmsg("[CASCADES] >>> Entering cascades_planner, enable_cascades_optimizer=%d",
-                         enable_cascades_optimizer)));
+                         u_sess->attr.attr_sql.enable_cascades_optimizer)));
 
     PlannedStmt* result = NULL;
     PlannerGlobal* glob = NULL;

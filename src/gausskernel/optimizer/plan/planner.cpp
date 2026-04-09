@@ -414,7 +414,7 @@ PlannedStmt* planner(Query* parse, int cursorOptions, ParamListInfo boundParams)
     if (u_sess->hook_cxt.pluginPlannerHook){
         result = (*(planner_hook_type) u_sess->hook_cxt.pluginPlannerHook)\
                  (parse, cursorOptions, boundParams);
-    } else if (enable_cascades_optimizer) {
+    } else if (u_sess->attr.attr_sql.enable_cascades_optimizer) {
         /* Cascades optimizer - experimental feature */
         result = cascades_planner(parse, cursorOptions, boundParams);
     } else if ((IS_PGXC_COORDINATOR || IS_SINGLE_NODE) && !IsConnFromCoord()){

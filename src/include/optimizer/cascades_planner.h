@@ -22,9 +22,4 @@
  */
 extern PlannedStmt* cascades_planner(Query* parse, int cursorOptions, ParamListInfo boundParams);
 
-/*
- * GUC parameter for enabling/disabling Cascades optimizer
- */
-extern bool enable_cascades_optimizer;
-
 #endif /* CASCADES_PLANNER_H */
