@@ -1,6 +1,9 @@
 # CMakeLists.txt for cascades unit tests
 set(TGT_ut_cascades_SRC
         ${CMAKE_CURRENT_SOURCE_DIR}/physical_hash_join_test.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/physical_sort_test.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/physical_hash_agg_test.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/logical_inner_join_test.cpp
         )
 
 INCLUDE_DIRECTORIES(
