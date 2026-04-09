@@ -113,6 +113,8 @@ set(gaussdb_objects
     $<TARGET_OBJECTS:gausskernel_optimizer_sqladvisor>
     $<TARGET_OBJECTS:gausskernel_optimizer_sqlpatch>
     $<TARGET_OBJECTS:gausskernel_optimizer_gplanmgr>
+    $<TARGET_OBJECTS:cascadesoptimizer>
+    $<TARGET_OBJECTS:cascades_planner>
     $<TARGET_OBJECTS:gausskernel_process_datasource>
     $<TARGET_OBJECTS:gausskernel_process_job>
     $<TARGET_OBJECTS:gausskernel_process_main>

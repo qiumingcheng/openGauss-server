@@ -92,7 +92,6 @@ Plan* ExprToPlanConverter::translate_expression(OptExpression* expr) {
         PhysicalOptExprOp* phys_op = static_cast<PhysicalOptExprOp*>(op);
         Path* path = phys_op->get_path();
         if (path != nullptr && root_ != nullptr) {
-            extern Plan* create_plan(PlannerInfo* root, Path* best_path);
             return create_plan(root_, path);
         }
     }
@@ -132,7 +131,6 @@ Plan* ExprToPlanConverter::translate_scan(OptExpression* expr) {
         return nullptr;
     }
 
-    extern Plan* create_plan(PlannerInfo* root, Path* best_path);
     return create_plan(root_, best_path);
 }
 
