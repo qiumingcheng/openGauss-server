@@ -5,9 +5,15 @@ set(TGT_ut_cascades_SRC
         ${CMAKE_CURRENT_SOURCE_DIR}/physical_hash_agg_test.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/physical_merge_join_test.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/physical_nest_loop_test.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/physical_scan_test.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/physical_exchange_test.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/logical_join_test.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/logical_inner_join_test.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/logical_filter_test.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/logical_project_test.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/logical_scan_test.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/logical_aggregate_test.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/logical_subquery_test.cpp
         )
 
 INCLUDE_DIRECTORIES(
