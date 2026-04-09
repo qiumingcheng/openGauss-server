@@ -81,6 +81,7 @@ typedef struct knl_session_attr_sql {
     bool enable_nestloop;
     bool enable_mergejoin;
     bool enable_hashjoin;
+    bool enable_cascades_optimizer;
     bool enable_index_nestloop;
     bool under_explain;
     bool enable_nodegroup_debug;

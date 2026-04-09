@@ -92,6 +92,7 @@
 #include "instruments/instr_statement.h"
 #include "catalog/gs_collation.h"
 #include "replication/libpqsw.h"
+#include "optimizer/cascades_planner.h"
 #if defined(ENABLE_HTAP) && defined(USE_SPQ)
 #include "executor/node/nodeSpqSeqscan.h"
 #include "vecexecutor/vecspqcstorescan.h"
@@ -413,6 +414,9 @@ PlannedStmt* planner(Query* parse, int cursorOptions, ParamListInfo boundParams)
     if (u_sess->hook_cxt.pluginPlannerHook){
         result = (*(planner_hook_type) u_sess->hook_cxt.pluginPlannerHook)\
                  (parse, cursorOptions, boundParams);
+    } else if (enable_cascades_optimizer) {
+        /* Cascades optimizer - experimental feature */
+        result = cascades_planner(parse, cursorOptions, boundParams);
     } else if ((IS_PGXC_COORDINATOR || IS_SINGLE_NODE) && !IsConnFromCoord()){
         result = pgxc_planner(parse, cursorOptions, boundParams);
     } else

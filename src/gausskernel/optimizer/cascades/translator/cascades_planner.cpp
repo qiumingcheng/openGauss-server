@@ -12,12 +12,19 @@
 #include "optimizer/planmain.h"
 #include "optimizer/planner.h"
 #include "parser/parsetree.h"
+#include "utils/guc.h"
 
 #include "query_to_expression.h"
 #include "expression_to_plan.h"
 #include "../optimizer/cascades_optimizer.h"
 #include "../property/physical_property_set.h"
 #include "../memo/opt_expression.h"
+
+/*
+ * GUC parameter to enable/disable Cascades optimizer
+ * Default is off to maintain compatibility with standard planner
+ */
+bool enable_cascades_optimizer = false;
 
 PlannedStmt* cascades_planner(Query* parse, int cursorOptions, ParamListInfo boundParams)
 {

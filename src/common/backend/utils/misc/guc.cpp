@@ -5168,6 +5168,7 @@ static void InitSingleNodeUnsupportGuc()
     u_sess->attr.attr_sql.enable_stream_recursive = true;
     u_sess->attr.attr_sql.enable_random_datanode = true;
     u_sess->attr.attr_sql.enable_fstream = false;
+    u_sess->attr.attr_sql.enable_cascades_optimizer = false;  /* Cascades optimizer disabled by default */
     u_sess->attr.attr_common.PersistentConnections = false;
     u_sess->attr.attr_network.PoolerForceReuse = false;
     u_sess->attr.attr_network.comm_client_bind = false;
