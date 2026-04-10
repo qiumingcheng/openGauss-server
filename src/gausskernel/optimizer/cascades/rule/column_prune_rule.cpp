@@ -11,9 +11,27 @@ ColumnPruneRule::ColumnPruneRule()
 
 std::vector<OptExpression*> ColumnPruneRule::transform(
     OptExpression* input, OptimizerContext* context) {
+    // Null check
+    if (input == nullptr) {
+        return {};
+    }
+
+    // Check if input has children
+    if (input->arity() == 0) {
+        return {};
+    }
+
     // Get the projection operator and its child
     LogicalOptExprOp* project_op = static_cast<LogicalOptExprOp*>(input->get_op());
+    if (project_op == nullptr) {
+        return {};
+    }
+
     OptExpression* child = input->input_at(0);
+    if (child == nullptr) {
+        return {};
+    }
+
     OptExprOp* child_op = child->get_op();
 
     // Get the output columns of the projection
@@ -49,6 +67,11 @@ std::vector<OptExpression*> ColumnPruneRule::transform(
 
     // Also try to push down column requirements to child if it's a projection
     if (child_op->get_type() == OptExprOpType::LOGICAL_PROJECT) {
+        // Check if child has inputs
+        if (child->arity() == 0) {
+            return result;
+        }
+
         // Recursively prune the child projection
         LogicalProject* child_project = static_cast<LogicalProject*>(child_op);
         const std::vector<int>& child_projections = child_project->get_projections();
