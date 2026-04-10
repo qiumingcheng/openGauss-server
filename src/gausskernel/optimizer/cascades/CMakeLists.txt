@@ -127,7 +127,15 @@ set(CASCADES_SOURCES
 
 add_library(cascadesoptimizer OBJECT ${CASCADES_SOURCES})
 target_compile_definitions(cascadesoptimizer PRIVATE PGXC)
-target_compile_options(cascadesoptimizer PRIVATE -fPIC)
+target_compile_options(cascadesoptimizer PRIVATE
+    -fPIC
+    ${OPTIMIZE_OPTIONS}
+    ${OS_OPTIONS}
+    ${PROTECT_OPTIONS}
+    ${WARNING_OPTIONS}
+    ${BIN_SECURE_OPTIONS}
+    ${CHECK_OPTIONS}
+)
 target_include_directories(cascadesoptimizer PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../../../../src/include
     /usr/include
@@ -141,7 +149,15 @@ set(CASCADES_PLANNER_SOURCES
 
 add_library(cascades_planner OBJECT ${CASCADES_PLANNER_SOURCES})
 target_compile_definitions(cascades_planner PRIVATE PGXC)
-target_compile_options(cascades_planner PRIVATE -fPIC)
+target_compile_options(cascades_planner PRIVATE
+    -fPIC
+    ${OPTIMIZE_OPTIONS}
+    ${OS_OPTIONS}
+    ${PROTECT_OPTIONS}
+    ${WARNING_OPTIONS}
+    ${BIN_SECURE_OPTIONS}
+    ${CHECK_OPTIONS}
+)
 target_include_directories(cascades_planner PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../../../../src/include
 )
