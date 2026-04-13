@@ -6,8 +6,8 @@ CostEstimate::CostEstimate() : cpu_cost_(0.0), memory_cost_(0.0), network_cost_(
 CostEstimate::CostEstimate(double cpu_cost, double memory_cost, double network_cost)
     : cpu_cost_(cpu_cost), memory_cost_(memory_cost), network_cost_(network_cost) {}
 
-CostEstimate* CostEstimate::infinite() {
-    return new CostEstimate(1e30, 1e30, 1e30);
+CostEstimate CostEstimate::infinite() {
+    return CostEstimate(1e30, 1e30, 1e30);
 }
 
 double CostEstimate::total_cost() const {

@@ -53,7 +53,6 @@ void DeriveStatsTask::derive_statistics_by_type(
             break;
 
         case OptExprOpType::LOGICAL_PROJECT:
-        case OptExprOpType::PHYSICAL_PROJECT:
             derive_project_statistics(result_stats, children_stats);
             break;
 

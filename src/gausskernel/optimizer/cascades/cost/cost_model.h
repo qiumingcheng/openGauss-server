@@ -15,9 +15,9 @@ public:
     CostModel() = default;
     ~CostModel() = default;
 
-    CostEstimate* compute_cost(GroupExpression* group_expr,
-                               const PhysicalPropertySet& required_property,
-                               const std::vector<CostEstimate*>& children_costs);
+    CostEstimate compute_cost(GroupExpression* group_expr,
+                              const PhysicalPropertySet& required_property,
+                              const std::vector<CostEstimate*>& children_costs);
 
     static constexpr double DEFAULT_CPU_TUPLE_COST = 0.01;
     static constexpr double DEFAULT_RANDOM_PAGE_COST = 4.0;

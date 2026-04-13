@@ -10,7 +10,7 @@ public:
     CostEstimate(double cpu_cost, double memory_cost, double network_cost);
     ~CostEstimate() = default;
 
-    static CostEstimate* infinite();
+    static CostEstimate infinite();
 
     double cpu_cost() const { return cpu_cost_; }
     void set_cpu_cost(double cost) { cpu_cost_ = cost; }

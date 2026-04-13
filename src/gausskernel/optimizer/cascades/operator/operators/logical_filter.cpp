@@ -21,7 +21,7 @@ LogicalFilter::LogicalFilter(Node* qual)
       qual_(qual),
       qual_list_(nullptr) {}
 
-LogicalFilter::LogicalFilter(Node* qual, void* qual_list)
+LogicalFilter::LogicalFilter(Node* qual, List* qual_list)
     : LogicalOptExprOp(OptExprOpType::LOGICAL_FILTER),
       predicate_id_(-1),
       qual_(qual),

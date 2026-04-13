@@ -46,7 +46,8 @@ private:
                                 const std::vector<Statistics*>& children_stats,
                                 OptExprOp* op);
     void derive_filter_statistics(Statistics* result_stats,
-                                  const std::vector<Statistics*>& children_stats);
+                                  const std::vector<Statistics*>& children_stats,
+                                  OptExprOp* op);
     void derive_project_statistics(Statistics* result_stats,
                                    const std::vector<Statistics*>& children_stats);
     void derive_join_statistics(Statistics* result_stats,

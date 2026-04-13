@@ -8,10 +8,10 @@
 
 namespace cascades {
 
-CostEstimate* CostModel::compute_cost(GroupExpression* group_expr,
+CostEstimate CostModel::compute_cost(GroupExpression* group_expr,
                                       const PhysicalPropertySet& required_property,
                                       const std::vector<CostEstimate*>& children_costs) {
-    CostEstimate* cost = new CostEstimate();
+    CostEstimate cost;
 
     OptExprOp* op = group_expr->get_op();
 
@@ -21,9 +21,9 @@ CostEstimate* CostModel::compute_cost(GroupExpression* group_expr,
         Path* path = phys_op->get_path();
         if (path != nullptr) {
             // Use OpenGauss computed cost
-            cost->set_cpu_cost(path->total_cost);
-            cost->set_memory_cost(0);
-            cost->set_network_cost(0);
+            cost.set_cpu_cost(path->total_cost);
+            cost.set_memory_cost(0);
+            cost.set_network_cost(0);
             return cost;
         }
     }
@@ -33,7 +33,7 @@ CostEstimate* CostModel::compute_cost(GroupExpression* group_expr,
 
     // Add children's costs
     for (auto* child_cost : children_costs) {
-        *cost += *child_cost;
+        cost += *child_cost;
     }
 
     // Compute operator-specific cost based on type
@@ -45,27 +45,27 @@ CostEstimate* CostModel::compute_cost(GroupExpression* group_expr,
     // Physical operators have execution cost
     switch (op->get_type()) {
         case OptExprOpType::PHYSICAL_HASH_JOIN:
-            *cost += compute_hash_join_cost(group_expr, stats, children_costs);
+            cost += compute_hash_join_cost(group_expr, stats, children_costs);
             break;
         case OptExprOpType::PHYSICAL_MERGE_JOIN:
-            *cost += compute_merge_join_cost(group_expr, stats, children_costs);
+            cost += compute_merge_join_cost(group_expr, stats, children_costs);
             break;
         case OptExprOpType::PHYSICAL_NESTLOOP_JOIN:
-            *cost += compute_nestloop_join_cost(group_expr, stats, children_costs);
+            cost += compute_nestloop_join_cost(group_expr, stats, children_costs);
             break;
         case OptExprOpType::PHYSICAL_SCAN:
-            *cost += compute_scan_cost_impl(stats);
+            cost += compute_scan_cost_impl(stats);
             break;
         case OptExprOpType::PHYSICAL_HASH_AGG:
-            *cost += compute_agg_cost_impl(stats, children_costs);
+            cost += compute_agg_cost_impl(stats, children_costs);
             break;
         case OptExprOpType::PHYSICAL_SORT:
-            *cost += compute_sort_cost_impl(stats, children_costs);
+            cost += compute_sort_cost_impl(stats, children_costs);
             break;
         default:
             // Default per-tuple cost
             if (stats != nullptr) {
-                *cost += CostEstimate(stats->row_count() * DEFAULT_CPU_TUPLE_COST, 0, 0);
+                cost += CostEstimate(stats->row_count() * DEFAULT_CPU_TUPLE_COST, 0, 0);
             }
             break;
     }
