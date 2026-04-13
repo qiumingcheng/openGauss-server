@@ -1,6 +1,7 @@
 #pragma once
 #include "optimizer_task.h"
 #include "../property/physical_property_set.h"
+#include <utility>
 
 namespace cascades {
 
@@ -50,22 +51,11 @@ public:
 
 private:
     /**
-     * Compute the cost of enforcing property requirements
-     * Called when expression output doesn't satisfy required property
-     *
-     * @param output_property The actual output property of the expression
-     * @param required_property The required physical property
-     * @return The enforcement cost (sort + exchange)
-     */
-    double compute_enforcement_cost(const PhysicalPropertySet& output_property,
-                                    const PhysicalPropertySet& required_property) const;
-
-    /**
      * Add enforcer operators when output property doesn't satisfy required property
      *
-     * Enforcer chain (bottom-up):
-     * 1. Sort enforcer (if sort property doesn't match)
-     * 2. Distribution enforcer (if distribution doesn't match)
+     * Enforcer chain follows StarRocks pattern:
+     * - For Gather distribution: Sort first, then Exchange (sort-then-gather)
+     * - For other distributions: Exchange first, then Sort (shuffle-then-sort)
      *
      * Uses Group::update_output_property_set() to:
      * - Avoid duplicate enforcers for the same required property
@@ -76,12 +66,39 @@ private:
      * @param output_property The actual output property
      * @param required_property The required property
      * @param current_cost Current accumulated cost before enforcement
-     * @return New expression with enforcers, or original if no enforcement needed
+     * @return Pair of {enforced expression, enforcement cost}
      */
-    GroupExpression* add_enforcers(GroupExpression* expr,
-                                   const PhysicalPropertySet& output_property,
-                                   const PhysicalPropertySet& required_property,
-                                   double current_cost) const;
+    std::pair<GroupExpression*, double> add_enforcers(
+        GroupExpression* expr,
+        const PhysicalPropertySet& output_property,
+        const PhysicalPropertySet& required_property,
+        double current_cost) const;
+
+    /**
+     * Add Sort enforcer operator
+     *
+     * @param expr The expression to wrap
+     * @param input_property The input property before sort
+     * @param required_property The required property with sort
+     * @return Pair of {enforced expression, sort enforcement cost}
+     */
+    std::pair<GroupExpression*, double> add_sort_enforcer(
+        GroupExpression* expr,
+        const PhysicalPropertySet& input_property,
+        const PhysicalPropertySet& required_property) const;
+
+    /**
+     * Add Distribution enforcer operator
+     *
+     * @param expr The expression to wrap
+     * @param input_property The input property before distribution
+     * @param required_property The required property with distribution
+     * @return Pair of {enforced expression, distribution enforcement cost}
+     */
+    std::pair<GroupExpression*, double> add_distribution_enforcer(
+        GroupExpression* expr,
+        const PhysicalPropertySet& input_property,
+        const PhysicalPropertySet& required_property) const;
 
     /**
      * Derive the output property for an expression based on its operator type
