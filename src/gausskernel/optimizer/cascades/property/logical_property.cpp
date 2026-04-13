@@ -4,6 +4,7 @@
 #include "../operator/operator.h"
 
 namespace cascades {
+
 LogicalProperty::LogicalProperty() {}
 
 void LogicalProperty::set_output_columns(const ColumnRefSet& cols) {
@@ -20,22 +21,26 @@ void LogicalProperty::derive(ExpressionContext* context) {
         return;
     }
 
-    // Derive output columns based on operator type
+    // Derive output columns and sort keys based on operator type
     switch (op->get_type()) {
         case OptExprOpType::LOGICAL_PROJECT: {
-            // Project gets columns from child
+            // Project passes through columns from child
             if (context->arity() > 0) {
                 output_columns_ = context->get_child_output_columns(0);
             }
+            // Sort order preserved through project
             break;
         }
+
         case OptExprOpType::LOGICAL_FILTER: {
             // Filter passes through columns from child
             if (context->arity() > 0) {
                 output_columns_ = context->get_child_output_columns(0);
             }
+            // Sort order preserved through filter
             break;
         }
+
         case OptExprOpType::LOGICAL_JOIN: {
             // Join outputs columns from both children
             ColumnRefSet combined;
@@ -50,15 +55,32 @@ void LogicalProperty::derive(ExpressionContext* context) {
                 }
             }
             output_columns_ = combined;
+            // Join destroys sort order from inputs
+            sort_keys_.clear();
             break;
         }
+
+        case OptExprOpType::LOGICAL_AGGREGATE: {
+            // Aggregate outputs group keys + aggregate columns
+            if (context->arity() > 0) {
+                // For now, inherit from child - actual implementation depends on aggregate definition
+                output_columns_ = context->get_child_output_columns(0);
+            }
+            // Aggregation destroys input sort order
+            sort_keys_.clear();
+            break;
+        }
+
         case OptExprOpType::LOGICAL_SCAN: {
             // Scan outputs all columns of the table
             // In real implementation, this would come from table metadata
             output_columns_ = ColumnRefSet();
+            // Base table may have a defined sort order (e.g., primary key)
+            // This would come from table metadata in a full implementation
             break;
         }
-        default:
+
+        default: {
             // For other operators, union of children outputs
             output_columns_ = ColumnRefSet();
             for (int i = 0; i < context->arity(); ++i) {
@@ -66,12 +88,20 @@ void LogicalProperty::derive(ExpressionContext* context) {
                     output_columns_.add(col);
                 }
             }
+            // Default: assume sort order is destroyed
+            sort_keys_.clear();
             break;
+        }
     }
 }
 
 std::string LogicalProperty::to_string() const {
-    return "LogicalProperty(cols=" + std::to_string(output_columns_.size()) + ")";
+    std::string result = "LogicalProperty(cols=" + std::to_string(output_columns_.size());
+    if (!sort_keys_.empty()) {
+        result += ", sort_keys=" + std::to_string(sort_keys_.size());
+    }
+    result += ")";
+    return result;
 }
 
 

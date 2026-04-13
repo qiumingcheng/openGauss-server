@@ -2,6 +2,11 @@
 #include "opt_expression.h"
 #include "group_expression.h"
 #include "group.h"
+#include "../operator/operators/logical_join.h"
+#include "../operator/operators/logical_aggregate.h"
+#include "../operator/operators/logical_filter.h"
+#include "../operator/operators/physical_scan.h"
+#include "../operator/operators/physical_hash_agg.h"
 
 namespace cascades {
 
@@ -52,6 +57,10 @@ LogicalProperty* ExpressionContext::get_child_property(int index) const {
 }
 
 void ExpressionContext::derive_logical_property() {
+    // Delete existing property if we own it to prevent memory leak
+    if (owns_root_property_ && root_property_ != nullptr) {
+        delete root_property_;
+    }
     root_property_ = new LogicalProperty();
     owns_root_property_ = true;
     root_property_->derive(this);
@@ -72,6 +81,96 @@ ColumnRefSet ExpressionContext::get_child_output_columns(int index) const {
 int ExpressionContext::arity() const {
     if (expression_ != nullptr) return expression_->arity();
     return group_expression_->arity();
+}
+
+// ============================================================================
+// Operator-specific property access helpers
+// ============================================================================
+
+bool ExpressionContext::get_join_keys(std::vector<int>& left_keys, std::vector<int>& right_keys) const {
+    OptExprOp* op = get_op();
+    if (op == nullptr) {
+        return false;
+    }
+
+    // Check if this is a join operator
+    if (op->get_type() == OptExprOpType::LOGICAL_JOIN ||
+        op->get_type() == OptExprOpType::PHYSICAL_HASH_JOIN ||
+        op->get_type() == OptExprOpType::PHYSICAL_MERGE_JOIN ||
+        op->get_type() == OptExprOpType::PHYSICAL_NESTLOOP_JOIN) {
+
+        LogicalJoin* join_op = dynamic_cast<LogicalJoin*>(op);
+        if (join_op != nullptr) {
+            left_keys = join_op->get_left_join_keys();
+            right_keys = join_op->get_right_join_keys();
+
+            // Fallback to symmetric join keys if left/right not set
+            if (left_keys.empty() && right_keys.empty()) {
+                left_keys = join_op->get_join_keys();
+                right_keys = join_op->get_join_keys();
+            }
+            return !left_keys.empty() && !right_keys.empty();
+        }
+    }
+    return false;
+}
+
+std::vector<int> ExpressionContext::get_group_keys() const {
+    OptExprOp* op = get_op();
+    if (op == nullptr) {
+        return {};
+    }
+
+    // Check if this is an aggregate operator
+    if (op->get_type() == OptExprOpType::LOGICAL_AGGREGATE ||
+        op->get_type() == OptExprOpType::PHYSICAL_HASH_AGG ||
+        op->get_type() == OptExprOpType::PHYSICAL_SORT_AGG) {
+
+        // Try LogicalAggregate first
+        LogicalAggregate* agg_op = dynamic_cast<LogicalAggregate*>(const_cast<OptExprOp*>(op));
+        if (agg_op != nullptr) {
+            return agg_op->get_group_keys();
+        }
+
+        // Try PhysicalHashAgg
+        PhysicalHashAgg* hash_agg_op = dynamic_cast<PhysicalHashAgg*>(const_cast<OptExprOp*>(op));
+        if (hash_agg_op != nullptr) {
+            return hash_agg_op->get_group_keys();
+        }
+    }
+    return {};
+}
+
+void* ExpressionContext::get_filter_qual_list() const {
+    OptExprOp* op = get_op();
+    if (op == nullptr) {
+        return nullptr;
+    }
+
+    if (op->get_type() == OptExprOpType::LOGICAL_FILTER) {
+        LogicalFilter* filter_op = dynamic_cast<LogicalFilter*>(const_cast<OptExprOp*>(op));
+        if (filter_op != nullptr) {
+            return filter_op->get_qual_list();
+        }
+    }
+    return nullptr;
+}
+
+Oid ExpressionContext::get_scan_table_oid() const {
+    OptExprOp* op = get_op();
+    if (op == nullptr) {
+        return InvalidOid;
+    }
+
+    if (op->get_type() == OptExprOpType::LOGICAL_SCAN ||
+        op->get_type() == OptExprOpType::PHYSICAL_SCAN) {
+
+        PhysicalScan* scan_op = dynamic_cast<PhysicalScan*>(const_cast<OptExprOp*>(op));
+        if (scan_op != nullptr) {
+            return scan_op->get_relid();
+        }
+    }
+    return InvalidOid;
 }
 
 }  // namespace cascades
