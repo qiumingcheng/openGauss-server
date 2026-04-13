@@ -24,6 +24,7 @@ public:
     static OptExpression* create(OptExprOp* op);
     static OptExpression* create(OptExprOp* op, OptExpression* child);
     static OptExpression* create(OptExprOp* op, OptExpression* left, OptExpression* right);
+    static OptExpression* create_with_childrens(OptExprOp* op, const std::vector<OptExpression*>& children);
 
     OptExprOp* get_op() const { return op_; }
     const std::vector<OptExpression*>& get_inputs() const { return inputs_; }

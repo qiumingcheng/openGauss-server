@@ -3,8 +3,8 @@
 #include "../memo/opt_expression.h"
 #include "../statistics/statistics.h"
 #include "optimizer/planmain.h"
-#include "nodes/parsenodes.h"
 #include "optimizer/pathnode.h"
+#include "nodes/parsenodes.h"
 #include "nodes/relation.h"
 #include "nodes/makefuncs.h"
 
@@ -158,17 +158,19 @@ OptExpression* QueryToExprConverter::translate_scan(PlannerInfo* root, Query* pa
         return nullptr;
     }
 
+    // rtindex is 1-based in PostgreSQL/openGauss, list_nth is 0-based
     int rtindex = rtr->rtindex;
-    if (rtindex < 0 || rtindex >= list_length(parse->rtable)) {
+    if (rtindex <= 0 || rtindex > list_length(parse->rtable)) {
         return nullptr;
     }
 
-    RangeTblEntry* rte = (RangeTblEntry*)list_nth(parse->rtable, rtindex);
+    RangeTblEntry* rte = (RangeTblEntry*)list_nth(parse->rtable, rtindex - 1);
 
     if (rte->relid != InvalidOid) {
         LogicalScan* scan_op = new LogicalScan(rtindex);
         if (root != nullptr) {
-            RelOptInfo* rel = find_base_rel(root, rtindex);
+            // Build RelOptInfo if not already exists
+            RelOptInfo* rel = build_simple_rel(root, rtindex, RELOPT_BASEREL);
             if (rel != nullptr) {
                 scan_op->set_rel(rel);
             }

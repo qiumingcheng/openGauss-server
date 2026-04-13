@@ -15,11 +15,14 @@ ExpressionContext::ExpressionContext(GroupExpression* group_expression)
 }
 
 ExpressionContext::~ExpressionContext() {
-    delete root_property_;
+    if (owns_root_property_) {
+        delete root_property_;
+    }
 }
 
 void ExpressionContext::init_from_expression(OptExpression* expression) {
     root_property_ = expression->get_logical_property();
+    owns_root_property_ = false;
     statistics_ = expression->get_statistics();
 
     for (auto* child : expression->get_inputs()) {
@@ -30,6 +33,7 @@ void ExpressionContext::init_from_expression(OptExpression* expression) {
 
 void ExpressionContext::init_from_group_expression(GroupExpression* group_expr) {
     root_property_ = group_expr->get_group()->get_logical_property();
+    owns_root_property_ = false;
     statistics_ = group_expr->get_group()->get_statistics();
 
     for (auto* child_group : group_expr->get_inputs()) {
@@ -49,6 +53,7 @@ LogicalProperty* ExpressionContext::get_child_property(int index) const {
 
 void ExpressionContext::derive_logical_property() {
     root_property_ = new LogicalProperty();
+    owns_root_property_ = true;
     root_property_->derive(this);
 }
 

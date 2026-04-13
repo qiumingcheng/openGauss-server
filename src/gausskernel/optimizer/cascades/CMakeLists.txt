@@ -87,6 +87,7 @@ set(CASCADES_PROPERTY_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/property/distribution_property.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/property/logical_property.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/property/physical_property_set.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/property/required_property_deriver.cpp
 )
 
 # Cost sources

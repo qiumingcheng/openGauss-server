@@ -1,5 +1,6 @@
 #include "pattern.h"
 #include "../memo/opt_expression.h"
+#include "../memo/group_expression.h"
 
 namespace cascades {
 Pattern::Pattern(Type type, OptExprOpType op_type)
@@ -48,6 +49,24 @@ bool Pattern::match(OptExpression* expression) const {
         }
     }
     return true;
+}
+
+bool Pattern::match_without_child(OptExpression* expression) const {
+    // Leaf pattern matches any expression
+    if (type_ == Type::LEAF) {
+        return true;
+    }
+    // Check only root operator type, ignore children
+    return expression->get_op()->get_type() == op_type_;
+}
+
+bool Pattern::match_without_child_group(GroupExpression* group_expr) const {
+    // Leaf pattern matches any expression
+    if (type_ == Type::LEAF) {
+        return true;
+    }
+    // Check only root operator type, ignore children
+    return group_expr->get_op()->get_type() == op_type_;
 }
 
 

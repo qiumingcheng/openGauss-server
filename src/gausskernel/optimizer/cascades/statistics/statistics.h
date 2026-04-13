@@ -27,30 +27,56 @@ private:
     std::set<int> columns_;
 };
 
+/**
+ * Statistics - Row and column statistics for query optimization
+ *
+ * Integrates with openGauss statistics system:
+ * - pg_class.reltuples for table row counts
+ * - pg_statistic for column-level statistics (NDV, null fraction, etc.)
+ * - RelOptInfo for intermediate relation estimates
+ */
 class Statistics {
 public:
     Statistics();
     explicit Statistics(double row_count);
+    Statistics(const Statistics& other);
+    Statistics& operator=(const Statistics& other);
     ~Statistics() = default;
 
+    // Basic accessors
     double row_count() const { return row_count_; }
     void set_row_count(double rows) { row_count_ = rows; }
 
     double width() const { return width_; }
     void set_width(double w) { width_ = w; }
 
+    // Column statistics
     void add_column_stats(int column_id, ColumnStatsPtr stats);
     ColumnStatsPtr get_column_stats(int column_id) const;
     bool has_column_stats(int column_id) const;
 
+    // Output columns
     const ColumnRefSet& get_output_columns() const { return output_columns_; }
     void set_output_columns(const ColumnRefSet& cols);
+    void add_output_column(int col_id);
 
-    void compute_children_statistics(const std::vector<Statistics*>& children);
+    // Statistics derivation operators
+    void copy_from(const Statistics* other);
+    void apply_selectivity(double selectivity);
+    void compute_aggregation(const std::vector<int>& group_keys);
 
-    // Estimate join cardinality between two tables
+    // Join cardinality estimation
     static double estimate_join_cardinality(Statistics* left, Statistics* right,
                                            int left_key, int right_key);
+
+    /**
+     * Advanced join cardinality using openGauss statistics
+     * Supports multiple join keys and cross-type joins
+     */
+    static double estimate_join_cardinality_advanced(
+        Statistics* left, Statistics* right,
+        const std::vector<int>& left_keys,
+        const std::vector<int>& right_keys);
 
     std::string to_string() const;
 
@@ -60,4 +86,5 @@ private:
     ColumnRefSet output_columns_;
     std::unordered_map<int, ColumnStatsPtr> column_stats_;
 };
-}
+
+}  // namespace cascades

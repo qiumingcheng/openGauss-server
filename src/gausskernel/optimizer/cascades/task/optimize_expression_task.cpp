@@ -1,32 +1,104 @@
 #include "optimize_expression_task.h"
 #include "task_context.h"
-#include "../base/memory_utils.h"
 #include "apply_rule_task.h"
+#include "explore_group_task.h"
+#include "derive_stats_task.h"
+#include "../base/memory_utils.h"
 #include "../memo/group_expression.h"
+#include "../memo/group.h"
+#include "../rule/rule.h"
+#include "../rule/rule_set.h"
 #include "../optimizer/optimizer_context.h"
+#include <algorithm>
 
 namespace cascades {
+
 OptimizeExpressionTask::OptimizeExpressionTask(TaskContext* context, GroupExpression* expr, bool explore)
     : OptimizerTask(context), expression_(expr), explore_(explore) {}
 
+std::vector<Rule*> OptimizeExpressionTask::get_valid_rules() const {
+    std::vector<Rule*> valid_rules;
+    RuleSet* rule_set = context_->get_optimizer_context()->get_rule_set();
+
+    // Collect transformation rules (always applied)
+    const auto& transform_rules = rule_set->get_transformation_rules();
+    for (Rule* rule : transform_rules) {
+        // Skip if rule has been explored
+        if (expression_->has_rule_explored(rule->type())) {
+            continue;
+        }
+
+        // Skip if rule pattern doesn't match
+        if (!rule->get_pattern()->match_without_child_group(expression_)) {
+            continue;
+        }
+
+        // Skip if rule is exhausted (timeout protection)
+        if (rule->exhausted(context_->get_optimizer_context())) {
+            continue;
+        }
+
+        valid_rules.push_back(rule);
+    }
+
+    // Collect implementation rules (only when not in explore mode)
+    if (!explore_) {
+        const auto& implement_rules = rule_set->get_implementation_rules();
+        for (Rule* rule : implement_rules) {
+            // Skip if rule has been applied
+            if (expression_->has_rule_applied(rule->type())) {
+                continue;
+            }
+
+            // Skip if rule pattern doesn't match
+            if (!rule->get_pattern()->match_without_child_group(expression_)) {
+                continue;
+            }
+
+            // Skip if rule is exhausted (timeout protection)
+            if (rule->exhausted(context_->get_optimizer_context())) {
+                continue;
+            }
+
+            valid_rules.push_back(rule);
+        }
+    }
+
+    // Sort by promise (higher promise = earlier execution)
+    // StarRocks: validRules.sort(Comparator.comparingInt(Rule::promise))
+    std::sort(valid_rules.begin(), valid_rules.end(),
+              [](Rule* a, Rule* b) { return a->promise() > b->promise(); });
+
+    return valid_rules;
+}
+
 void OptimizeExpressionTask::execute() {
-    if (explore_) {
-        // Apply transformation rules
-        for (auto* rule : context_->get_optimizer_context()->get_rule_set()->get_transformation_rules()) {
-            context_->get_optimizer_context()->get_task_scheduler()->push_task(
-                MakeTask<ApplyRuleTask>(context_, expression_, rule));
-        }
-    } else {
-        // Apply implementation rules
-        for (auto* rule : context_->get_optimizer_context()->get_rule_set()->get_implementation_rules()) {
-            context_->get_optimizer_context()->get_task_scheduler()->push_task(
-                MakeTask<ApplyRuleTask>(context_, expression_, rule));
-        }
+    // Get valid rules sorted by promise
+    std::vector<Rule*> valid_rules = get_valid_rules();
+
+    // Push ApplyRuleTask for each valid rule
+    // Note: Stack is LIFO, so rules with higher promise (sorted first) will be executed first
+    for (Rule* rule : valid_rules) {
+        context_->get_optimizer_context()->get_task_scheduler()->push_task(
+            MakeTask<ApplyRuleTask>(context_, expression_, rule, explore_));
+    }
+
+    // Push DeriveStatsTask to derive statistics after rules are applied
+    context_->get_optimizer_context()->get_task_scheduler()->push_task(
+        MakeTask<DeriveStatsTask>(context_, expression_));
+
+    // Push ExploreGroupTask for each child group (in reverse order)
+    // StarRocks: for (int i = groupExpression.arity() - 1; i >= 0; i--)
+    for (int i = expression_->arity() - 1; i >= 0; --i) {
+        Group* child_group = expression_->input_at(i);
+        context_->get_optimizer_context()->get_task_scheduler()->push_task(
+            MakeTask<ExploreGroupTask>(context_, child_group));
     }
 }
 
 std::string OptimizeExpressionTask::to_string() const {
-    return "OptimizeExpressionTask for expression";
+    return "OptimizeExpressionTask" + std::string(explore_ ? "[explore]" : "") +
+           " for expression " + expression_->to_string();
 }
 
 

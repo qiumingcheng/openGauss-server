@@ -11,6 +11,7 @@
 #include "optimizer/paths.h"
 #include "optimizer/planmain.h"
 #include "optimizer/planner.h"
+#include "optimizer/pathnode.h"
 #include "parser/parsetree.h"
 #include "utils/guc.h"
 
@@ -57,6 +58,9 @@ PlannedStmt* cascades_planner(Query* parse, int cursorOptions, ParamListInfo bou
 
     /* Initialize subquery_planner data */
     root->planner_cxt = CurrentMemoryContext;
+
+    /* Initialize simple_rel_array and simple_rte_array */
+    setup_simple_rel_arrays(root);
 
     /* Step 1: Query → OptExpression */
     cascades::QueryToExprConverter query_converter;

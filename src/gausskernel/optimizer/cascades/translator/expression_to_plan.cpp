@@ -116,8 +116,8 @@ Plan* ExprToPlanConverter::translate_scan(OptExpression* expr) {
 
     int relid = scan_op->get_table_id();
 
-    // Access RelOptInfo through simple_rel_array
-    if (relid < 0 || relid >= root_->simple_rel_array_size) {
+    // simple_rel_array is 1-based in PostgreSQL/openGauss
+    if (relid <= 0 || relid >= root_->simple_rel_array_size) {
         return nullptr;
     }
 

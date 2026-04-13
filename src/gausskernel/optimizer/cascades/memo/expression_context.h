@@ -39,6 +39,7 @@ private:
     OptExpression* expression_;
     GroupExpression* group_expression_;
     LogicalProperty* root_property_;
+    bool owns_root_property_;  // Track if we own the root_property_
     std::vector<LogicalProperty*> children_properties_;
     Statistics* statistics_;
     std::vector<Statistics*> children_statistics_;

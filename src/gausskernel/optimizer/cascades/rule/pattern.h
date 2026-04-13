@@ -7,6 +7,7 @@ namespace cascades {
 
 
 class OptExpression;
+class GroupExpression;
 
 /**
  * Pattern - Used for matching expressions during rule application
@@ -26,6 +27,17 @@ public:
     static Pattern* any();
 
     bool match(OptExpression* expression) const;
+
+    /**
+     * Match only the root operator without checking children
+     * Used during rule filtering to quickly eliminate non-matching rules
+     */
+    bool match_without_child(OptExpression* expression) const;
+
+    /**
+     * Match only the root operator for GroupExpression
+     */
+    bool match_without_child_group(GroupExpression* group_expr) const;
 
     Type get_type() const { return type_; }
     OptExprOpType get_operator_type() const { return op_type_; }

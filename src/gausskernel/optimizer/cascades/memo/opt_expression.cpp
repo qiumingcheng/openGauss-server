@@ -27,6 +27,18 @@ OptExpression* OptExpression::create(OptExprOp* op, OptExpression* left, OptExpr
     return new OptExpression(op, inputs);
 }
 
+OptExpression* OptExpression::create_with_childrens(OptExprOp* op, const std::vector<OptExpression*>& children) {
+    if (children.empty()) {
+        return create(op);
+    } else if (children.size() == 1) {
+        return create(op, children[0]);
+    } else if (children.size() == 2) {
+        return create(op, children[0], children[1]);
+    } else {
+        return new OptExpression(op, children);
+    }
+}
+
 void OptExpression::attach_group_expression(GroupExpression* expr) {
     group_expression_ = expr;
 }

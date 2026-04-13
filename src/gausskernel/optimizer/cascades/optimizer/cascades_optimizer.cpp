@@ -41,7 +41,7 @@ void CascadesOptimizer::logical_rewrite(OptExpression* expression) {
 
 void CascadesOptimizer::init_memo(OptExpression* expression) {
     GroupExpression* root_expr = context_.get_memo()->init(expression);
-    root_expr->derive_logical_property();
+    root_expr->derive_logical_property_recursively();
 }
 
 void CascadesOptimizer::explore() {
