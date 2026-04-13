@@ -67,14 +67,21 @@ private:
      * 1. Sort enforcer (if sort property doesn't match)
      * 2. Distribution enforcer (if distribution doesn't match)
      *
+     * Uses Group::update_output_property_set() to:
+     * - Avoid duplicate enforcers for the same required property
+     * - Return consistent output property object
+     * - Update cost correctly
+     *
      * @param expr The original expression
      * @param output_property The actual output property
      * @param required_property The required property
+     * @param current_cost Current accumulated cost before enforcement
      * @return New expression with enforcers, or original if no enforcement needed
      */
     GroupExpression* add_enforcers(GroupExpression* expr,
                                    const PhysicalPropertySet& output_property,
-                                   const PhysicalPropertySet& required_property) const;
+                                   const PhysicalPropertySet& required_property,
+                                   double current_cost) const;
 
     /**
      * Derive the output property for an expression based on its operator type
