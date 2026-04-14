@@ -11,6 +11,10 @@ namespace cascades {
 CascadesOptimizer::CascadesOptimizer(PlannerInfo* root)
     : root_(root), root_task_context_(nullptr) {}
 
+CascadesOptimizer::~CascadesOptimizer() {
+    delete root_task_context_;
+}
+
 OptExpression* CascadesOptimizer::optimize(OptExpression* expression,
                                           const PhysicalPropertySet& required_property,
                                           ColumnRefSet* required_columns) {

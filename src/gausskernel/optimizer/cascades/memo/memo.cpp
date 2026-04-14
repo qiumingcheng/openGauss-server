@@ -9,6 +9,13 @@ namespace cascades {
 Memo::Memo() : next_group_id_(0), root_group_(nullptr) {}
 
 Memo::~Memo() {
+    // Delete all GroupExpressions first
+    // Note: expression_set_ owns all GroupExpression objects
+    for (auto* expr : expression_set_) {
+        delete expr;
+    }
+
+    // Then delete Groups (which will delete logical_property_ and statistics_)
     for (auto* g : groups_) {
         delete g;
     }

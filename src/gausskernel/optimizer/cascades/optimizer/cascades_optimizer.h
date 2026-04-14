@@ -12,7 +12,7 @@ namespace cascades {
 class CascadesOptimizer {
 public:
     CascadesOptimizer(PlannerInfo* root = nullptr);
-    ~CascadesOptimizer() = default;
+    ~CascadesOptimizer();
 
     OptExpression* optimize(OptExpression* expression,
                             const PhysicalPropertySet& required_property,
