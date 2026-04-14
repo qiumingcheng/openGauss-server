@@ -9,6 +9,7 @@
 #include "../operator/operators/logical_filter.h"
 #include "../operator/operators/logical_join.h"
 #include "../operator/operators/physical_hash_agg.h"
+#include <cstdint>
 
 namespace cascades {
 
@@ -107,14 +108,6 @@ void DeriveStatsTask::derive_scan_statistics(
                 return;
             }
         }
-    }
-
-    // Fallback: try to get from openGauss RelOptInfo via Path
-    PhysicalOptExprOp* phys_op = static_cast<PhysicalOptExprOp*>(op);
-    Path* path = phys_op ? phys_op->get_path() : nullptr;
-
-    if (path != nullptr && path->parent != nullptr) {
-        result_stats->set_row_count(path->parent->tuples);
     }
 
     // Fallback: copy from child if available
@@ -238,9 +231,6 @@ void DeriveStatsTask::derive_physical_join_statistics(
     }
 
     // Physical joins: same cardinality estimation as logical
-    double left_rows = children_stats[0]->row_count();
-    double right_rows = children_stats[1]->row_count();
-
     // Use Statistics utility for estimation
     double join_rows = Statistics::estimate_join_cardinality(
         children_stats[0], children_stats[1], 0, 0);

@@ -34,7 +34,6 @@ void CascadesOptimizer::logical_rewrite(OptExpression* expression) {
     // - Column pruning
     // - Join reordering hints (if supported)
 
-    RuleSet* rule_set = context_.get_rule_set();
     // Logical rewrite would apply transformation rules here
     // For now, we rely on the explore phase to do transformations
 }

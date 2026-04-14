@@ -111,8 +111,11 @@ std::pair<Group*, GroupExpression*> Memo::copy_in(Group* target_group, OptExpres
     auto result = insert_group_expression(group_expr, target_group);
 
     // For new group with logical operator, derive logical property
+    // Only derive if the group doesn't have a logical property yet
     if (result.first && target_group != nullptr && group_expr->is_logical()) {
-        group_expr->derive_logical_property_itself();
+        if (target_group->get_logical_property() == nullptr) {
+            group_expr->derive_logical_property_itself();
+        }
         // Copy statistics from original expression if available
         if (expr->get_statistics() != nullptr) {
             target_group->set_statistics(new Statistics(*expr->get_statistics()));
@@ -403,7 +406,7 @@ OptExpression* Memo::build_best_plan(GroupExpression* expr, const PhysicalProper
     std::vector<OptExpression*> input_plans;
     std::vector<PhysicalPropertySet> input_properties = expr->get_input_properties(required_property);
 
-    for (size_t i = 0; i < expr->arity(); ++i) {
+    for (int i = 0; i < expr->arity(); ++i) {
         Group* input_group = expr->input_at(i);
         GroupExpression* input_best = input_group->get_best_expression(input_properties[i]);
         if (input_best != nullptr) {

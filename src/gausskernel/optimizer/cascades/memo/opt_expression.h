@@ -36,10 +36,16 @@ public:
     GroupExpression* get_group_expression() const { return group_expression_; }
 
     LogicalProperty* get_logical_property() const { return property_; }
-    void set_logical_property(LogicalProperty* property) { property_ = property; }
+    void set_logical_property(LogicalProperty* property) {
+        delete property_;
+        property_ = property;
+    }
 
     Statistics* get_statistics() const { return statistics_; }
-    void set_statistics(Statistics* stats) { statistics_ = stats; }
+    void set_statistics(Statistics* stats) {
+        delete statistics_;
+        statistics_ = stats;
+    }
 
     double get_cost() const { return cost_; }
     void set_cost(double cost) { cost_ = cost; }
