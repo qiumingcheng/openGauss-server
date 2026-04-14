@@ -3,7 +3,6 @@
 #include "catalog/pg_statistic.h"
 #include "catalog/pg_type.h"
 #include "utils/syscache.h"
-#include "utils/tqual.h"
 #include "nodes/nodeFuncs.h"
 #include "optimizer/clauses.h"
 #include "optimizer/pathnode.h"

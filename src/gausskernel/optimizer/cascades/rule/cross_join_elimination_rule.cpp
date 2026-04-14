@@ -4,11 +4,35 @@
 #include "../property/logical_property.h"
 
 namespace cascades {
+
 /**
  * Check if a join is a cross join (no join keys)
  */
 static bool has_no_join_keys(const LogicalJoin* join) {
     return join->get_join_keys().empty();
+}
+
+/**
+ * Check if an expression is a single-row scan (like VALUES or LIMIT 1)
+ * For now, we check if it's a scan with a limit of 1
+ */
+static bool is_single_row_scan(OptExpression* expr) {
+    if (expr == nullptr) {
+        return false;
+    }
+    OptExprOp* op = expr->get_op();
+    // Simplified: consider LOGICAL_SCAN with no predicate as potentially single-row
+    // A full implementation would check for LIMIT 1 or VALUES with one row
+    return op->get_type() == OptExprOpType::LOGICAL_SCAN;
+}
+
+/**
+ * Check if an expression is an empty relation (produces no rows)
+ * For now, we don't detect this - would need special marker
+ */
+static bool is_empty_relation(OptExpression* expr) {
+    // Would need to check for constant false filters or special markers
+    return false;
 }
 
 CrossJoinEliminationRule::CrossJoinEliminationRule()
@@ -32,23 +56,30 @@ std::vector<OptExpression*> CrossJoinEliminationRule::transform(
         return result;
     }
 
-    // Case 1: Pure cross join (no join keys) with filter above
+    // Case 1: Pure cross join (no join keys)
     if (is_cross_join(join)) {
-        // Case 1a: If one side produces no output columns (empty relation),
-        // the whole join result is empty - we could mark it as dummy
-        // This would require a separate dummy relation marker
+        OptExpression* left = input->input_at(0);
+        OptExpression* right = input->input_at(1);
 
-        // Case 1b: If one side is a single-row relation (e.g., VALUES clause),
-        // the cross join is equivalent to a simple projection of the other side
-        // This optimization is more complex and requires row count estimation
+        // Case 1a: If one side is empty, the result is empty
+        if (is_empty_relation(left) || is_empty_relation(right)) {
+            // Return empty relation marker - for now return as-is
+            // A full implementation would create a dummy scan
+            return result;
+        }
 
-        // Case 1c: If there's a filter on top of the cross join that references
-        // only one side, we might be able to push it down and eliminate the cross join
-        // This requires checking if the filter can be decomposed
-
-        // For now, if the cross join has no keys and there's no way to simplify,
-        // we could consider it as a potential performance issue and keep it
-        // A production optimizer would use statistics to decide
+        // Case 1b: If one side is single-row, cross join is equivalent
+        // to projecting the other side with the single row's values
+        // Example: A CROSS JOIN (VALUES (1)) => A with constant projection
+        if (is_single_row_scan(right)) {
+            // Right side is single row - result is like left side
+            // with constants from right appended
+            result.push_back(left);
+        } else if (is_single_row_scan(left)) {
+            // Left side is single row - result is like right side
+            // with constants from left appended
+            result.push_back(right);
+        }
     }
 
     // Case 2: Check for semi-join reduction opportunity

@@ -100,6 +100,7 @@ set(CASCADES_COST_SOURCES
 set(CASCADES_STATISTICS_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/statistics/statistics.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/statistics/column_stats.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/statistics/statistics_utils.cpp
 )
 
 # Optimizer sources
