@@ -1,9 +1,20 @@
+#include "../base/memory_utils.h"
 #include "column_prune_rule.h"
 #include "../operator/operators.h"
 #include "../memo/opt_expression.h"
 #include "../memo/expression_context.h"
 
 namespace cascades {
+
+// Static singleton instance
+static ColumnPruneRule* g_instance = nullptr;
+ColumnPruneRule* ColumnPruneRule::instance() {
+    if (g_instance == nullptr) {
+        g_instance = new ColumnPruneRule();
+    }
+    return g_instance;
+}
+
 ColumnPruneRule::ColumnPruneRule()
     : Rule(RuleType::TF_COLUMN_PRUNE,
            Pattern::create(OptExprOpType::LOGICAL_PROJECT,
@@ -40,7 +51,7 @@ std::vector<OptExpression*> ColumnPruneRule::transform(
     std::vector<OptExpression*> result;
 
     // Create a pruned projection that only outputs needed columns
-    LogicalProject* pruned_project = new LogicalProject();
+    LogicalProject* pruned_project = NEW_EX(LogicalProject);
     pruned_project->set_projections(needed_columns);
 
     OptExpression* pruned_expr = OptExpression::create(pruned_project, child);
@@ -58,7 +69,7 @@ std::vector<OptExpression*> ColumnPruneRule::transform(
         // A full implementation would analyze the projection expressions
 
         // Push down required columns to child
-        LogicalProject* pushed_project = new LogicalProject();
+        LogicalProject* pushed_project = NEW_EX(LogicalProject);
         std::vector<int> pushed_columns;
 
         for (int needed_col : needed_columns) {

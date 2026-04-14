@@ -1,4 +1,5 @@
 #include "nodes/parsenodes.h"
+#include "../base/memory_utils.h"
 #include "index_scan_impl_rule.h"
 #include "../operator/operators.h"
 #include "../memo/opt_expression.h"
@@ -10,6 +11,9 @@
 #include "nodes/relation.h"
 
 namespace cascades {
+
+// Static singleton instance
+static IndexScanImplRule* g_instance = nullptr;
 
 bool IndexScanImplRule::has_indexes(RelOptInfo* rel) const {
     // Check if the relation has any indexes
@@ -30,6 +34,13 @@ bool IndexScanImplRule::can_use_index(RelOptInfo* rel, int predicate_id) const {
 List* IndexScanImplRule::get_available_indexes(RelOptInfo* rel) const {
     // Return the list of available index options
     return rel->indexlist;
+}
+
+IndexScanImplRule* IndexScanImplRule::instance() {
+    if (g_instance == nullptr) {
+        g_instance = new IndexScanImplRule();
+    }
+    return g_instance;
 }
 
 IndexScanImplRule::IndexScanImplRule()
@@ -80,7 +91,7 @@ std::vector<OptExpression*> IndexScanImplRule::transform(
             IndexPath* index_path = (IndexPath*)path;
 
             // Create physical scan operator with the index path
-            PhysicalScan* physical_scan = new PhysicalScan((Path*)index_path);
+            PhysicalScan* physical_scan = NEW_EX(PhysicalScan, (Path*)index_path);
 
             // Create the OptExpression
             OptExpression* new_expr = OptExpression::create(physical_scan);
@@ -90,7 +101,7 @@ std::vector<OptExpression*> IndexScanImplRule::transform(
             BitmapHeapPath* bitmap_path = (BitmapHeapPath*)path;
 
             // Create physical scan for bitmap scan
-            PhysicalScan* physical_scan = new PhysicalScan((Path*)bitmap_path);
+            PhysicalScan* physical_scan = NEW_EX(PhysicalScan, (Path*)bitmap_path);
 
             OptExpression* new_expr = OptExpression::create(physical_scan);
             result.push_back(new_expr);

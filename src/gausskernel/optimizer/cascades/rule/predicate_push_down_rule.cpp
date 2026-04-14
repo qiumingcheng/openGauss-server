@@ -1,8 +1,20 @@
+#include "../base/memory_utils.h"
 #include "predicate_push_down_rule.h"
 #include "../operator/operators.h"
 #include "../memo/opt_expression.h"
 
 namespace cascades {
+
+// Static singleton instance
+static PredicatePushDownRule* g_instance = nullptr;
+
+PredicatePushDownRule* PredicatePushDownRule::instance() {
+    if (g_instance == nullptr) {
+        g_instance = new PredicatePushDownRule();
+    }
+    return g_instance;
+}
+
 PredicatePushDownRule::PredicatePushDownRule()
     : Rule(RuleType::TF_PREDICATE_PUSH_DOWN,
            Pattern::create(OptExprOpType::LOGICAL_FILTER,
@@ -40,10 +52,10 @@ std::vector<OptExpression*> PredicatePushDownRule::transform(
         // For left/right outer join, push to the outer side only
         if (join_type == JOIN_INNER) {
             // Create filters for both children
-            LogicalFilter* left_filter = new LogicalFilter();
+            LogicalFilter* left_filter = NEW_EX(LogicalFilter);
             left_filter->set_predicate_id(predicate_id);
 
-            LogicalFilter* right_filter = new LogicalFilter();
+            LogicalFilter* right_filter = NEW_EX(LogicalFilter);
             right_filter->set_predicate_id(predicate_id);
 
             OptExpression* left_filtered = OptExpression::create(left_filter, left_child);
@@ -55,7 +67,7 @@ std::vector<OptExpression*> PredicatePushDownRule::transform(
             result.push_back(new_expr);
         } else if (join_type == JOIN_LEFT) {
             // Push to right side only for left outer join
-            LogicalFilter* right_filter = new LogicalFilter();
+            LogicalFilter* right_filter = NEW_EX(LogicalFilter);
             right_filter->set_predicate_id(predicate_id);
 
             OptExpression* right_filtered = OptExpression::create(right_filter, right_child);
@@ -65,7 +77,7 @@ std::vector<OptExpression*> PredicatePushDownRule::transform(
             result.push_back(new_expr);
         } else if (join_type == JOIN_RIGHT) {
             // Push to left side only for right outer join
-            LogicalFilter* left_filter = new LogicalFilter();
+            LogicalFilter* left_filter = NEW_EX(LogicalFilter);
             left_filter->set_predicate_id(predicate_id);
 
             OptExpression* left_filtered = OptExpression::create(left_filter, left_child);
@@ -100,13 +112,13 @@ std::vector<OptExpression*> PredicatePushDownRule::transform(
         LogicalProject* project = static_cast<LogicalProject*>(child_op);
         OptExpression* project_child = child->input_at(0);
 
-        LogicalFilter* pushed_filter = new LogicalFilter();
+        LogicalFilter* pushed_filter = NEW_EX(LogicalFilter);
         pushed_filter->set_predicate_id(predicate_id);
 
         OptExpression* pushed_expr = OptExpression::create(pushed_filter, project_child);
 
         // Create new projection on top of the pushed filter
-        LogicalProject* new_project = new LogicalProject();
+        LogicalProject* new_project = NEW_EX(LogicalProject);
         new_project->set_projections(project->get_projections());
 
         OptExpression* result_expr = OptExpression::create(new_project, pushed_expr);
@@ -118,7 +130,7 @@ std::vector<OptExpression*> PredicatePushDownRule::transform(
         LogicalFilter* child_filter = static_cast<LogicalFilter*>(child_op);
 
         // Create a new filter with combined predicate
-        LogicalFilter* merged_filter = new LogicalFilter();
+        LogicalFilter* merged_filter = NEW_EX(LogicalFilter);
         // For now, just use the parent's predicate
         merged_filter->set_predicate_id(predicate_id);
 

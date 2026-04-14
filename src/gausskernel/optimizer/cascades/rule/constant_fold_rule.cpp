@@ -1,9 +1,13 @@
+#include "../base/memory_utils.h"
 #include "constant_fold_rule.h"
 #include "../operator/operators.h"
 #include "../memo/opt_expression.h"
 #include "../property/logical_property.h"
 
 namespace cascades {
+
+// Static singleton instance
+static ConstantFoldRule* g_instance = nullptr;
 /**
  * Special predicate IDs used to mark constant conditions
  * These are used by the OpenGauss optimizer to mark predicates
@@ -12,6 +16,13 @@ namespace cascades {
 static constexpr int CONSTANT_TRUE_PREDICATE_ID = -1001;   // Always true
 static constexpr int CONSTANT_FALSE_PREDICATE_ID = -1002;  // Always false
 static constexpr int CONSTANT_NULL_PREDICATE_ID = -1003;    // Always null (IS UNKNOWN)
+
+ConstantFoldRule* ConstantFoldRule::instance() {
+    if (g_instance == nullptr) {
+        g_instance = new ConstantFoldRule();
+    }
+    return g_instance;
+}
 
 ConstantFoldRule::ConstantFoldRule()
     : Rule(RuleType::TF_CONSTANT_FOLD,
@@ -80,7 +91,7 @@ std::vector<OptExpression*> ConstantFoldRule::transform(
         OptExpression* folded_project = fold_project(project, child->input_at(0));
         if (folded_project != nullptr && folded_project != child) {
             // Replace the child of the filter with the folded projection
-            LogicalFilter* new_filter = new LogicalFilter();
+            LogicalFilter* new_filter = NEW_EX(LogicalFilter);
             new_filter->set_predicate_id(predicate_id);
             OptExpression* new_expr = OptExpression::create(new_filter, folded_project);
             result.push_back(new_expr);
@@ -212,7 +223,7 @@ OptExpression* ConstantFoldRule::eliminate_false_filter(OptExpression* filter_ex
     // return OptExpression::create(empty_scan);
 
     // Or we could mark the filter as always-false
-    LogicalFilter* false_filter = new LogicalFilter();
+    LogicalFilter* false_filter = NEW_EX(LogicalFilter);
     false_filter->set_predicate_id(CONSTANT_FALSE_PREDICATE_ID);
     OptExpression* child = filter_expr->input_at(0);
     return OptExpression::create(false_filter, child);

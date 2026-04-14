@@ -1,3 +1,4 @@
+#include "../base/memory_utils.h"
 #include "merge_join_impl_rule.h"
 #include "../operator/operators.h"
 #include "../memo/opt_expression.h"
@@ -9,6 +10,16 @@
 #include "nodes/relation.h"
 
 namespace cascades {
+
+// Static singleton instance
+static MergeJoinImplRule* g_instance = nullptr;
+
+MergeJoinImplRule* MergeJoinImplRule::instance() {
+    if (g_instance == nullptr) {
+        g_instance = new MergeJoinImplRule();
+    }
+    return g_instance;
+}
 
 MergeJoinImplRule::MergeJoinImplRule()
     : Rule(RuleType::IMP_MERGE_JOIN, Pattern::create(OptExprOpType::LOGICAL_JOIN)) {}
@@ -70,7 +81,7 @@ std::vector<OptExpression*> MergeJoinImplRule::transform(
         nullptr, nullptr, left_path, right_path,
         NIL, NIL, nullptr, NIL, NIL, NIL);
 
-    PhysicalMergeJoin* merge_join = new PhysicalMergeJoin(
+    PhysicalMergeJoin* merge_join = NEW_EX(PhysicalMergeJoin,
         (Path*)merge_path, left_path, right_path);
     merge_join->set_build_keys(join_op->get_join_keys());
     merge_join->set_probe_keys(join_op->get_join_keys());

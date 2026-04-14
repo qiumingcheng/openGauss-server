@@ -1,6 +1,7 @@
 #include "nodes/parsenodes.h"
 #include "postgres.h"
 #include "knl/knl_variable.h"
+#include "../base/memory_utils.h"
 #include "hash_agg_impl_rule.h"
 #include "../operator/operators.h"
 #include "../memo/opt_expression.h"
@@ -13,6 +14,16 @@
 #include "nodes/makefuncs.h"
 
 namespace cascades {
+
+// Static singleton instance
+static HashAggImplRule* g_instance = nullptr;
+
+HashAggImplRule* HashAggImplRule::instance() {
+    if (g_instance == nullptr) {
+        g_instance = new HashAggImplRule();
+    }
+    return g_instance;
+}
 
 HashAggImplRule::HashAggImplRule()
     : Rule(RuleType::IMP_HASH_AGG, Pattern::leaf(OptExprOpType::LOGICAL_AGGREGATE)) {}
@@ -97,7 +108,7 @@ std::vector<OptExpression*> HashAggImplRule::transform(
     hash_path->path_hashclauses = NIL;
     hash_path->num_batches = 1;
 
-    PhysicalHashAgg* hash_agg = new PhysicalHashAgg((Path*)hash_path, child_path, group_keys);
+    PhysicalHashAgg* hash_agg = NEW_EX(PhysicalHashAgg, (Path*)hash_path, child_path, group_keys);
 
     OptExpression* new_expr = OptExpression::create(hash_agg);
     return {new_expr};

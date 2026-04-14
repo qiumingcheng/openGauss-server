@@ -1,9 +1,13 @@
+#include "../base/memory_utils.h"
 #include "outer_join_simplify_rule.h"
 #include "../operator/operators.h"
 #include "../memo/opt_expression.h"
 #include "../property/logical_property.h"
 
 namespace cascades {
+
+// Static singleton instance
+static OuterJoinSimplifyRule* g_instance = nullptr;
 /**
  * Check if an expression contains only strict operators
  * For a simple implementation, we check:
@@ -37,6 +41,13 @@ static bool can_reduce_left_join(int predicate_id, bool predicate_on_right) {
     return false;
 }
 
+OuterJoinSimplifyRule* OuterJoinSimplifyRule::instance() {
+    if (g_instance == nullptr) {
+        g_instance = new OuterJoinSimplifyRule();
+    }
+    return g_instance;
+}
+
 OuterJoinSimplifyRule::OuterJoinSimplifyRule()
     : Rule(RuleType::TF_OUTER_JOIN_SIMPLIFY,
            Pattern::create(OptExprOpType::LOGICAL_JOIN)) {}
@@ -68,7 +79,7 @@ std::vector<OptExpression*> OuterJoinSimplifyRule::transform(
         // If join has a condition (predicate_id >= 0), we can consider reduction
         // if the predicate is strict
         if (can_reduce_left_join(predicate_id, true)) {
-            LogicalInnerJoin* new_join = new LogicalInnerJoin();
+            LogicalInnerJoin* new_join = NEW_EX(LogicalInnerJoin);
             new_join->set_join_keys(join->get_join_keys());
             new_join->set_join_type(JOIN_INNER);
 
@@ -79,7 +90,7 @@ std::vector<OptExpression*> OuterJoinSimplifyRule::transform(
     // Case 2: RIGHT JOIN -> flip to LEFT JOIN, then reduce
     else if (join_type == JOIN_RIGHT) {
         // Flip RIGHT JOIN to LEFT JOIN: (A RIGHT JOIN B) -> (B LEFT JOIN A)
-        LogicalJoin* flipped_join = new LogicalInnerJoin();
+        LogicalInnerJoin* flipped_join = NEW_EX(LogicalInnerJoin);
         flipped_join->set_join_keys(join->get_join_keys());
         flipped_join->set_join_type(JOIN_LEFT);
 

@@ -1,3 +1,4 @@
+#include "../base/memory_utils.h"
 #include "nest_loop_impl_rule.h"
 #include "../operator/operators.h"
 #include "../memo/opt_expression.h"
@@ -9,6 +10,16 @@
 #include "nodes/relation.h"
 
 namespace cascades {
+
+// Static singleton instance
+static NestLoopImplRule* g_instance = nullptr;
+
+NestLoopImplRule* NestLoopImplRule::instance() {
+    if (g_instance == nullptr) {
+        g_instance = new NestLoopImplRule();
+    }
+    return g_instance;
+}
 
 NestLoopImplRule::NestLoopImplRule()
     : Rule(RuleType::IMP_NESTLOOP_JOIN, Pattern::create(OptExprOpType::LOGICAL_JOIN)) {}
@@ -70,7 +81,7 @@ std::vector<OptExpression*> NestLoopImplRule::transform(
         nullptr, nullptr, left_path, right_path,
         NIL, nullptr, nullptr, 1);
 
-    PhysicalNestLoop* nestloop_join = new PhysicalNestLoop(
+    PhysicalNestLoop* nestloop_join = NEW_EX(PhysicalNestLoop,
         (Path*)nestloop_path, left_path, right_path);
 
     OptExpression* new_expr = OptExpression::create(nestloop_join, left_child, right_child);

@@ -1,8 +1,19 @@
+#include "../base/memory_utils.h"
 #include "join_association_rule.h"
 #include "../operator/operators.h"
 #include "../memo/opt_expression.h"
 
 namespace cascades {
+
+// Static singleton instance
+static JoinAssociationRule* g_instance = nullptr;
+JoinAssociationRule* JoinAssociationRule::instance() {
+    if (g_instance == nullptr) {
+        g_instance = new JoinAssociationRule();
+    }
+    return g_instance;
+}
+
 JoinAssociationRule::JoinAssociationRule()
     : Rule(RuleType::TF_JOIN_ASSOCIATIVITY, Pattern::create(OptExprOpType::LOGICAL_JOIN)) {}
 
@@ -31,7 +42,7 @@ std::vector<OptExpression*> JoinAssociationRule::transform(
 
     // Create outer join: L join (R join C)
     std::vector<OptExpression*> outer_inputs = {left->input_at(0), new_right};
-    OptExpression* new_outer = new OptExpression(op, outer_inputs);
+    OptExpression* new_outer = NEW_EX(OptExpression, op, outer_inputs);
 
     return {new_outer};
 }

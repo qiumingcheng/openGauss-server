@@ -1,8 +1,19 @@
+#include "../base/memory_utils.h"
 #include "filter_merge_rule.h"
 #include "../operator/operators.h"
 #include "../memo/opt_expression.h"
 
 namespace cascades {
+
+// Static singleton instance
+static FilterMergeRule* g_instance = nullptr;
+FilterMergeRule* FilterMergeRule::instance() {
+    if (g_instance == nullptr) {
+        g_instance = new FilterMergeRule();
+    }
+    return g_instance;
+}
+
 FilterMergeRule::FilterMergeRule()
     : Rule(RuleType::TF_FILTER_MERGE,
            Pattern::create(OptExprOpType::LOGICAL_FILTER,
@@ -27,8 +38,7 @@ std::vector<OptExpression*> FilterMergeRule::transform(
 
         // If predicates are equivalent, the child filter is redundant
         if (predicate_id == child_predicate_id) {
-            // Parent filter is equivalent to child filter, child is redundant
-            LogicalFilter* merged_filter = new LogicalFilter();
+            LogicalFilter* merged_filter = NEW_EX(LogicalFilter);
             merged_filter->set_predicate_id(predicate_id);
 
             OptExpression* grandchild = child->input_at(0);
@@ -37,26 +47,22 @@ std::vector<OptExpression*> FilterMergeRule::transform(
         }
         // If parent predicate is a subset of child predicate, parent is redundant
         else if (is_predicate_subset(predicate_id, child_predicate_id)) {
-            // Parent is more restrictive, keep parent but under child
             OptExpression* grandchild = child->input_at(0);
-            LogicalFilter* new_filter = new LogicalFilter();
+            LogicalFilter* new_filter = NEW_EX(LogicalFilter);
             new_filter->set_predicate_id(predicate_id);
             OptExpression* new_expr = OptExpression::create(new_filter, grandchild);
             result.push_back(new_expr);
         }
         // If child predicate is a subset of parent predicate, child is redundant
         else if (is_predicate_subset(child_predicate_id, predicate_id)) {
-            // Child is more restrictive, keep only parent
-            LogicalFilter* new_filter = new LogicalFilter();
+            LogicalFilter* new_filter = NEW_EX(LogicalFilter);
             new_filter->set_predicate_id(predicate_id);
             OptExpression* new_expr = OptExpression::create(new_filter, child->input_at(0));
             result.push_back(new_expr);
         }
         // Otherwise, both predicates are needed - merge them (AND them together)
         else {
-            // For now, keep the more restrictive predicate
-            // A full implementation would combine them with AND
-            LogicalFilter* merged_filter = new LogicalFilter();
+            LogicalFilter* merged_filter = NEW_EX(LogicalFilter);
             // Use the more restrictive predicate (lower ID typically means simpler)
             merged_filter->set_predicate_id(predicate_id < child_predicate_id ?
                                             predicate_id : child_predicate_id);
@@ -73,13 +79,13 @@ std::vector<OptExpression*> FilterMergeRule::transform(
         OptExpression* project_child = child->input_at(0);
 
         // Create a new filter on top of the projection's child
-        LogicalFilter* pushed_filter = new LogicalFilter();
+        LogicalFilter* pushed_filter = NEW_EX(LogicalFilter);
         pushed_filter->set_predicate_id(predicate_id);
 
         OptExpression* pushed_expr = OptExpression::create(pushed_filter, project_child);
 
         // Create new projection on top of the pushed filter
-        LogicalProject* new_project = new LogicalProject();
+        LogicalProject* new_project = NEW_EX(LogicalProject);
         new_project->set_projections(project->get_projections());
 
         OptExpression* result_expr = OptExpression::create(new_project, pushed_expr);
@@ -99,12 +105,11 @@ std::vector<OptExpression*> FilterMergeRule::transform(
         JoinType join_type = join->get_join_type();
 
         if (join_type == JOIN_INNER) {
-            // For inner join, we can push to both sides
             // Create filters for both children
-            LogicalFilter* left_filter = new LogicalFilter();
+            LogicalFilter* left_filter = NEW_EX(LogicalFilter);
             left_filter->set_predicate_id(predicate_id);
 
-            LogicalFilter* right_filter = new LogicalFilter();
+            LogicalFilter* right_filter = NEW_EX(LogicalFilter);
             right_filter->set_predicate_id(predicate_id);
 
             OptExpression* left_filtered = OptExpression::create(left_filter, left_child);
@@ -114,8 +119,7 @@ std::vector<OptExpression*> FilterMergeRule::transform(
             OptExpression* new_expr = OptExpression::create(join, left_filtered, right_filtered);
             result.push_back(new_expr);
         } else if (join_type == JOIN_LEFT) {
-            // For left outer join, push to right side only
-            LogicalFilter* right_filter = new LogicalFilter();
+            LogicalFilter* right_filter = NEW_EX(LogicalFilter);
             right_filter->set_predicate_id(predicate_id);
 
             OptExpression* right_filtered = OptExpression::create(right_filter, right_child);
@@ -123,8 +127,7 @@ std::vector<OptExpression*> FilterMergeRule::transform(
             OptExpression* new_expr = OptExpression::create(join, left_child, right_filtered);
             result.push_back(new_expr);
         } else if (join_type == JOIN_RIGHT) {
-            // For right outer join, push to left side only
-            LogicalFilter* left_filter = new LogicalFilter();
+            LogicalFilter* left_filter = NEW_EX(LogicalFilter);
             left_filter->set_predicate_id(predicate_id);
 
             OptExpression* left_filtered = OptExpression::create(left_filter, left_child);

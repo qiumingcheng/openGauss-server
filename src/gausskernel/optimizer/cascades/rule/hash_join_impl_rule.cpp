@@ -1,4 +1,5 @@
 #include "nodes/parsenodes.h"
+#include "../base/memory_utils.h"
 #include "hash_join_impl_rule.h"
 #include "../operator/operators.h"
 #include "../memo/opt_expression.h"
@@ -14,6 +15,16 @@
 #include "catalog/pg_operator.h"
 
 namespace cascades {
+
+// Static singleton instance
+static HashJoinImplRule* g_instance = nullptr;
+
+HashJoinImplRule* HashJoinImplRule::instance() {
+    if (g_instance == nullptr) {
+        g_instance = new HashJoinImplRule();
+    }
+    return g_instance;
+}
 
 HashJoinImplRule::HashJoinImplRule()
     : Rule(RuleType::IMP_HASH_JOIN, Pattern::create(OptExprOpType::LOGICAL_JOIN)) {}
@@ -137,7 +148,7 @@ std::vector<OptExpression*> HashJoinImplRule::transform(
         nullptr, nullptr, left_path, right_path,
         NIL, nullptr, hashclauses, 1);
 
-    PhysicalHashJoin* hash_join = new PhysicalHashJoin(
+    PhysicalHashJoin* hash_join = NEW_EX(PhysicalHashJoin,
         (Path*)hash_path, left_path, right_path);
     hash_join->set_build_keys(join_op->get_join_keys());
     hash_join->set_probe_keys(join_op->get_join_keys());

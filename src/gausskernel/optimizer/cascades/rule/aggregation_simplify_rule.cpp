@@ -1,3 +1,4 @@
+#include "../base/memory_utils.h"
 #include "aggregation_simplify_rule.h"
 #include "../operator/operators.h"
 #include "../memo/opt_expression.h"
@@ -5,6 +6,9 @@
 #include <algorithm>
 
 namespace cascades {
+
+// Static singleton instance
+static AggregationSimplifyRule* g_instance = nullptr;
 /**
  * Check if a column ref is a constant value
  * In a full implementation, we would analyze the expression context
@@ -149,7 +153,7 @@ OptExpression* AggregationSimplifyRule::remove_constant_group_keys(
 
     // If no non-constant keys remain, this is a global aggregate
     // (no GROUP BY needed)
-    LogicalAggregate* new_agg = new LogicalAggregate(non_constant_keys);
+    LogicalAggregate* new_agg = NEW_EX(LogicalAggregate, non_constant_keys);
     OptExpression* new_expr = OptExpression::create(new_agg, agg->input_at(0));
 
     return new_expr;
@@ -164,10 +168,17 @@ OptExpression* AggregationSimplifyRule::create_local_aggregate(
     LogicalAggregate* orig_agg = static_cast<LogicalAggregate*>(agg->get_op());
 
     // Create new aggregate with local keys (subset of original)
-    LogicalAggregate* local_agg = new LogicalAggregate(local_keys);
+    LogicalAggregate* local_agg = NEW_EX(LogicalAggregate, local_keys);
 
     OptExpression* result = OptExpression::create(local_agg, child);
     return result;
+}
+
+AggregationSimplifyRule* AggregationSimplifyRule::instance() {
+    if (g_instance == nullptr) {
+        g_instance = new AggregationSimplifyRule();
+    }
+    return g_instance;
 }
 
 AggregationSimplifyRule::AggregationSimplifyRule()
@@ -210,8 +221,8 @@ std::vector<OptExpression*> AggregationSimplifyRule::transform(
                 // The inner aggregate already groups by the same keys,
                 // so the outer aggregate is redundant
                 // We can just return the child directly (with identity projection)
-                OptExpression* identity_proj = OptExpression::create(
-                    new LogicalProject(), child);
+                LogicalProject* identity_proj_op = NEW_EX(LogicalProject);
+                OptExpression* identity_proj = OptExpression::create(identity_proj_op, child);
                 result.push_back(identity_proj);
             }
         }
@@ -256,7 +267,7 @@ std::vector<OptExpression*> AggregationSimplifyRule::transform(
                     new_join, left_local_agg, right_local_agg);
 
                 // Create final aggregate on top
-                LogicalAggregate* final_agg = new LogicalAggregate(orig_keys);
+                LogicalAggregate* final_agg = NEW_EX(LogicalAggregate, orig_keys);
                 OptExpression* final_expr = OptExpression::create(
                     final_agg, new_join_expr);
 
