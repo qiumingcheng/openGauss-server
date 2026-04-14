@@ -155,7 +155,7 @@ Statistics* StatisticsUtils::build_table_statistics(Oid relid, void* target_list
 
         // Build column statistics for each attribute
         for (int i = 1; i <= tupdesc->natts; i++) {
-            if (tupdesc->attrs[i - 1]->attisdropped) {
+            if (TupleDescAttr(tupdesc, i - 1)->attisdropped) {
                 continue;  // Skip dropped columns
             }
 
@@ -197,7 +197,6 @@ double StatisticsUtils::estimate_filter_selectivity(void* clauses, Oid relid) {
 
     // For now, estimate selectivity based on number of clauses
     // Each clause is assumed to reduce rows by a factor
-    int num_clauses = list_length(qual_list);
     double selectivity = 1.0;
 
     // Simple estimation: each clause reduces selectivity
