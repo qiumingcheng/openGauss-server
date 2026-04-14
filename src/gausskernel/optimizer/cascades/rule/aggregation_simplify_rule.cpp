@@ -165,8 +165,6 @@ OptExpression* AggregationSimplifyRule::remove_constant_group_keys(
 OptExpression* AggregationSimplifyRule::create_local_aggregate(
     OptExpression* agg, OptExpression* child,
     const std::vector<int>& local_keys) const {
-    LogicalAggregate* orig_agg = static_cast<LogicalAggregate*>(agg->get_op());
-
     // Create new aggregate with local keys (subset of original)
     LogicalAggregate* local_agg = NEW_EX(LogicalAggregate, local_keys);
 

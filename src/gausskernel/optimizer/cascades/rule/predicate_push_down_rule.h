@@ -6,6 +6,7 @@ namespace cascades {
 
 class PredicatePushDownRule : public Rule {
 public:
+    static PredicatePushDownRule* instance();
     PredicatePushDownRule();
 
     int promise() const override { return 2; }

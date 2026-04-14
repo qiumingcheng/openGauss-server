@@ -6,6 +6,7 @@ namespace cascades {
 
 class ScanImplRule : public Rule {
 public:
+    static ScanImplRule* instance();
     ScanImplRule();
 
     int promise() const override { return 3; }

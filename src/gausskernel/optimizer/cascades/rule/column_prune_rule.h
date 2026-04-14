@@ -6,6 +6,7 @@ namespace cascades {
 
 class ColumnPruneRule : public Rule {
 public:
+    static ColumnPruneRule* instance();
     ColumnPruneRule();
 
     int promise() const override { return 1; }

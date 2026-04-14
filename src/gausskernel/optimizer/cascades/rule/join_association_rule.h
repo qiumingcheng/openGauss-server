@@ -6,6 +6,7 @@ namespace cascades {
 
 class JoinAssociationRule : public Rule {
 public:
+    static JoinAssociationRule* instance();
     JoinAssociationRule();
 
     int promise() const override { return 2; }

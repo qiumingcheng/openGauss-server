@@ -48,17 +48,9 @@ int DuplicateJoinEliminationRule::get_table_id_from_scan(OptExpression* scan) co
  * For aliased tables, we need to check the underlying table IDs
  */
 bool DuplicateJoinEliminationRule::is_self_join(const LogicalJoin* join) const {
-    OptExpression* left = nullptr;
-    OptExpression* right = nullptr;
-
-    // Get children through the join expression's inputs
-    // We need to find the join expression first
-    // Since we have the LogicalJoin operator, we need to look at the parent
-    // For this purpose, we'll check if the tables are the same
-    // This is typically done by checking table IDs through the memo group
-
     // For a simpler implementation, we check if both sides are scans
     // and have the same table ID
+    // This is typically done by checking table IDs through the memo group
     return false;  // Placeholder - actual implementation needs memo context
 }
 

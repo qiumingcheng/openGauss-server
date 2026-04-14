@@ -113,7 +113,6 @@ bool ConstantFoldRule::is_constant_expression(OptExpression* expr) const {
     // A scan with no predicate and constant table (like VALUES clause)
     // could be considered constant, but we handle this at the filter level
     if (op->get_type() == OptExprOpType::LOGICAL_SCAN) {
-        LogicalScan* scan = static_cast<LogicalScan*>(op);
         // If scan has no predicate, it might be constant if table is empty
         // or if it's a VALUES construct - for now we don't fold scans directly
         return false;

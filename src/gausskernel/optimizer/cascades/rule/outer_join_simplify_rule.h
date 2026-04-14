@@ -21,6 +21,7 @@ namespace cascades {
  */
 class OuterJoinSimplifyRule : public Rule {
 public:
+    static OuterJoinSimplifyRule* instance();
     OuterJoinSimplifyRule();
 
     std::vector<OptExpression*> transform(

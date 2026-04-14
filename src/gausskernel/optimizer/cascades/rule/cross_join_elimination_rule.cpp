@@ -34,13 +34,6 @@ std::vector<OptExpression*> CrossJoinEliminationRule::transform(
 
     // Case 1: Pure cross join (no join keys) with filter above
     if (is_cross_join(join)) {
-        OptExpression* left = input->input_at(0);
-        OptExpression* right = input->input_at(1);
-
-        // Get the logical properties to check output columns
-        const ColumnRefSet& left_output = left->get_logical_property()->get_output_columns();
-        const ColumnRefSet& right_output = right->get_logical_property()->get_output_columns();
-
         // Case 1a: If one side produces no output columns (empty relation),
         // the whole join result is empty - we could mark it as dummy
         // This would require a separate dummy relation marker

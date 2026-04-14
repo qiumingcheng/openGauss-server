@@ -6,6 +6,7 @@ namespace cascades {
 
 class HashAggImplRule : public Rule {
 public:
+    static HashAggImplRule* instance();
     HashAggImplRule();
 
     int promise() const override { return 3; }  // implementation rules higher

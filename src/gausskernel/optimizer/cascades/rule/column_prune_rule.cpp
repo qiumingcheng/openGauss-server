@@ -23,7 +23,6 @@ ColumnPruneRule::ColumnPruneRule()
 std::vector<OptExpression*> ColumnPruneRule::transform(
     OptExpression* input, OptimizerContext* context) {
     // Get the projection operator and its child
-    LogicalOptExprOp* project_op = static_cast<LogicalOptExprOp*>(input->get_op());
     OptExpression* child = input->input_at(0);
     OptExprOp* child_op = child->get_op();
 

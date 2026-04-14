@@ -21,6 +21,7 @@ namespace cascades {
  */
 class IndexScanImplRule : public Rule {
 public:
+    static IndexScanImplRule* instance();
     IndexScanImplRule();
 
     int promise() const override { return 3; }  // High priority, like ScanImplRule

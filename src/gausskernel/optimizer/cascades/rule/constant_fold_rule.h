@@ -31,6 +31,7 @@ namespace cascades {
  */
 class ConstantFoldRule : public Rule {
 public:
+    static ConstantFoldRule* instance();
     ConstantFoldRule();
 
     int promise() const override { return 3; }  // Higher priority than most rules

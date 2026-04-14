@@ -127,8 +127,6 @@ std::vector<OptExpression*> PredicatePushDownRule::transform(
     // Case 4: Push filter through another filter - merge predicates
     else if (child_op->get_type() == OptExprOpType::LOGICAL_FILTER) {
         // Merge with child's filter
-        LogicalFilter* child_filter = static_cast<LogicalFilter*>(child_op);
-
         // Create a new filter with combined predicate
         LogicalFilter* merged_filter = NEW_EX(LogicalFilter);
         // For now, just use the parent's predicate

@@ -15,6 +15,7 @@ namespace cascades {
  */
 class FilterMergeRule : public Rule {
 public:
+    static FilterMergeRule* instance();
     FilterMergeRule();
 
     int promise() const override { return 3; }

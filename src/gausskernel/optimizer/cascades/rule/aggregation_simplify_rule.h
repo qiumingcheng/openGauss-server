@@ -45,6 +45,8 @@ class AggregationSimplifyRule : public Rule {
 public:
     AggregationSimplifyRule();
 
+    static AggregationSimplifyRule* instance();
+
     int promise() const override { return 2; }
 
     std::vector<OptExpression*> transform(
