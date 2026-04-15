@@ -3,6 +3,9 @@
 #include "../memo/opt_expression.h"
 #include "../memo/group_expression.h"
 #include "../property/sort_property.h"
+#include "nodes/relation.h"
+#include "nodes/nodes.h"
+#include "utils/lsyscache.h"
 
 namespace cascades {
 
@@ -240,23 +243,36 @@ bool SortEliminationRule::is_prefix_order(const OrderSpec& required,
 
 OrderSpec SortEliminationRule::get_sort_order(const PhysicalSort* sort) const {
     // Get sort order from the PhysicalSort's path
-    // The sort path should contain the pathkeys (sort keys)
-    Path* sort_path = sort->get_child_path();
+    Path* sort_path = sort->get_path();
     if (sort_path == nullptr) {
         return OrderSpec();
     }
 
-    // In OpenGauss, Path has a 'pathkeys' field that stores the sort order
-    // This would be accessed via the OpenGauss pathkeys structure
-    // For now, return an empty OrderSpec as the pathkeys access is
-    // implementation-specific
-    //
-    // A full implementation would:
-    // List* pathkeys = sort_path->pathkeys;
-    // if (pathkeys != NIL) {
-    //     // Convert OpenGauss pathkeys to OrderSpec
-    // }
-    return OrderSpec();
+    // Extract sort order from path->pathkeys
+    // pathkeys is a List* of PathKey nodes
+    OrderSpec spec;
+    List* pathkeys = sort_path->pathkeys;
+
+    foreach_cell(cell, pathkeys) {
+        PathKey* pk = lfirst_node(PathKey, cell);
+
+        // PathKey contains equivalence class and sort direction
+        // pk_strategy: BTLessStrategyNumber (1) = ASC, BTGreaterStrategyNumber (4) = DESC
+        bool ascending = (pk->pk_strategy == 1);  // BTLessStrategyNumber
+
+        // Get column ID from equivalence class
+        // In a full implementation, we would extract the Var from eclass members
+        int column_id = -1;
+        if (pk->pk_eclass != nullptr && pk->pk_eclass->ec_members != NIL) {
+            // Get first member's varattno as column reference
+            // This is simplified - real implementation needs proper column extraction
+            column_id = 0;  // Placeholder for actual column extraction
+        }
+
+        spec.add_ordering(column_id, ascending);
+    }
+
+    return spec;
 }
 
 

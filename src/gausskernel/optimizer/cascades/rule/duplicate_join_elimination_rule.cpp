@@ -157,7 +157,6 @@ std::vector<OptExpression*> DuplicateJoinEliminationRule::transform(
     }
 
     LogicalJoin* join = static_cast<LogicalJoin*>(op);
-    JoinType join_type = join->get_join_type();
 
     // Get the join's children
     OptExpression* left = input->input_at(0);

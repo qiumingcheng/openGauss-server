@@ -31,15 +31,20 @@ std::vector<OptExpression*> JoinAssociationRule::transform(
     }
 
     // (L join R) join C  ->  L join (R join C)
-    // Left: L join R, Right: C
+    // left = (L join R), right = C
+    // L = left->input_at(0), R = left->input_at(1)
     // New structure: L join (R join C)
-    OptExprOp* op = input->get_op()->clone();
-    LogicalOptExprOp* new_inner_join = static_cast<LogicalOptExprOp*>(right->get_op()->clone());
-    OptExpression* new_right = OptExpression::create(new_inner_join, right, left->input_at(1));
+    OptExpression* L = left->input_at(0);
+    OptExpression* R = left->input_at(1);
+    OptExpression* C = right;
+
+    // Create inner join: (R join C)
+    LogicalOptExprOp* inner_join_op = static_cast<LogicalOptExprOp*>(input->get_op()->clone());
+    OptExpression* inner_join = OptExpression::create(inner_join_op, R, C);
 
     // Create outer join: L join (R join C)
-    std::vector<OptExpression*> outer_inputs = {left->input_at(0), new_right};
-    OptExpression* new_outer = NEW_EX(OptExpression, op, outer_inputs);
+    OptExprOp* outer_join_op = static_cast<OptExprOp*>(input->get_op()->clone());
+    OptExpression* new_outer = OptExpression::create(outer_join_op, L, inner_join);
 
     return {new_outer};
 }
