@@ -4,6 +4,12 @@
 #include "../property/logical_property.h"
 
 namespace cascades {
+
+SubqueryUnnestRule* SubqueryUnnestRule::instance() {
+    static SubqueryUnnestRule inst;
+    return &inst;
+}
+
 /**
  * SubqueryUnnestRule Implementation
  *

@@ -17,13 +17,9 @@
 namespace cascades {
 
 // Static singleton instance
-static HashJoinImplRule* g_instance = nullptr;
-
 HashJoinImplRule* HashJoinImplRule::instance() {
-    if (g_instance == nullptr) {
-        g_instance = new HashJoinImplRule();
-    }
-    return g_instance;
+    static HashJoinImplRule inst;
+    return &inst;
 }
 
 HashJoinImplRule::HashJoinImplRule()

@@ -3,6 +3,12 @@
 #include "../memo/opt_expression.h"
 
 namespace cascades {
+
+JoinCommutativityRule* JoinCommutativityRule::instance(){
+    static JoinCommutativityRule inst;
+    return &inst;
+}
+
 JoinCommutativityRule::JoinCommutativityRule()
     : Rule(RuleType::TF_JOIN_COMMUTATIVITY, Pattern::create(OptExprOpType::LOGICAL_JOIN)) {}
 

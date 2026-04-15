@@ -4,6 +4,12 @@
 #include "../property/logical_property.h"
 
 namespace cascades {
+
+DuplicateJoinEliminationRule* DuplicateJoinEliminationRule::instance(){
+    static DuplicateJoinEliminationRule inst;
+    return &inst;
+}
+
 /**
  * Check if two vectors of join keys are equivalent
  * Keys are considered equivalent if they contain the same column IDs

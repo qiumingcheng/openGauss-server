@@ -25,6 +25,7 @@ namespace cascades {
  */
 class DuplicateJoinEliminationRule : public Rule {
 public:
+    static DuplicateJoinEliminationRule* instance();
     DuplicateJoinEliminationRule();
 
     std::vector<OptExpression*> transform(

@@ -30,6 +30,7 @@ namespace cascades {
  */
 class SubqueryUnnestRule : public Rule {
 public:
+    static SubqueryUnnestRule* instance();
     SubqueryUnnestRule();
 
     int promise() const override { return 2; }  // medium-high priority

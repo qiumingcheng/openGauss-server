@@ -32,6 +32,7 @@ namespace cascades {
  */
 class SortEliminationRule : public Rule {
 public:
+    static SortEliminationRule* instance();
     SortEliminationRule();
 
     int promise() const override { return 2; }

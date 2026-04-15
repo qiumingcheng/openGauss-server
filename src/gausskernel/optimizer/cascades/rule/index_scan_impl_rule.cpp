@@ -12,9 +12,6 @@
 
 namespace cascades {
 
-// Static singleton instance
-static IndexScanImplRule* g_instance = nullptr;
-
 bool IndexScanImplRule::has_indexes(RelOptInfo* rel) const {
     // Check if the relation has any indexes
     // In OpenGauss, RelOptInfo has an 'indexlist' field that contains IndexOptInfo
@@ -37,10 +34,8 @@ List* IndexScanImplRule::get_available_indexes(RelOptInfo* rel) const {
 }
 
 IndexScanImplRule* IndexScanImplRule::instance() {
-    if (g_instance == nullptr) {
-        g_instance = new IndexScanImplRule();
-    }
-    return g_instance;
+    static IndexScanImplRule inst;
+    return &inst;
 }
 
 IndexScanImplRule::IndexScanImplRule()

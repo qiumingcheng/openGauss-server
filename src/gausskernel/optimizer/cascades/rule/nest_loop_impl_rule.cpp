@@ -12,13 +12,9 @@
 namespace cascades {
 
 // Static singleton instance
-static NestLoopImplRule* g_instance = nullptr;
-
 NestLoopImplRule* NestLoopImplRule::instance() {
-    if (g_instance == nullptr) {
-        g_instance = new NestLoopImplRule();
-    }
-    return g_instance;
+    static NestLoopImplRule inst;
+    return &inst;
 }
 
 NestLoopImplRule::NestLoopImplRule()

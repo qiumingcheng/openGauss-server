@@ -10,6 +10,11 @@
 
 namespace cascades {
 
+SortImplRule* SortImplRule::instance() {
+    static SortImplRule inst;
+    return &inst;
+}
+
 SortImplRule::SortImplRule()
     : Rule(RuleType::IMP_SORT, Pattern::create(OptExprOpType::LOGICAL_PROJECT,
                                                 Pattern::any())) {}

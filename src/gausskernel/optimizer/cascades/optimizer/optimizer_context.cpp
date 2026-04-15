@@ -23,27 +23,27 @@ namespace cascades {
 OptimizerContext::OptimizerContext(PlannerInfo* root)
     : root_(root) {
     // Initialize transformation rules
-    rule_set_.add_rule(new JoinCommutativityRule());
-    rule_set_.add_rule(new JoinAssociationRule());
-    rule_set_.add_rule(new PredicatePushDownRule());
-    rule_set_.add_rule(new FilterMergeRule());
-    rule_set_.add_rule(new ColumnPruneRule());
-    rule_set_.add_rule(new OuterJoinSimplifyRule());
-    rule_set_.add_rule(new CrossJoinEliminationRule());
-    rule_set_.add_rule(new DuplicateJoinEliminationRule());
-    rule_set_.add_rule(new SortEliminationRule());
-    rule_set_.add_rule(new AggregationSimplifyRule());
-    rule_set_.add_rule(new SubqueryUnnestRule());
-    rule_set_.add_rule(new ConstantFoldRule());
+    rule_set_.add_rule(JoinCommutativityRule::instance());
+    rule_set_.add_rule(JoinAssociationRule::instance());
+    rule_set_.add_rule(PredicatePushDownRule::instance());
+    rule_set_.add_rule(FilterMergeRule::instance());
+    rule_set_.add_rule(ColumnPruneRule::instance());
+    rule_set_.add_rule(OuterJoinSimplifyRule::instance());
+    rule_set_.add_rule(CrossJoinEliminationRule::instance());
+    rule_set_.add_rule(DuplicateJoinEliminationRule::instance());
+    rule_set_.add_rule(SortEliminationRule::instance());
+    rule_set_.add_rule(AggregationSimplifyRule::instance());
+    rule_set_.add_rule(SubqueryUnnestRule::instance());
+    rule_set_.add_rule(ConstantFoldRule::instance());
 
     // Initialize implementation rules
-    rule_set_.add_rule(new HashJoinImplRule());
-    rule_set_.add_rule(new MergeJoinImplRule());
-    rule_set_.add_rule(new NestLoopImplRule());
-    rule_set_.add_rule(new HashAggImplRule());
-    rule_set_.add_rule(new SortImplRule());
-    rule_set_.add_rule(new ScanImplRule());
-    rule_set_.add_rule(new IndexScanImplRule());
+    rule_set_.add_rule(HashJoinImplRule::instance());
+    rule_set_.add_rule(MergeJoinImplRule::instance());
+    rule_set_.add_rule(NestLoopImplRule::instance());
+    rule_set_.add_rule(HashAggImplRule::instance());
+    rule_set_.add_rule(SortImplRule::instance());
+    rule_set_.add_rule(ScanImplRule::instance());
+    rule_set_.add_rule(IndexScanImplRule::instance());
 }
 
 

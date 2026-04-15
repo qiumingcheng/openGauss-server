@@ -7,8 +7,6 @@
 
 namespace cascades {
 
-// Static singleton instance
-static AggregationSimplifyRule* g_instance = nullptr;
 /**
  * Check if a column ref is a constant value
  * In a full implementation, we would analyze the expression context
@@ -173,10 +171,8 @@ OptExpression* AggregationSimplifyRule::create_local_aggregate(
 }
 
 AggregationSimplifyRule* AggregationSimplifyRule::instance() {
-    if (g_instance == nullptr) {
-        g_instance = new AggregationSimplifyRule();
-    }
-    return g_instance;
+    static AggregationSimplifyRule inst;
+    return &inst;
 }
 
 AggregationSimplifyRule::AggregationSimplifyRule()

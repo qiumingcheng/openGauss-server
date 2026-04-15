@@ -6,8 +6,6 @@
 
 namespace cascades {
 
-// Static singleton instance
-static ConstantFoldRule* g_instance = nullptr;
 /**
  * Special predicate IDs used to mark constant conditions
  * These are used by the OpenGauss optimizer to mark predicates
@@ -18,10 +16,8 @@ static constexpr int CONSTANT_FALSE_PREDICATE_ID = -1002;  // Always false
 static constexpr int CONSTANT_NULL_PREDICATE_ID = -1003;    // Always null (IS UNKNOWN)
 
 ConstantFoldRule* ConstantFoldRule::instance() {
-    if (g_instance == nullptr) {
-        g_instance = new ConstantFoldRule();
-    }
-    return g_instance;
+    static ConstantFoldRule inst;
+    return &inst;
 }
 
 ConstantFoldRule::ConstantFoldRule()

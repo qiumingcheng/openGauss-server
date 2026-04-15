@@ -7,12 +7,9 @@
 namespace cascades {
 
 // Static singleton instance
-static ColumnPruneRule* g_instance = nullptr;
 ColumnPruneRule* ColumnPruneRule::instance() {
-    if (g_instance == nullptr) {
-        g_instance = new ColumnPruneRule();
-    }
-    return g_instance;
+    static ColumnPruneRule inst;
+    return &inst;
 }
 
 ColumnPruneRule::ColumnPruneRule()

@@ -39,6 +39,11 @@ CrossJoinEliminationRule::CrossJoinEliminationRule()
     : Rule(RuleType::TF_CROSS_JOIN_ELIMINATE,
            Pattern::create(OptExprOpType::LOGICAL_JOIN)) {}
 
+CrossJoinEliminationRule* CrossJoinEliminationRule::instance(){
+    static CrossJoinEliminationRule inst;
+    return &inst;
+}
+
 std::vector<OptExpression*> CrossJoinEliminationRule::transform(
     OptExpression* input, OptimizerContext* context) {
     std::vector<OptExpression*> result;

@@ -12,13 +12,9 @@
 namespace cascades {
 
 // Static singleton instance
-static ScanImplRule* g_instance = nullptr;
-
 ScanImplRule* ScanImplRule::instance() {
-    if (g_instance == nullptr) {
-        g_instance = new ScanImplRule();
-    }
-    return g_instance;
+    static ScanImplRule inst;
+    return &inst;
 }
 
 ScanImplRule::ScanImplRule()

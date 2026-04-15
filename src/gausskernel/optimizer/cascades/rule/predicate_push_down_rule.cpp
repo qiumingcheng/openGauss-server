@@ -6,13 +6,9 @@
 namespace cascades {
 
 // Static singleton instance
-static PredicatePushDownRule* g_instance = nullptr;
-
 PredicatePushDownRule* PredicatePushDownRule::instance() {
-    if (g_instance == nullptr) {
-        g_instance = new PredicatePushDownRule();
-    }
-    return g_instance;
+    static PredicatePushDownRule inst;
+    return &inst;
 }
 
 PredicatePushDownRule::PredicatePushDownRule()

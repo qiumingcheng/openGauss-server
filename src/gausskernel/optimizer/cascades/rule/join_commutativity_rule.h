@@ -6,6 +6,7 @@ namespace cascades {
 
 class JoinCommutativityRule : public Rule {
 public:
+    static JoinCommutativityRule* instance();
     JoinCommutativityRule();
 
     int promise() const override { return 2; }  // higher promise = earlier

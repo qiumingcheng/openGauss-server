@@ -6,12 +6,9 @@
 namespace cascades {
 
 // Static singleton instance
-static FilterMergeRule* g_instance = nullptr;
 FilterMergeRule* FilterMergeRule::instance() {
-    if (g_instance == nullptr) {
-        g_instance = new FilterMergeRule();
-    }
-    return g_instance;
+    static FilterMergeRule inst;
+    return &inst;
 }
 
 FilterMergeRule::FilterMergeRule()

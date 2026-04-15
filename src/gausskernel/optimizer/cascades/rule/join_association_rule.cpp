@@ -6,12 +6,9 @@
 namespace cascades {
 
 // Static singleton instance
-static JoinAssociationRule* g_instance = nullptr;
 JoinAssociationRule* JoinAssociationRule::instance() {
-    if (g_instance == nullptr) {
-        g_instance = new JoinAssociationRule();
-    }
-    return g_instance;
+    static JoinAssociationRule inst;
+    return &inst;
 }
 
 JoinAssociationRule::JoinAssociationRule()

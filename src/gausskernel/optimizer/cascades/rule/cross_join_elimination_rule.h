@@ -25,6 +25,7 @@ namespace cascades {
  */
 class CrossJoinEliminationRule : public Rule {
 public:
+    static CrossJoinEliminationRule* instance();
     CrossJoinEliminationRule();
 
     std::vector<OptExpression*> transform(

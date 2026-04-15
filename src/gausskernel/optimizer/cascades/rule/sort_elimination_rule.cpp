@@ -5,6 +5,12 @@
 #include "../property/sort_property.h"
 
 namespace cascades {
+
+SortEliminationRule* SortEliminationRule::instance() {
+    static SortEliminationRule inst;
+    return &inst;
+}
+
 SortEliminationRule::SortEliminationRule()
     : Rule(RuleType::TF_SORT_ELIMINATION,
            Pattern::create(OptExprOpType::PHYSICAL_SORT,

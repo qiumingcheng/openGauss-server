@@ -6,8 +6,6 @@
 
 namespace cascades {
 
-// Static singleton instance
-static OuterJoinSimplifyRule* g_instance = nullptr;
 /**
  * Check if an expression contains only strict operators
  * For a simple implementation, we check:
@@ -42,10 +40,8 @@ static bool can_reduce_left_join(int predicate_id, bool predicate_on_right) {
 }
 
 OuterJoinSimplifyRule* OuterJoinSimplifyRule::instance() {
-    if (g_instance == nullptr) {
-        g_instance = new OuterJoinSimplifyRule();
-    }
-    return g_instance;
+    static OuterJoinSimplifyRule inst;
+    return &inst;
 }
 
 OuterJoinSimplifyRule::OuterJoinSimplifyRule()

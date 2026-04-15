@@ -12,13 +12,9 @@
 namespace cascades {
 
 // Static singleton instance
-static MergeJoinImplRule* g_instance = nullptr;
-
 MergeJoinImplRule* MergeJoinImplRule::instance() {
-    if (g_instance == nullptr) {
-        g_instance = new MergeJoinImplRule();
-    }
-    return g_instance;
+    static MergeJoinImplRule inst;
+    return &inst;
 }
 
 MergeJoinImplRule::MergeJoinImplRule()
