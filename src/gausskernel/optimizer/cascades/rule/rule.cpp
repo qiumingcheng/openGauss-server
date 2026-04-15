@@ -7,6 +7,10 @@ bool Rule::check(OptExpression* input, OptimizerContext* context) const {
     return pattern_->match(input);
 }
 
+bool Rule::check(GroupExpression* input, OptimizerContext* context) const {
+    return pattern_->match_without_child_group(input);
+}
+
 std::vector<Rule*> Rule::predecessor_rules() const {
     return {};
 }

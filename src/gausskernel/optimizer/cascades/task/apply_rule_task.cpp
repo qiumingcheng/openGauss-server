@@ -13,7 +13,7 @@
 
 namespace cascades {
 
-// Helper function to build OptExpression tree from GroupExpression for rule matching
+// Helper function to build OptExpression tree from GroupExpression for rule transform
 static OptExpression* build_opt_expression(GroupExpression* group_expr) {
     OptExprOp* op = group_expr->get_op();
     std::vector<OptExpression*> children;
@@ -65,18 +65,14 @@ void ApplyRuleTask::execute() {
         return;
     }
 
-    // Build OptExpression tree from GroupExpression for rule matching
-    OptExpression* input = build_opt_expression(expression_);
-
-    ereport(WARNING, (errmsg("[CASCADES] ApplyRuleTask: rule=%d, expr=%s, input_op=%d, input_arity=%d",
-                             (int)rule_->type(), expression_->to_string().c_str(),
-                             input->get_op()->get_type(), input->arity())));
-
-    // Check if rule's check condition passes
+    // Check if rule's check condition passes using GroupExpression directly
     OptimizerContext* optimizer_context = context_->get_optimizer_context();
-    if (!rule_->check(input, optimizer_context)) {
+    if (!rule_->check(expression_, optimizer_context)) {
         return;
     }
+
+    // Build OptExpression tree from GroupExpression for rule transform
+    OptExpression* input = build_opt_expression(expression_);
 
     // Transform using the rule
     std::vector<OptExpression*> results = rule_->transform(input, optimizer_context);

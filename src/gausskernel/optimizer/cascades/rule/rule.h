@@ -22,6 +22,7 @@ public:
 
     virtual int promise() const { return 1; }
     virtual bool check(OptExpression* input, OptimizerContext* context) const;
+    virtual bool check(GroupExpression* input, OptimizerContext* context) const;
     virtual std::vector<OptExpression*> transform(
         OptExpression* input, OptimizerContext* context) = 0;
     virtual std::vector<Rule*> predecessor_rules() const;
