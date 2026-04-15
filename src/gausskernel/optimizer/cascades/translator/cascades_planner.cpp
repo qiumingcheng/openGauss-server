@@ -72,21 +72,24 @@ PlannedStmt* cascades_planner(Query* parse, int cursorOptions, ParamListInfo bou
         return standard_planner(parse, cursorOptions, boundParams);
     }
 
-    ereport(LOG, (errmsg("[CASCADES] >>> Query conversion succeeded, starting optimization")));
+    ereport(WARNING, (errmsg("[CASCADES] >>> Query conversion succeeded, starting optimization")));
 
     /* Step 2: Cascades optimization */
     cascades::PhysicalPropertySet required_prop;
     cascades::ColumnRefSet required_cols;
 
+    ereport(WARNING, (errmsg("[CASCADES] >>> Creating CascadesOptimizer")));
     cascades::CascadesOptimizer optimizer(root);
+    ereport(WARNING, (errmsg("[CASCADES] >>> Calling optimizer.optimize()")));
     cascades::OptExpression* optimized_expr = optimizer.optimize(opt_expr, required_prop, &required_cols);
+    ereport(WARNING, (errmsg("[CASCADES] >>> optimize() returned, optimized_expr=%p", (void*)optimized_expr)));
 
     if (optimized_expr == nullptr) {
         ereport(WARNING, (errmsg("Cascades optimizer: optimization failed, falling back to standard planner")));
         return standard_planner(parse, cursorOptions, boundParams);
     }
 
-    ereport(LOG, (errmsg("[CASCADES] >>> Optimization succeeded, converting to plan")));
+    ereport(WARNING, (errmsg("[CASCADES] >>> Optimization succeeded, converting to plan")));
 
     /* Step 3: OptExpression → PlannedStmt */
     cascades::ExprToPlanConverter plan_converter(root);

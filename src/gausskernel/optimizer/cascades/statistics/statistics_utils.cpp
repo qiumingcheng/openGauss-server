@@ -7,6 +7,7 @@
 #include "optimizer/clauses.h"
 #include "optimizer/pathnode.h"
 #include "parser/parsetree.h"
+#include "../base/memory_utils.h"
 #include <algorithm>
 
 namespace cascades {
@@ -137,7 +138,7 @@ double StatisticsUtils::get_column_avg_width(Oid relid, AttrNumber attnum) {
 // ============================================================================
 
 Statistics* StatisticsUtils::build_table_statistics(Oid relid, void* target_list) {
-    Statistics* stats = new Statistics();
+    Statistics* stats = NEW_EX(Statistics);
 
     if (!OidIsValid(relid)) {
         stats->set_row_count(1000.0);

@@ -17,13 +17,15 @@ namespace cascades {
 static OptExpression* build_opt_expression(GroupExpression* group_expr) {
     OptExprOp* op = group_expr->get_op();
     std::vector<OptExpression*> children;
+    children.reserve(group_expr->arity());
 
     // Recursively build children from input groups
     for (Group* input_group : group_expr->get_inputs()) {
         GroupExpression* child_expr = input_group->get_first_logical_expression();
-        if (child_expr != nullptr) {
-            children.push_back(build_opt_expression(child_expr));
-        }
+        Assert(child_expr != nullptr);  // Input group must have at least one logical expression
+        OptExpression* child_opt = build_opt_expression(child_expr);
+        Assert(child_opt != nullptr);  // Recursive build must succeed if child_expr exists
+        children.push_back(child_opt);
     }
 
     OptExpression* result = OptExpression::create_with_childrens(op, children);

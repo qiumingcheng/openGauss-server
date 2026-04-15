@@ -10,10 +10,8 @@ Group::Group(int id)
       is_explored_(false) {}
 
 Group::~Group() {
-    // Note: GroupExpressions are deleted by Memo's destructor
-    // Group only owns logical_property_ and statistics_
-    delete logical_property_;
-    delete statistics_;
+    // MemoryContext will automatically free logical_property_ and statistics_
+    // No manual delete needed
 }
 
 void Group::add_expression(GroupExpression* expr) {
@@ -45,12 +43,12 @@ GroupExpression* Group::get_first_logical_expression() const {
 }
 
 void Group::set_logical_property(LogicalProperty* property) {
-    delete logical_property_;  // Free old property
+    // MemoryContext manages memory, no need to delete old property
     logical_property_ = property;
 }
 
 void Group::set_statistics(Statistics* stats) {
-    delete statistics_;  // Free old statistics
+    // MemoryContext manages memory, no need to delete old statistics
     statistics_ = stats;
 }
 

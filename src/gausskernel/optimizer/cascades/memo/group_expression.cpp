@@ -25,8 +25,8 @@ void GroupExpression::derive_logical_property_itself() {
     ExpressionContext context(this);
     context.derive_logical_property();
     if (group_ != nullptr) {
+        // Property is allocated in MemoryContext, just assign it to group
         group_->set_logical_property(context.get_root_property());
-        context.release_root_property();  // Transfer ownership to group
     }
 }
 

@@ -37,13 +37,13 @@ public:
 
     LogicalProperty* get_logical_property() const { return property_; }
     void set_logical_property(LogicalProperty* property) {
-        delete property_;
+        // MemoryContext manages memory, no need to delete old property
         property_ = property;
     }
 
     Statistics* get_statistics() const { return statistics_; }
     void set_statistics(Statistics* stats) {
-        delete statistics_;
+        // MemoryContext manages memory, no need to delete old statistics
         statistics_ = stats;
     }
 

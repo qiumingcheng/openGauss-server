@@ -3,9 +3,6 @@
 #include <memory>
 #include <utility>
 
-// Note: palloc0 is defined in utils/palloc.h as a macro
-// Files using this header should include postgres.h which includes palloc.h
-
 namespace cascades {
 
 /**
@@ -31,6 +28,7 @@ namespace cascades {
 /**
  * Factory function to create shared_ptr in C++11 style.
  * Equivalent to std::make_unique from C++14.
+ * Note: Task objects are allocated with palloc0 via MakeTask wrapper in cascades_optimizer.cpp
  */
 template<typename T, typename... Args>
 std::shared_ptr<T> MakeTask(Args&&... args) {

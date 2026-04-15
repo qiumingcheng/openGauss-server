@@ -1,4 +1,5 @@
 #include "logical_subquery.h"
+#include "../../base/memory_utils.h"
 
 namespace cascades {
 
@@ -13,7 +14,7 @@ LogicalSubquery::LogicalSubquery(int subquery_id)
       is_correlated_(false) {}
 
 OptExprOp* LogicalSubquery::clone() const {
-    LogicalSubquery* cloned = new LogicalSubquery(subquery_id_);
+    LogicalSubquery* cloned = NEW_EX(LogicalSubquery, subquery_id_);
     cloned->set_correlated(is_correlated_);
     cloned->set_output_columns(output_columns_);
     return cloned;

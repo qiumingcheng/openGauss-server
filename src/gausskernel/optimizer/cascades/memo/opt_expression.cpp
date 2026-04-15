@@ -1,5 +1,6 @@
 #include "opt_expression.h"
 #include "group_expression.h"
+#include "../base/memory_utils.h"
 
 namespace cascades {
 
@@ -10,21 +11,22 @@ OptExpression::OptExpression(OptExprOp* op, const std::vector<OptExpression*>& i
     : op_(op), inputs_(inputs), group_expression_(nullptr), property_(nullptr), statistics_(nullptr), cost_(0.0) {}
 
 OptExpression::~OptExpression() {
-    // Note: don't delete children - they are owned by Group
+    // MemoryContext will automatically free property_ and statistics_
+    // Children are owned by Group, don't delete them
 }
 
 OptExpression* OptExpression::create(OptExprOp* op) {
-    return new OptExpression(op);
+    return NEW_EX(OptExpression, op);
 }
 
 OptExpression* OptExpression::create(OptExprOp* op, OptExpression* child) {
     std::vector<OptExpression*> inputs = {child};
-    return new OptExpression(op, inputs);
+    return NEW_EX(OptExpression, op, inputs);
 }
 
 OptExpression* OptExpression::create(OptExprOp* op, OptExpression* left, OptExpression* right) {
     std::vector<OptExpression*> inputs = {left, right};
-    return new OptExpression(op, inputs);
+    return NEW_EX(OptExpression, op, inputs);
 }
 
 OptExpression* OptExpression::create_with_childrens(OptExprOp* op, const std::vector<OptExpression*>& children) {
@@ -35,7 +37,7 @@ OptExpression* OptExpression::create_with_childrens(OptExprOp* op, const std::ve
     } else if (children.size() == 2) {
         return create(op, children[0], children[1]);
     } else {
-        return new OptExpression(op, children);
+        return NEW_EX(OptExpression, op, children);
     }
 }
 

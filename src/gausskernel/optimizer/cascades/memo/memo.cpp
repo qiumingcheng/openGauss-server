@@ -1,24 +1,21 @@
 #include "memo.h"
 #include "opt_expression.h"
 #include "../operator/operator.h"
+#include "nodes/memnodes.h"
+#include "utils/memutils.h"
 #include <algorithm>
 #include <set>
 
 namespace cascades {
 
-Memo::Memo() : next_group_id_(0), root_group_(nullptr) {}
+Memo::Memo(MemoryContext context)
+    : memory_context_(context), next_group_id_(0), root_group_(nullptr) {}
 
 Memo::~Memo() {
-    // Delete all GroupExpressions first
-    // Note: expression_set_ owns all GroupExpression objects
-    for (auto* expr : expression_set_) {
-        delete expr;
-    }
-
-    // Then delete Groups (which will delete logical_property_ and statistics_)
-    for (auto* g : groups_) {
-        delete g;
-    }
+    // MemoryContext will automatically free all allocated objects
+    // expression_set_ contains GroupExpressions allocated in memory_context_
+    // groups_ contains Groups allocated in memory_context_
+    // No manual delete needed
 }
 
 GroupExpression* Memo::init(OptExpression* expression) {
@@ -65,13 +62,17 @@ std::pair<bool, GroupExpression*> Memo::insert_group_expression(
 
 std::pair<bool, GroupExpression*> Memo::insert_transform_result(
     GroupExpression* source_expr, OptExpression* transformed_expr) {
+    MemoryContext oldcxt = MemoryContextSwitchTo(memory_context_);
+
     // Create new GroupExpression using the source's input groups but with transformed operator
     std::vector<Group*> input_groups;
     for (int i = 0; i < source_expr->arity(); ++i) {
         input_groups.push_back(source_expr->input_at(i));
     }
 
-    GroupExpression* new_expr = new GroupExpression(transformed_expr->get_op(), input_groups);
+    GroupExpression* new_expr = NEW_EX(GroupExpression, transformed_expr->get_op(), input_groups);
+
+    MemoryContextSwitchTo(oldcxt);
 
     // Insert into the same group as the source expression
     return insert_group_expression(new_expr, source_expr->get_group());
@@ -84,12 +85,16 @@ void Memo::insert_enforce_expression(GroupExpression* group_expr, Group* target_
 }
 
 Group* Memo::new_group() {
-    Group* g = new Group(next_group_id_++);
+    MemoryContext oldcxt = MemoryContextSwitchTo(memory_context_);
+    Group* g = NEW_EX(Group, next_group_id_++);
+    MemoryContextSwitchTo(oldcxt);
     groups_.push_back(g);
     return g;
 }
 
 std::pair<Group*, GroupExpression*> Memo::copy_in(Group* target_group, OptExpression* expr) {
+    MemoryContext oldcxt = MemoryContextSwitchTo(memory_context_);
+
     // Recursively copy inputs first
     std::vector<Group*> input_groups;
     for (int i = 0; i < expr->arity(); ++i) {
@@ -106,8 +111,8 @@ std::pair<Group*, GroupExpression*> Memo::copy_in(Group* target_group, OptExpres
         }
     }
 
-    // Create group expression
-    GroupExpression* group_expr = new GroupExpression(expr->get_op(), input_groups);
+    // Create group expression using NEW_EX macro
+    GroupExpression* group_expr = NEW_EX(GroupExpression, expr->get_op(), input_groups);
 
     // If no target group specified, create a new one
     if (target_group == nullptr) {
@@ -125,10 +130,12 @@ std::pair<Group*, GroupExpression*> Memo::copy_in(Group* target_group, OptExpres
         }
         // Copy statistics from original expression if available
         if (expr->get_statistics() != nullptr) {
-            target_group->set_statistics(new Statistics(*expr->get_statistics()));
+            Statistics* stats = NEW_EX(Statistics, *expr->get_statistics());
+            target_group->set_statistics(stats);
         }
     }
 
+    MemoryContextSwitchTo(oldcxt);
     return {target_group, group_expr};
 }
 

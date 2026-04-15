@@ -79,20 +79,17 @@ void OptimizeExpressionTask::execute() {
     // Push ApplyRuleTask for each valid rule
     // Note: Stack is LIFO, so rules with higher promise (sorted first) will be executed first
     for (Rule* rule : valid_rules) {
-        context_->get_optimizer_context()->get_task_scheduler()->push_task(
-            MakeTask<ApplyRuleTask>(context_, expression_, rule, explore_));
+        push_task(MakeTask<ApplyRuleTask>(context_, expression_, rule, explore_));
     }
 
     // Push DeriveStatsTask to derive statistics after rules are applied
-    context_->get_optimizer_context()->get_task_scheduler()->push_task(
-        MakeTask<DeriveStatsTask>(context_, expression_));
+    push_task(MakeTask<DeriveStatsTask>(context_, expression_));
 
     // Push ExploreGroupTask for each child group (in reverse order)
     // StarRocks: for (int i = groupExpression.arity() - 1; i >= 0; i--)
     for (int i = expression_->arity() - 1; i >= 0; --i) {
         Group* child_group = expression_->input_at(i);
-        context_->get_optimizer_context()->get_task_scheduler()->push_task(
-            MakeTask<ExploreGroupTask>(context_, child_group));
+        push_task(MakeTask<ExploreGroupTask>(context_, child_group));
     }
 }
 

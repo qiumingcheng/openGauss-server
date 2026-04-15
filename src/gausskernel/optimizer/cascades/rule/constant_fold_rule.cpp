@@ -27,6 +27,8 @@ ConstantFoldRule::ConstantFoldRule()
 
 std::vector<OptExpression*> ConstantFoldRule::transform(
     OptExpression* input, OptimizerContext* context) {
+    Assert(input->arity() > 0);  // Pattern must match expression with child
+
     std::vector<OptExpression*> result;
 
     OptExprOp* op = input->get_op();
@@ -55,26 +57,6 @@ std::vector<OptExpression*> ConstantFoldRule::transform(
         // IS UNKNOWN (NULL) condition - treat as always false for filtering
         // A filter on NULL produces no rows since NULL = NULL is not true
         result.push_back(input);
-        return result;
-    }
-
-    // For normal predicates, try to evaluate if all operands are constants
-    // This is a simplified check - full implementation would analyze
-    // the actual expression tree
-    int const_value = get_filter_const_value(filter);
-    if (const_value == 1) {
-        // Predicate is always true
-        OptExpression* folded = eliminate_true_filter(input);
-        if (folded != nullptr) {
-            result.push_back(folded);
-        }
-        return result;
-    } else if (const_value == -1) {
-        // Predicate is always false
-        OptExpression* folded = eliminate_false_filter(input);
-        if (folded != nullptr) {
-            result.push_back(folded);
-        }
         return result;
     }
 

@@ -17,6 +17,7 @@ public:
     virtual void execute() = 0;
     virtual std::string to_string() const = 0;
 
+    TaskContext* getContext() const { return context_; }
 protected:
     /**
      * Push a task to the task scheduler.

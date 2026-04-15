@@ -1,4 +1,5 @@
 #include "sort_property.h"
+#include "../base/memory_utils.h"
 #include "../memo/group.h"
 #include "../memo/group_expression.h"
 #include "../operator/operators.h"
@@ -75,9 +76,9 @@ std::string SortProperty::to_string() const {
 
 GroupExpression* SortProperty::append_enforcers(Group* child) const {
     // Create PhysicalSort enforcer for sort property
-    PhysicalSort* sort = new PhysicalSort(nullptr, nullptr);
+    PhysicalSort* sort = NEW_EX(PhysicalSort);
     std::vector<Group*> inputs = {child};
-    GroupExpression* enforcer = new GroupExpression(sort, inputs);
+    GroupExpression* enforcer = NEW_EX(GroupExpression, sort, inputs);
     enforcer->set_group(child);
     return enforcer;
 }

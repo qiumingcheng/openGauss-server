@@ -253,7 +253,7 @@ std::vector<OptExpression*> AggregationSimplifyRule::transform(
                 // Re-create the join with local aggregates
                 LogicalJoin* orig_join =
                     static_cast<LogicalJoin*>(child->get_op());
-                LogicalInnerJoin* new_join = new LogicalInnerJoin();
+                LogicalInnerJoin* new_join = NEW_EX(LogicalInnerJoin);
                 new_join->set_join_keys(orig_join->get_join_keys());
                 new_join->set_join_type(orig_join->get_join_type());
 

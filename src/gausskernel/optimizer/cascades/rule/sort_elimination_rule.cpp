@@ -21,6 +21,8 @@ SortEliminationRule::SortEliminationRule()
 
 std::vector<OptExpression*> SortEliminationRule::transform(
     OptExpression* input, OptimizerContext* context) {
+    Assert(input->arity() > 0);  // Pattern must match expression with child
+
     std::vector<OptExpression*> result;
 
     OptExprOp* op = input->get_op();
@@ -35,14 +37,10 @@ std::vector<OptExpression*> SortEliminationRule::transform(
     }
 
     OptExpression* child = input->input_at(0);
-    if (child == nullptr) {
-        return result;
-    }
+    Assert(child != nullptr);  // Guaranteed by arity check above
 
     OptExprOp* child_op = child->get_op();
-    if (child_op == nullptr) {
-        return result;
-    }
+    Assert(child_op != nullptr);  // Must have valid operator
 
     // Get required sort order from the PhysicalSort's path
     OrderSpec required_spec = get_sort_order(sort);

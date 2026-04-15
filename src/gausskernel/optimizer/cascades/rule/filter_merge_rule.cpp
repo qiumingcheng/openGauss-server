@@ -18,6 +18,8 @@ FilterMergeRule::FilterMergeRule()
 
 std::vector<OptExpression*> FilterMergeRule::transform(
     OptExpression* input, OptimizerContext* context) {
+    Assert(input->arity() > 0);  // Pattern must match expression with child
+
     // Pattern: Filter on top of any expression
     LogicalFilter* filter = static_cast<LogicalFilter*>(input->get_op());
     OptExpression* child = input->input_at(0);

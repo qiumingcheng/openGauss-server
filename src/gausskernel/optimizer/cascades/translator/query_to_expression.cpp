@@ -1,4 +1,5 @@
 #include "query_to_expression.h"
+#include "../base/memory_utils.h"
 #include "../operator/operators.h"
 #include "../memo/opt_expression.h"
 #include "../statistics/statistics.h"
@@ -34,7 +35,7 @@ OptExpression* QueryToExprConverter::translate_select(PlannerInfo* root, Query* 
     // 2. Convert WHERE clause to Filter
     OptExpression* filter_expr = nullptr;
     if (parse->jointree != nullptr && parse->jointree->quals != nullptr) {
-        LogicalFilter* filter_op = new LogicalFilter(parse->jointree->quals);
+        LogicalFilter* filter_op = NEW_EX(LogicalFilter, parse->jointree->quals);
         if (from_expr != nullptr) {
             filter_expr = OptExpression::create(filter_op, from_expr);
         } else {
@@ -75,7 +76,7 @@ OptExpression* QueryToExprConverter::translate_from(PlannerInfo* root, Query* pa
             Node* item = (Node*)lfirst(lc);
             OptExpression* item_expr = translate_from_item(root, parse, item);
             if (result != nullptr && item_expr != nullptr) {
-                LogicalInnerJoin* join_op = new LogicalInnerJoin();
+                LogicalInnerJoin* join_op = NEW_EX(LogicalInnerJoin);
                 result = OptExpression::create(join_op, result, item_expr);
             } else {
                 result = item_expr;
@@ -129,7 +130,7 @@ OptExpression* QueryToExprConverter::translate_join(PlannerInfo* root, Query* pa
         join_type = JOIN_FULL;
     }
 
-    LogicalInnerJoin* join_op = new LogicalInnerJoin();
+    LogicalInnerJoin* join_op = NEW_EX(LogicalInnerJoin);
     join_op->set_join_type(join_type);
 
     // Set join qualifier
@@ -167,7 +168,7 @@ OptExpression* QueryToExprConverter::translate_scan(PlannerInfo* root, Query* pa
     RangeTblEntry* rte = (RangeTblEntry*)list_nth(parse->rtable, rtindex - 1);
 
     if (rte->relid != InvalidOid) {
-        LogicalScan* scan_op = new LogicalScan(rtindex);
+        LogicalScan* scan_op = NEW_EX(LogicalScan, rtindex);
         if (root != nullptr) {
             // Build RelOptInfo if not already exists
             RelOptInfo* rel = build_simple_rel(root, rtindex, RELOPT_BASEREL);
@@ -189,7 +190,7 @@ OptExpression* QueryToExprConverter::translate_target_list(PlannerInfo* root, Qu
         return child;
     }
 
-    LogicalProject* project_op = new LogicalProject(targetList);
+    LogicalProject* project_op = NEW_EX(LogicalProject, targetList);
 
     if (child != nullptr) {
         return OptExpression::create(project_op, child);
@@ -255,7 +256,7 @@ void QueryToExprConverter::derive_statistics(OptExpression* expr, RelOptInfo* re
         return;
     }
 
-    Statistics* stats = new Statistics();
+    Statistics* stats = NEW_EX(Statistics);
     stats->set_row_count(rel->rows);
     stats->set_width(rel->reltarget ? rel->reltarget->width : 0);
 

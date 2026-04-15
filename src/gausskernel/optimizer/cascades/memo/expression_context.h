@@ -31,7 +31,7 @@ public:
     LogicalProperty* get_root_property() const { return root_property_; }
     LogicalProperty* get_child_property(int index) const;
     void derive_logical_property();
-    void release_root_property();  // Transfer ownership, caller responsible for deletion
+    // Note: release_root_property() removed - caller doesn't need to delete, MemoryContext manages
 
     // Statistics access
     Statistics* get_statistics() const;
@@ -80,8 +80,7 @@ private:
 
     OptExpression* expression_;
     GroupExpression* group_expression_;
-    LogicalProperty* root_property_;
-    bool owns_root_property_;  // Track if we own the root_property_
+    LogicalProperty* root_property_;  // Owned by Group, just a reference
     std::vector<LogicalProperty*> children_properties_;
     Statistics* statistics_;
     std::vector<Statistics*> children_statistics_;

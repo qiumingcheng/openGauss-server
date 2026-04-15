@@ -9,26 +9,34 @@
 
 namespace cascades {
 CascadesOptimizer::CascadesOptimizer(PlannerInfo* root)
-    : root_(root), root_task_context_(nullptr) {}
+    : root_(root), context_(root, root->planner_cxt), root_task_context_(nullptr) {}
 
 CascadesOptimizer::~CascadesOptimizer() {
-    delete root_task_context_;
+    // root_task_context_ is allocated in MemoryContext, no need to delete
 }
 
 OptExpression* CascadesOptimizer::optimize(OptExpression* expression,
                                           const PhysicalPropertySet& required_property,
                                           ColumnRefSet* required_columns) {
+    ereport(WARNING, (errmsg("[CASCADES] optimize() called, expression=%p", (void*)expression)));
+
     // Phase 1: Rewrite - apply logical transformation rules to normalize the tree
+    ereport(WARNING, (errmsg("[CASCADES] Phase 1: logical_rewrite")));
     logical_rewrite(expression);
 
     // Phase 2: Initialize memo
+    ereport(WARNING, (errmsg("[CASCADES] Phase 2: init_memo")));
     init_memo(expression);
 
     // Phase 3: Explore and cost
+    ereport(WARNING, (errmsg("[CASCADES] Phase 3: explore")));
     explore();
 
     // Phase 4: Extract best plan
-    return extract_best_plan(required_property);
+    ereport(WARNING, (errmsg("[CASCADES] Phase 4: extract_best_plan")));
+    OptExpression* result = extract_best_plan(required_property);
+    ereport(WARNING, (errmsg("[CASCADES] optimize() returning %p", (void*)result)));
+    return result;
 }
 
 void CascadesOptimizer::logical_rewrite(OptExpression* expression) {
@@ -48,20 +56,30 @@ void CascadesOptimizer::init_memo(OptExpression* expression) {
 }
 
 void CascadesOptimizer::explore() {
+    ereport(WARNING, (errmsg("[CASCADES] >>> Entering explore()")));
+
     // Initialize root task context if not already done
     if (root_task_context_ == nullptr) {
-        root_task_context_ = new TaskContext(&context_,
+        MemoryContext oldcxt = MemoryContextSwitchTo(context_.get_memory_context());
+        root_task_context_ = NEW_EX(TaskContext, &context_,
                                               PhysicalPropertySet(),
                                               nullptr,
                                               std::numeric_limits<double>::infinity());
+        MemoryContextSwitchTo(oldcxt);
+        ereport(WARNING, (errmsg("[CASCADES] >>> Created root task context")));
     }
 
     TaskScheduler* scheduler = context_.get_task_scheduler();
     Group* root_group = context_.get_memo()->get_root_group();
 
+    ereport(WARNING, (errmsg("[CASCADES] >>> Root group id=%d", root_group->id())));
+    ereport(WARNING, (errmsg("[CASCADES] >>> Pushing ExploreGroupTask")));
+
     // Start exploration from the root group
     scheduler->push_task(MakeTask<ExploreGroupTask>(root_task_context_, root_group));
+    ereport(WARNING, (errmsg("[CASCADES] >>> Executing tasks")));
     scheduler->execute_tasks(root_task_context_);
+    ereport(WARNING, (errmsg("[CASCADES] >>> Explore() completed")));
 }
 
 OptExpression* CascadesOptimizer::extract_best_plan(const PhysicalPropertySet& required_property) {

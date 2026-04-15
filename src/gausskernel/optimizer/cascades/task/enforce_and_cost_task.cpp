@@ -1,6 +1,7 @@
 #include "enforce_and_cost_task.h"
 #include "optimize_expression_task.h"
 #include "task_context.h"
+#include "../base/memory_utils.h"
 #include "../memo/group.h"
 #include "../memo/group_expression.h"
 #include "../memo/memo.h"
@@ -64,8 +65,11 @@ void EnforceAndCostTask::execute() {
 
             if (child_best == nullptr) {
                 // Child not yet optimized for this required property
-                all_children_optimized = false;
-                break;
+                // Push tasks to optimize child group first, then re-execute this task
+                // Note: LIFO order - push self first, then child optimize task
+                push_task(MakeTask<EnforceAndCostTask>(context_, group_, required_property_));
+                push_task(MakeTask<EnforceAndCostTask>(context_, child_group, child_required));
+                return;
             }
 
             children_best_exprs.push_back(child_best);

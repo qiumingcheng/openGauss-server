@@ -1,4 +1,5 @@
 #include "distribution_property.h"
+#include "../base/memory_utils.h"
 #include "../memo/group.h"
 #include "../memo/group_expression.h"
 #include "../operator/operators.h"
@@ -96,9 +97,9 @@ std::string DistributionProperty::to_string() const {
 
 GroupExpression* DistributionProperty::append_enforcers(Group* child) const {
     // Create PhysicalExchange enforcer for distribution property
-    PhysicalExchange* exchange = new PhysicalExchange(nullptr, nullptr, type_);
+    PhysicalExchange* exchange = NEW_EX(PhysicalExchange, nullptr, nullptr, type_);
     std::vector<Group*> inputs = {child};
-    GroupExpression* enforcer = new GroupExpression(exchange, inputs);
+    GroupExpression* enforcer = NEW_EX(GroupExpression, exchange, inputs);
     enforcer->set_group(child);
     return enforcer;
 }

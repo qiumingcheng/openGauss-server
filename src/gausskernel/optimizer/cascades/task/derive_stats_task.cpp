@@ -28,8 +28,8 @@ void DeriveStatsTask::execute() {
         children_stats.push_back(child_stats);
     }
 
-    // Create result statistics
-    Statistics* result_stats = new Statistics();
+    // Create result statistics using NEW_EX macro
+    Statistics* result_stats = NEW_EX(Statistics);
 
     // Derive statistics based on operator type
     derive_statistics_by_type(op, result_stats, children_stats);
@@ -104,7 +104,7 @@ void DeriveStatsTask::derive_scan_statistics(
             Statistics* table_stats = StatisticsUtils::build_table_statistics(relid, nullptr);
             if (table_stats != nullptr) {
                 result_stats->copy_from(table_stats);
-                delete table_stats;
+                // table_stats is allocated in MemoryContext, no need to delete
                 return;
             }
         }

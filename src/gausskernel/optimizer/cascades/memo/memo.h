@@ -3,6 +3,7 @@
 #include "group_expression.h"
 #include "opt_expression.h"
 #include "../property/physical_property_set.h"
+#include "nodes/memnodes.h"
 #include <vector>
 #include <unordered_map>
 #include <unordered_set>
@@ -14,6 +15,7 @@ namespace cascades {
  * Memo - The core data structure for Cascades optimizer
  *
  * The Memo stores all GroupExpressions generated during optimization.
+ * All objects are allocated in a MemoryContext for automatic cleanup.
  * It provides:
  * 1. Duplicate detection via hash-based lookup
  * 2. Group merging when equivalent expressions are found
@@ -22,8 +24,14 @@ namespace cascades {
  */
 class Memo {
 public:
-    Memo();
+    explicit Memo(MemoryContext context);
     ~Memo();
+
+    /**
+     * Get the memory context used for allocation.
+     * @return The memory context
+     */
+    MemoryContext get_memory_context() const { return memory_context_; }
 
     /**
      * Initialize the Memo with an OptExpression tree.
@@ -122,6 +130,7 @@ public:
     std::string to_string() const;
 
 private:
+    MemoryContext memory_context_;  // Memory context for all allocations
     int next_group_id_;
     std::vector<Group*> groups_;
     Group* root_group_;

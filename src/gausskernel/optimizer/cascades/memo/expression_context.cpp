@@ -2,6 +2,7 @@
 #include "opt_expression.h"
 #include "group_expression.h"
 #include "group.h"
+#include "../base/memory_utils.h"
 #include "../operator/operators/logical_join.h"
 #include "../operator/operators/logical_aggregate.h"
 #include "../operator/operators/logical_filter.h"
@@ -20,14 +21,12 @@ ExpressionContext::ExpressionContext(GroupExpression* group_expression)
 }
 
 ExpressionContext::~ExpressionContext() {
-    if (owns_root_property_) {
-        delete root_property_;
-    }
+    // root_property_ is owned by Group, don't delete it
+    // children_properties_ are owned by child Groups, don't delete them
 }
 
 void ExpressionContext::init_from_expression(OptExpression* expression) {
     root_property_ = expression->get_logical_property();
-    owns_root_property_ = false;
     statistics_ = expression->get_statistics();
 
     for (auto* child : expression->get_inputs()) {
@@ -38,7 +37,6 @@ void ExpressionContext::init_from_expression(OptExpression* expression) {
 
 void ExpressionContext::init_from_group_expression(GroupExpression* group_expr) {
     root_property_ = group_expr->get_group()->get_logical_property();
-    owns_root_property_ = false;
     statistics_ = group_expr->get_group()->get_statistics();
 
     for (auto* child_group : group_expr->get_inputs()) {
@@ -57,17 +55,10 @@ LogicalProperty* ExpressionContext::get_child_property(int index) const {
 }
 
 void ExpressionContext::derive_logical_property() {
-    // Delete existing property if we own it to prevent memory leak
-    if (owns_root_property_ && root_property_ != nullptr) {
-        delete root_property_;
-    }
-    root_property_ = new LogicalProperty();
-    owns_root_property_ = true;
+    // Allocate in MemoryContext using NEW_EX macro
+    root_property_ = NEW_EX(LogicalProperty);
     root_property_->derive(this);
-}
-
-void ExpressionContext::release_root_property() {
-    owns_root_property_ = false;  // Transfer ownership to caller
+    // Property is owned by Group, not by ExpressionContext
 }
 
 Statistics* ExpressionContext::get_statistics() const {

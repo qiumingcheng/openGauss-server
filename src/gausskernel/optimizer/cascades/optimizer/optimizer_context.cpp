@@ -20,8 +20,8 @@
 #include "../rule/index_scan_impl_rule.h"
 
 namespace cascades {
-OptimizerContext::OptimizerContext(PlannerInfo* root)
-    : root_(root) {
+OptimizerContext::OptimizerContext(PlannerInfo* root, MemoryContext context)
+    : root_(root), memory_context_(context), memo_(context) {
     // Initialize transformation rules
     rule_set_.add_rule(JoinCommutativityRule::instance());
     rule_set_.add_rule(JoinAssociationRule::instance());

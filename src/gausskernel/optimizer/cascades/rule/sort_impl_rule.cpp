@@ -21,10 +21,13 @@ SortImplRule::SortImplRule()
 
 std::vector<OptExpression*> SortImplRule::transform(
     OptExpression* input, OptimizerContext* context) {
+    Assert(input->arity() > 0);  // Pattern must match expression with child
+
     LogicalOptExprOp* project_op = static_cast<LogicalOptExprOp*>(input->get_op());
 
     // Get child expression
     OptExpression* child = input->input_at(0);
+    Assert(child != nullptr);  // Guaranteed by arity check above
 
     // Get child GroupExpression
     GroupExpression* child_group_expr = child->get_group_expression();
