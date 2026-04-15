@@ -24,6 +24,7 @@ public:
     static Pattern* create(OptExprOpType op_type);
     static Pattern* create(OptExprOpType op_type, Pattern* child);
     static Pattern* create(OptExprOpType op_type, Pattern* left, Pattern* right);
+    static Pattern* create(OptExprOpType op_type, std::initializer_list<OptExprOpType> children);
     static Pattern* any();
 
     bool match(OptExpression* expression) const;
@@ -42,6 +43,7 @@ public:
     Type get_type() const { return type_; }
     OptExprOpType get_operator_type() const { return op_type_; }
     const std::vector<Pattern*>& get_children() const { return children_; }
+    std::vector<Pattern*>& get_children() { return children_; }
 
 private:
     Type type_;

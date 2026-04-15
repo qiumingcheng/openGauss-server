@@ -31,6 +31,15 @@ Pattern* Pattern::create(OptExprOpType op_type, Pattern* left, Pattern* right) {
     return new (mem) Pattern(Type::MULTI, op_type, {left, right});
 }
 
+Pattern* Pattern::create(OptExprOpType op_type, std::initializer_list<OptExprOpType> children) {
+    // Build child patterns as LEAF patterns
+    Pattern* pattern = NEW_EX(Pattern, Type::MULTI, op_type);
+    for (OptExprOpType child_type : children) {
+        pattern->get_children().push_back(leaf(child_type));
+    }
+    return pattern;
+}
+
 Pattern* Pattern::any() {
     return NEW_EX(Pattern, Type::LEAF, OptExprOpType::ANY);
 }
