@@ -113,30 +113,24 @@ std::pair<Group*, GroupExpression*> Memo::copy_in(Group* target_group, OptExpres
 
     // Create group expression using NEW_EX macro
     GroupExpression* group_expr = NEW_EX(GroupExpression, expr->get_op(), input_groups);
-
-    // If no target group specified, create a new one
-    if (target_group == nullptr) {
-        target_group = new_group();
-    }
-
     // Insert the group expression
     auto result = insert_group_expression(group_expr, target_group);
 
     // For new group with logical operator, derive logical property
     // Only derive if the group doesn't have a logical property yet
-    if (result.first && target_group != nullptr && group_expr->is_logical()) {
-        if (target_group->get_logical_property() == nullptr) {
-            group_expr->derive_logical_property_itself();
-        }
+    if (result.first && target_group == nullptr) {
+        assert(result.second->is_logical());
+        result.second->derive_logical_property_itself();
+
         // Copy statistics from original expression if available
         if (expr->get_statistics() != nullptr) {
             Statistics* stats = NEW_EX(Statistics, *expr->get_statistics());
-            target_group->set_statistics(stats);
+            result.second->get_group()->set_statistics(stats);
         }
     }
 
     MemoryContextSwitchTo(oldcxt);
-    return {target_group, group_expr};
+    return {result.second->get_group(), group_expr};
 }
 
 GroupExpression* Memo::find_equal_expression(const GroupExpression& expr) const {

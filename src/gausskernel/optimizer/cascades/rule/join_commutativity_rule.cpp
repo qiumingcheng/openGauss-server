@@ -10,10 +10,11 @@ JoinCommutativityRule* JoinCommutativityRule::instance(){
 }
 
 JoinCommutativityRule::JoinCommutativityRule()
-    : Rule(RuleType::TF_JOIN_COMMUTATIVITY, Pattern::create(OptExprOpType::LOGICAL_JOIN)) {}
+    : Rule(RuleType::TF_JOIN_COMMUTATIVITY, Pattern::create(OptExprOpType::LOGICAL_JOIN, Pattern::any(), Pattern::any())) {}
 
 std::vector<OptExpression*> JoinCommutativityRule::transform(
     OptExpression* input, OptimizerContext* context) {
+    // Pattern guarantees: op_type == LOGICAL_JOIN && arity == 2
     // Get the join operator and its children
     LogicalOptExprOp* join_op = static_cast<LogicalOptExprOp*>(input->get_op());
     OptExpression* left = input->input_at(0);

@@ -68,6 +68,10 @@ void ApplyRuleTask::execute() {
     // Build OptExpression tree from GroupExpression for rule matching
     OptExpression* input = build_opt_expression(expression_);
 
+    ereport(WARNING, (errmsg("[CASCADES] ApplyRuleTask: rule=%d, expr=%s, input_op=%d, input_arity=%d",
+                             (int)rule_->type(), expression_->to_string().c_str(),
+                             input->get_op()->get_type(), input->arity())));
+
     // Check if rule's check condition passes
     OptimizerContext* optimizer_context = context_->get_optimizer_context();
     if (!rule_->check(input, optimizer_context)) {

@@ -145,7 +145,7 @@ bool DuplicateJoinEliminationRule::are_joins_equivalent(
 
 DuplicateJoinEliminationRule::DuplicateJoinEliminationRule()
     : Rule(RuleType::TF_DUPLICATE_JOIN_ELIMINATION,
-           Pattern::create(OptExprOpType::LOGICAL_JOIN)) {}
+           Pattern::create(OptExprOpType::LOGICAL_JOIN, Pattern::any(), Pattern::any())) {}
 
 std::vector<OptExpression*> DuplicateJoinEliminationRule::transform(
     OptExpression* input, OptimizerContext* context) {

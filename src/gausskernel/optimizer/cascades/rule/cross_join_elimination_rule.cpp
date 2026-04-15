@@ -37,7 +37,7 @@ static bool is_empty_relation(OptExpression* expr) {
 
 CrossJoinEliminationRule::CrossJoinEliminationRule()
     : Rule(RuleType::TF_CROSS_JOIN_ELIMINATE,
-           Pattern::create(OptExprOpType::LOGICAL_JOIN)) {}
+           Pattern::create(OptExprOpType::LOGICAL_JOIN, Pattern::any(), Pattern::any())) {}
 
 CrossJoinEliminationRule* CrossJoinEliminationRule::instance(){
     static CrossJoinEliminationRule inst;

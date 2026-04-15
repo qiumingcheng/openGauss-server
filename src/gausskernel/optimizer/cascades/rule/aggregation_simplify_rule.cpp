@@ -177,10 +177,11 @@ AggregationSimplifyRule* AggregationSimplifyRule::instance() {
 
 AggregationSimplifyRule::AggregationSimplifyRule()
     : Rule(RuleType::TF_AGGREGATION_SIMPLIFY,
-           Pattern::create(OptExprOpType::LOGICAL_AGGREGATE)) {}
+           Pattern::create(OptExprOpType::LOGICAL_AGGREGATE, Pattern::any())) {}
 
 std::vector<OptExpression*> AggregationSimplifyRule::transform(
     OptExpression* input, OptimizerContext* context) {
+    // Pattern guarantees: op_type == LOGICAL_AGGREGATE && arity == 1
     std::vector<OptExpression*> result;
 
     OptExprOp* op = input->get_op();

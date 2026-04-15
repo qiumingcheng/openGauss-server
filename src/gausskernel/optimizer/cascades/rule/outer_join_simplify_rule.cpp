@@ -46,7 +46,7 @@ OuterJoinSimplifyRule* OuterJoinSimplifyRule::instance() {
 
 OuterJoinSimplifyRule::OuterJoinSimplifyRule()
     : Rule(RuleType::TF_OUTER_JOIN_SIMPLIFY,
-           Pattern::create(OptExprOpType::LOGICAL_JOIN)) {}
+           Pattern::create(OptExprOpType::LOGICAL_JOIN, Pattern::any(), Pattern::any())) {}
 
 std::vector<OptExpression*> OuterJoinSimplifyRule::transform(
     OptExpression* input, OptimizerContext* context) {

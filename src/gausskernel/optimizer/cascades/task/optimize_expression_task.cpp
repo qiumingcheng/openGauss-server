@@ -23,6 +23,11 @@ std::vector<Rule*> OptimizeExpressionTask::get_valid_rules() const {
     // Collect transformation rules (always applied)
     const auto& transform_rules = rule_set->get_transformation_rules();
     for (Rule* rule : transform_rules) {
+        // Transformation rules only apply to logical expressions
+        if (!expression_->is_logical()) {
+            continue;
+        }
+
         // Skip if rule has been explored
         if (expression_->has_rule_explored(rule->type())) {
             continue;

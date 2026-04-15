@@ -18,10 +18,11 @@ ScanImplRule* ScanImplRule::instance() {
 }
 
 ScanImplRule::ScanImplRule()
-    : Rule(RuleType::IMP_SCAN, Pattern::leaf(OptExprOpType::LOGICAL_SCAN)) {}
+    : Rule(RuleType::IMP_SCAN, Pattern::create(OptExprOpType::LOGICAL_SCAN)) {}
 
 std::vector<OptExpression*> ScanImplRule::transform(
     OptExpression* input, OptimizerContext* context) {
+    // Pattern guarantees: op_type == LOGICAL_SCAN && arity == 0
     LogicalScan* scan_op = static_cast<LogicalScan*>(input->get_op());
     int table_id = scan_op->get_table_id();
 

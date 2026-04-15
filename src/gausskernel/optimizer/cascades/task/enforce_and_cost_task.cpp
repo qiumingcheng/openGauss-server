@@ -12,6 +12,7 @@
 #include "../operator/operators/physical_exchange.h"
 #include "../operator/operators/physical_sort.h"
 #include "../operator/operators/physical_hash_agg.h"
+#include "../operator/operators/physical_merge_join.h"
 #include "../property/required_property_deriver.h"
 #include <limits>
 #include <algorithm>
@@ -190,18 +191,41 @@ PhysicalPropertySet EnforceAndCostTask::derive_output_property(
             return PhysicalPropertySet(dist);
         }
 
-        case OptExprOpType::PHYSICAL_HASH_AGG:
+        case OptExprOpType::PHYSICAL_HASH_AGG: {
+            // HashAgg produces sorted output on group keys
+            // Extract group keys from the operator and create sort property
+            PhysicalHashAgg* hash_agg = static_cast<PhysicalHashAgg*>(op);
+            const std::vector<int>& group_keys = hash_agg->get_group_keys();
+            OrderSpec spec;
+            for (int key : group_keys) {
+                spec.add_ordering(key, true);  // Assume ascending
+            }
+            SortProperty sort_prop(spec);
+            return PhysicalPropertySet(child_property.get_distribution(), sort_prop);
+        }
+
         case OptExprOpType::PHYSICAL_SORT_AGG: {
-            // HashAgg destroys sort order (hash shuffle)
-            // But preserves/produces distribution on group keys
-            return PhysicalPropertySet();
+            // SortAgg produces sorted output on group keys
+            PhysicalHashAgg* sort_agg = static_cast<PhysicalHashAgg*>(op);
+            const std::vector<int>& group_keys = sort_agg->get_group_keys();
+            OrderSpec spec;
+            for (int key : group_keys) {
+                spec.add_ordering(key, true);  // Assume ascending
+            }
+            SortProperty sort_prop(spec);
+            return PhysicalPropertySet(child_property.get_distribution(), sort_prop);
         }
 
         case OptExprOpType::PHYSICAL_MERGE_JOIN: {
             // MergeJoin produces output sorted on probe keys (left side)
-            // In a full implementation, extract sort keys from the join op
-            // For now, pass through with distribution
-            return PhysicalPropertySet(child_property.get_distribution());
+            PhysicalMergeJoin* merge_join = static_cast<PhysicalMergeJoin*>(op);
+            const std::vector<int>& probe_keys = merge_join->get_probe_keys();
+            OrderSpec spec;
+            for (int key : probe_keys) {
+                spec.add_ordering(key, true);  // Assume ascending
+            }
+            SortProperty sort_prop(spec);
+            return PhysicalPropertySet(child_property.get_distribution(), sort_prop);
         }
 
         case OptExprOpType::PHYSICAL_HASH_JOIN:

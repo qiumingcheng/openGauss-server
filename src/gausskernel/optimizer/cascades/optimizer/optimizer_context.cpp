@@ -7,7 +7,6 @@
 #include "../rule/outer_join_simplify_rule.h"
 #include "../rule/cross_join_elimination_rule.h"
 #include "../rule/duplicate_join_elimination_rule.h"
-#include "../rule/sort_elimination_rule.h"
 #include "../rule/aggregation_simplify_rule.h"
 #include "../rule/subquery_unnest_rule.h"
 #include "../rule/constant_fold_rule.h"
@@ -31,7 +30,7 @@ OptimizerContext::OptimizerContext(PlannerInfo* root, MemoryContext context)
     rule_set_.add_rule(OuterJoinSimplifyRule::instance());
     rule_set_.add_rule(CrossJoinEliminationRule::instance());
     rule_set_.add_rule(DuplicateJoinEliminationRule::instance());
-    rule_set_.add_rule(SortEliminationRule::instance());
+    // SortEliminationRule removed: Sort elimination logic moved to EnforceAndCostTask
     rule_set_.add_rule(AggregationSimplifyRule::instance());
     rule_set_.add_rule(SubqueryUnnestRule::instance());
     rule_set_.add_rule(ConstantFoldRule::instance());

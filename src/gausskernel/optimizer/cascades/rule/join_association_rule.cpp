@@ -12,23 +12,17 @@ JoinAssociationRule* JoinAssociationRule::instance() {
 }
 
 JoinAssociationRule::JoinAssociationRule()
-    : Rule(RuleType::TF_JOIN_ASSOCIATIVITY, Pattern::create(OptExprOpType::LOGICAL_JOIN)) {}
+    : Rule(RuleType::TF_JOIN_ASSOCIATIVITY,
+           Pattern::create(OptExprOpType::LOGICAL_JOIN,
+                          Pattern::create(OptExprOpType::LOGICAL_JOIN, Pattern::any(), Pattern::any()),
+                          Pattern::any())) {}
 
 std::vector<OptExpression*> JoinAssociationRule::transform(
     OptExpression* input, OptimizerContext* context) {
-    // (A join B) join C -> A join (B join C)
-    // Requires binary join with at least 2 children
-    if (input->arity() != 2) {
-        return {};
-    }
-
+    // Pattern guarantees: op_type == LOGICAL_JOIN && arity == 2
+    // Left child pattern guarantees: left->op_type == LOGICAL_JOIN && left->arity == 2
     OptExpression* left = input->input_at(0);
     OptExpression* right = input->input_at(1);
-
-    // Check if left child is also a join
-    if (left->arity() != 2) {
-        return {};
-    }
 
     // (L join R) join C  ->  L join (R join C)
     // left = (L join R), right = C

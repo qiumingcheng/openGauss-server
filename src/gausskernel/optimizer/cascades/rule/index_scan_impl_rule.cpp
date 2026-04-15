@@ -39,10 +39,11 @@ IndexScanImplRule* IndexScanImplRule::instance() {
 }
 
 IndexScanImplRule::IndexScanImplRule()
-    : Rule(RuleType::IMP_INDEX_SCAN, Pattern::leaf(OptExprOpType::LOGICAL_SCAN)) {}
+    : Rule(RuleType::IMP_INDEX_SCAN, Pattern::create(OptExprOpType::LOGICAL_SCAN)) {}
 
 std::vector<OptExpression*> IndexScanImplRule::transform(
     OptExpression* input, OptimizerContext* context) {
+    // Pattern guarantees: op_type == LOGICAL_SCAN && arity == 0
     std::vector<OptExpression*> result;
 
     LogicalScan* scan_op = static_cast<LogicalScan*>(input->get_op());

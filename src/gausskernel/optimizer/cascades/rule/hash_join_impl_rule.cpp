@@ -23,10 +23,11 @@ HashJoinImplRule* HashJoinImplRule::instance() {
 }
 
 HashJoinImplRule::HashJoinImplRule()
-    : Rule(RuleType::IMP_HASH_JOIN, Pattern::create(OptExprOpType::LOGICAL_JOIN)) {}
+    : Rule(RuleType::IMP_HASH_JOIN, Pattern::create(OptExprOpType::LOGICAL_JOIN, Pattern::any(), Pattern::any())) {}
 
 std::vector<OptExpression*> HashJoinImplRule::transform(
     OptExpression* input, OptimizerContext* context) {
+    // Pattern guarantees: op_type == LOGICAL_JOIN && arity == 2
     LogicalJoin* join_op = static_cast<LogicalJoin*>(input->get_op());
 
     // Get child expressions

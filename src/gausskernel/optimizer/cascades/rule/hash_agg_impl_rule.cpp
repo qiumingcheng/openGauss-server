@@ -26,10 +26,11 @@ HashAggImplRule* HashAggImplRule::instance() {
 }
 
 HashAggImplRule::HashAggImplRule()
-    : Rule(RuleType::IMP_HASH_AGG, Pattern::leaf(OptExprOpType::LOGICAL_AGGREGATE)) {}
+    : Rule(RuleType::IMP_HASH_AGG, Pattern::create(OptExprOpType::LOGICAL_AGGREGATE, Pattern::any())) {}
 
 std::vector<OptExpression*> HashAggImplRule::transform(
     OptExpression* input, OptimizerContext* context) {
+    // Pattern guarantees: op_type == LOGICAL_AGGREGATE && arity == 1
     LogicalAggregate* agg_op = static_cast<LogicalAggregate*>(input->get_op());
     const std::vector<int>& group_keys = agg_op->get_group_keys();
 
