@@ -63,8 +63,11 @@ std::vector<OptExpression*> OuterJoinSimplifyRule::transform(
     OptExpression* left = input->input_at(0);
     OptExpression* right = input->input_at(1);
 
-    // Get the predicate from the join's restrict info
-    int predicate_id = join->get_join_keys().empty() ? -1 : join->get_join_keys()[0];
+    // Use join's own qual condition for simplification check.
+    // Note: Parent Filter's predicate would require accessing parent context.
+    // For now, check if join has a qual condition.
+    Node* qual = join->get_qual();
+    int predicate_id = (qual != nullptr) ? 1 : -1;
 
     // Case 1: LEFT JOIN with strict predicate on right side -> INNER JOIN
     if (join_type == JOIN_LEFT) {
