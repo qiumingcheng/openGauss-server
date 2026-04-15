@@ -236,8 +236,8 @@ public:
 
 private:
     Group* group_;                      // Parent group
-    std::vector<Group*> inputs_;        // Input groups
     OptExprOp* op_;                     // Operator
+    std::vector<Group*> inputs_;        // Input groups
 
     // Cost table: output property -> (cost, input properties)
     std::unordered_map<PhysicalPropertySet,

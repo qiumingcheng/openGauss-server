@@ -31,6 +31,7 @@ public:
     LogicalProperty* get_root_property() const { return root_property_; }
     LogicalProperty* get_child_property(int index) const;
     void derive_logical_property();
+    void release_root_property();  // Transfer ownership, caller responsible for deletion
 
     // Statistics access
     Statistics* get_statistics() const;

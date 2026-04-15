@@ -66,6 +66,10 @@ void ExpressionContext::derive_logical_property() {
     root_property_->derive(this);
 }
 
+void ExpressionContext::release_root_property() {
+    owns_root_property_ = false;  // Transfer ownership to caller
+}
+
 Statistics* ExpressionContext::get_statistics() const {
     return statistics_;
 }
