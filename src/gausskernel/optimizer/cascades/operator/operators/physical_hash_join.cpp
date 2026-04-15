@@ -10,7 +10,7 @@ PhysicalHashJoin::PhysicalHashJoin(Path* join_path, Path* left_path, Path* right
       left_path_(left_path), right_path_(right_path) {}
 
 OptExprOp* PhysicalHashJoin::clone() const {
-    PhysicalHashJoin* cloned = new PhysicalHashJoin(path_, left_path_, right_path_);
+    PhysicalHashJoin* cloned = NEW_EX(PhysicalHashJoin, path_, left_path_, right_path_);
     cloned->set_build_keys(build_keys_);
     cloned->set_probe_keys(probe_keys_);
     return cloned;

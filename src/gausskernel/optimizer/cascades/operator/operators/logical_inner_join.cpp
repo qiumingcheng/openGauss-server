@@ -15,7 +15,7 @@ LogicalInnerJoin::LogicalInnerJoin(const std::vector<int>& join_keys)
 }
 
 OptExprOp* LogicalInnerJoin::clone() const {
-    LogicalInnerJoin* cloned = new LogicalInnerJoin(join_keys_);
+    LogicalInnerJoin* cloned = NEW_EX(LogicalInnerJoin, join_keys_);
     cloned->set_join_type(join_type_);
     cloned->set_join_keys(left_join_keys_, right_join_keys_);
     cloned->set_qual(qual_);

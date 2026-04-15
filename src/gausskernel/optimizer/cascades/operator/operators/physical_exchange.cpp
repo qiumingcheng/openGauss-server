@@ -12,7 +12,7 @@ PhysicalExchange::PhysicalExchange(Path* exchange_path, Path* child_path, Distri
       distribution_type_(distribution_type) {}
 
 OptExprOp* PhysicalExchange::clone() const {
-    return new PhysicalExchange(path_, child_path_, distribution_type_);
+    return NEW_EX(PhysicalExchange, path_, child_path_, distribution_type_);
 }
 
 size_t PhysicalExchange::hash() const {

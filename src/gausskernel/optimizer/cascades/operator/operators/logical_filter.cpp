@@ -28,7 +28,7 @@ LogicalFilter::LogicalFilter(Node* qual, List* qual_list)
       qual_list_(qual_list) {}
 
 OptExprOp* LogicalFilter::clone() const {
-    LogicalFilter* cloned = new LogicalFilter();
+    LogicalFilter* cloned = NEW_EX(LogicalFilter);
     cloned->set_predicate_id(predicate_id_);
     cloned->set_qual(qual_);
     cloned->set_qual_list(qual_list_);

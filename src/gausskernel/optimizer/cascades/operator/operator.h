@@ -6,6 +6,7 @@
 #include <vector>
 #include <memory>
 #include "nodes/relation.h"
+#include "../base/memory_utils.h"
 
 namespace cascades {
 

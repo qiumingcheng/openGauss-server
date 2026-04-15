@@ -10,7 +10,7 @@ PhysicalMergeJoin::PhysicalMergeJoin(Path* join_path, Path* left_path, Path* rig
       left_path_(left_path), right_path_(right_path) {}
 
 OptExprOp* PhysicalMergeJoin::clone() const {
-    PhysicalMergeJoin* cloned = new PhysicalMergeJoin(path_, left_path_, right_path_);
+    PhysicalMergeJoin* cloned = NEW_EX(PhysicalMergeJoin, path_, left_path_, right_path_);
     cloned->set_build_keys(build_keys_);
     cloned->set_probe_keys(probe_keys_);
     return cloned;

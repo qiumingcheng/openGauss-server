@@ -10,7 +10,7 @@ PhysicalNestLoop::PhysicalNestLoop(Path* join_path, Path* left_path, Path* right
       left_path_(left_path), right_path_(right_path) {}
 
 OptExprOp* PhysicalNestLoop::clone() const {
-    return new PhysicalNestLoop(path_, left_path_, right_path_);
+    return NEW_EX(PhysicalNestLoop, path_, left_path_, right_path_);
 }
 
 size_t PhysicalNestLoop::hash() const {

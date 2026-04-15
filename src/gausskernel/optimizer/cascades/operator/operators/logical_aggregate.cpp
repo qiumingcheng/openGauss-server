@@ -10,7 +10,7 @@ LogicalAggregate::LogicalAggregate(const std::vector<int>& group_keys)
       group_keys_(group_keys) {}
 
 OptExprOp* LogicalAggregate::clone() const {
-    return new LogicalAggregate(group_keys_);
+    return NEW_EX(LogicalAggregate, group_keys_);
 }
 
 size_t LogicalAggregate::hash() const {

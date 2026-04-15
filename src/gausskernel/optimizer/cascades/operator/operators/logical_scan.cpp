@@ -9,7 +9,7 @@ LogicalScan::LogicalScan(int table_id, int predicate_id)
     : LogicalOptExprOp(OptExprOpType::LOGICAL_SCAN), table_id_(table_id), predicate_id_(predicate_id) {}
 
 OptExprOp* LogicalScan::clone() const {
-    LogicalScan* cloned = new LogicalScan(table_id_, predicate_id_);
+    LogicalScan* cloned = NEW_EX(LogicalScan, table_id_, predicate_id_);
     cloned->set_rel(rel_);
     return cloned;
 }

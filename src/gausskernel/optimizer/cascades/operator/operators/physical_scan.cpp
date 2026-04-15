@@ -19,7 +19,10 @@ PhysicalScan::PhysicalScan(Path* scan_path, Oid relid)
       table_id_(-1) {}
 
 OptExprOp* PhysicalScan::clone() const {
-    return new PhysicalScan();
+    PhysicalScan* cloned = NEW_EX(PhysicalScan);
+    cloned->set_relid(relid_);
+    cloned->set_table_id(table_id_);
+    return cloned;
 }
 
 size_t PhysicalScan::hash() const {

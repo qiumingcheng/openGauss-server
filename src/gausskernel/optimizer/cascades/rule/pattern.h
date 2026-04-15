@@ -11,6 +11,27 @@ class GroupExpression;
 
 /**
  * Pattern - Used for matching expressions during rule application
+ *
+ * Examples for constructing multi-level join patterns:
+ *
+ *   // 2 层：A ⋈ B
+ *   Pattern::create(LOGICAL_JOIN, leaf(LOGICAL_SCAN), leaf(LOGICAL_SCAN))
+ *
+ *   // 3 层：(A ⋈ B) ⋈ C
+ *   Pattern::create(LOGICAL_JOIN,
+ *       Pattern::create(LOGICAL_JOIN, leaf(LOGICAL_SCAN), leaf(LOGICAL_SCAN)),
+ *       leaf(LOGICAL_SCAN))
+ *
+ *   // 4 层：((A ⋈ B) ⋈ C) ⋈ D
+ *   Pattern::create(LOGICAL_JOIN,
+ *       Pattern::create(LOGICAL_JOIN,
+ *           Pattern::create(LOGICAL_JOIN, leaf(LOGICAL_SCAN), leaf(LOGICAL_SCAN)),
+ *           leaf(LOGICAL_SCAN)),
+ *       leaf(LOGICAL_SCAN))
+ *
+ *   // 或使用 initializer_list 构造扁平多子节点：
+ *   // join(A, B, C, D)
+ *   Pattern::create(LOGICAL_JOIN, {LOGICAL_SCAN, LOGICAL_SCAN, LOGICAL_SCAN, LOGICAL_SCAN})
  */
 class Pattern {
 public:

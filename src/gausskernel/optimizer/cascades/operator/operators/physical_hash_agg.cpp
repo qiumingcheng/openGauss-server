@@ -11,7 +11,7 @@ PhysicalHashAgg::PhysicalHashAgg(Path* agg_path, Path* child_path, const std::ve
       group_keys_(group_keys) {}
 
 OptExprOp* PhysicalHashAgg::clone() const {
-    return new PhysicalHashAgg(path_, child_path_, group_keys_);
+    return NEW_EX(PhysicalHashAgg, path_, child_path_, group_keys_);
 }
 
 size_t PhysicalHashAgg::hash() const {

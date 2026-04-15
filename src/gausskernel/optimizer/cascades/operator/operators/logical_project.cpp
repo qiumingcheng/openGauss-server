@@ -13,7 +13,7 @@ LogicalProject::LogicalProject(List* target_list)
     : LogicalOptExprOp(OptExprOpType::LOGICAL_PROJECT), target_list_(target_list) {}
 
 OptExprOp* LogicalProject::clone() const {
-    LogicalProject* cloned = new LogicalProject();
+    LogicalProject* cloned = NEW_EX(LogicalProject);
     cloned->set_projections(projections_);
     cloned->set_target_list(target_list_);
     return cloned;
