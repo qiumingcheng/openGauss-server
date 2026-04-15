@@ -2,10 +2,8 @@
 
 namespace cascades {
 
-#pragma once
-
 enum class RuleType {
-    // Transformation rules
+    // Transformation rules (TF_*)
     TF_JOIN_COMMUTATIVITY,
     TF_JOIN_ASSOCIATIVITY,
     TF_PREDICATE_PUSH_DOWN,
@@ -19,7 +17,7 @@ enum class RuleType {
     TF_SUBQUERY_UNNEST,
     TF_CONSTANT_FOLD,
 
-    // Implementation rules
+    // Implementation rules (IMP_*)
     IMP_HASH_JOIN,
     IMP_MERGE_JOIN,
     IMP_NESTLOOP_JOIN,
@@ -30,5 +28,21 @@ enum class RuleType {
 
     NUM_RULES
 };
+
+/**
+ * Check if a rule type is a transformation rule
+ */
+inline bool is_transformation_rule(RuleType type) {
+    return type >= RuleType::TF_JOIN_COMMUTATIVITY &&
+           type <= RuleType::TF_CONSTANT_FOLD;
+}
+
+/**
+ * Check if a rule type is an implementation rule
+ */
+inline bool is_implementation_rule(RuleType type) {
+    return type >= RuleType::IMP_HASH_JOIN &&
+           type <= RuleType::IMP_INDEX_SCAN;
+}
 
 }

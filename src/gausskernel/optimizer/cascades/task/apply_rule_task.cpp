@@ -42,8 +42,7 @@ ApplyRuleTask::ApplyRuleTask(TaskContext* context, GroupExpression* expr, Rule* 
 
 void ApplyRuleTask::execute() {
     // Skip if rule has been explored (for transformation rules)
-    if (rule_->get_pattern()->get_type() == Pattern::Type::SINGLE ||
-        rule_->get_pattern()->get_type() == Pattern::Type::MULTI) {
+    if (is_transformation_rule(rule_->type())) {
         if (expression_->has_rule_explored(rule_->type())) {
             return;
         }
@@ -104,8 +103,7 @@ void ApplyRuleTask::execute() {
     }
 
     // Mark rule as explored/applied
-    if (rule_->get_pattern()->get_type() == Pattern::Type::SINGLE ||
-        rule_->get_pattern()->get_type() == Pattern::Type::MULTI) {
+    if (is_transformation_rule(rule_->type())) {
         expression_->set_rule_explored(rule_->type());
     } else {
         expression_->set_rule_applied(rule_->type());
