@@ -22,6 +22,7 @@ enum class RuleType {
     IMP_MERGE_JOIN,
     IMP_NESTLOOP_JOIN,
     IMP_HASH_AGG,
+    IMP_PROJECT,
     IMP_SORT,
     IMP_SCAN,
     IMP_INDEX_SCAN,

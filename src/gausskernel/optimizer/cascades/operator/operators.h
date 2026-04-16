@@ -10,6 +10,7 @@
 #include "operators/logical_project.h"
 #include "operators/logical_scan.h"
 #include "operators/physical_sort.h"
+#include "operators/physical_project.h"
 #include "operators/logical_aggregate.h"
 #include "operators/physical_hash_agg.h"
 #include "operators/physical_exchange.h"

@@ -37,6 +37,7 @@ enum class OptExprOpType {
     PHYSICAL_SORT,
     PHYSICAL_LIMIT,
     PHYSICAL_EXCHANGE,
+    PHYSICAL_PROJECT,
 
     // Special
     ANY  // wildcard for pattern matching

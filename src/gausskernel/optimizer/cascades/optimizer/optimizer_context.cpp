@@ -14,6 +14,7 @@
 #include "../rule/merge_join_impl_rule.h"
 #include "../rule/nest_loop_impl_rule.h"
 #include "../rule/hash_agg_impl_rule.h"
+#include "../rule/project_impl_rule.h"
 #include "../rule/sort_impl_rule.h"
 #include "../rule/scan_impl_rule.h"
 #include "../rule/index_scan_impl_rule.h"
@@ -40,7 +41,8 @@ OptimizerContext::OptimizerContext(PlannerInfo* root, MemoryContext context)
     rule_set_.add_rule(MergeJoinImplRule::instance());
     rule_set_.add_rule(NestLoopImplRule::instance());
     rule_set_.add_rule(HashAggImplRule::instance());
-    rule_set_.add_rule(SortImplRule::instance());
+    rule_set_.add_rule(ProjectImplRule::instance());
+    //rule_set_.add_rule(SortImplRule::instance());
     rule_set_.add_rule(ScanImplRule::instance());
     rule_set_.add_rule(IndexScanImplRule::instance());
 }
