@@ -2,6 +2,7 @@
 #include "../memo/expression_context.h"
 #include "../memo/group_expression.h"
 #include "../operator/operator.h"
+#include "../operator/operators/logical_scan.h"
 
 namespace cascades {
 
@@ -73,8 +74,15 @@ void LogicalProperty::derive(ExpressionContext* context) {
 
         case OptExprOpType::LOGICAL_SCAN: {
             // Scan outputs all columns of the table
-            // In real implementation, this would come from table metadata
-            output_columns_ = ColumnRefSet();
+            // Get column info from RelOptInfo's reltarget
+            LogicalScan* scan_op = static_cast<LogicalScan*>(op);
+            RelOptInfo* rel = scan_op->get_rel();
+            if (rel != nullptr && rel->reltarget != nullptr) {
+                // Extract column refs from reltarget's exprs
+                for (int i = 0; i < rel->reltarget->numAttrs; ++i) {
+                    output_columns_.add(rel->reltarget->attrs[i]);
+                }
+            }
             // Base table may have a defined sort order (e.g., primary key)
             // This would come from table metadata in a full implementation
             break;
