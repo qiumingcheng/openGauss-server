@@ -27,4 +27,5 @@ set(CASCADES_RULES_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/nest_loop_impl_rule.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/scan_impl_rule.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/sort_impl_rule.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/project_impl_rule.cpp    
     PARENT_SCOPE)
