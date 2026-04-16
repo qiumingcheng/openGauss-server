@@ -31,7 +31,7 @@ std::vector<OptExpression*> ProjectImplRule::transform(
 
     OptExpression* new_expr = OptExpression::create(physical_project);
     ereport(WARNING, (errmsg("[CASCADES] ProjectImplRule:transform, created physical project: %s",
-                         new_expr->to_string().c_str())));
+                         new_expr->debug_string().c_str())));
     return {new_expr};
 }
 
