@@ -72,6 +72,10 @@ std::pair<bool, GroupExpression*> Memo::insert_transform_result(
 
     GroupExpression* new_expr = NEW_EX(GroupExpression, transformed_expr->get_op(), input_groups);
 
+    ereport(WARNING, (errmsg("[CASCADES] Memo::insert_transform_result: source=%s, new_expr=%s, input_groups.size=%d",
+                         source_expr->to_string().c_str(), new_expr->to_string().c_str(),
+                         (int)input_groups.size())));
+
     MemoryContextSwitchTo(oldcxt);
 
     // Insert into the same group as the source expression

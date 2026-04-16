@@ -27,11 +27,11 @@ std::vector<OptExpression*> ProjectImplRule::transform(
     Assert(input->arity() > 0);  // Pattern must match expression with child
 
     // Create physical project operator
+    // Note: child groups are set by Memo::insert_transform_result using source expression's inputs
     PhysicalProject* physical_project = NEW_EX(PhysicalProject);
 
     OptExpression* new_expr = OptExpression::create(physical_project);
-    ereport(WARNING, (errmsg("[CASCADES] ProjectImplRule:transform, output=%s",
-                         new_expr->debug_string().c_str())));
+    ereport(WARNING, (errmsg("[CASCADES] ProjectImplRule:transform, created PhysicalProject")));
     return {new_expr};
 }
 
