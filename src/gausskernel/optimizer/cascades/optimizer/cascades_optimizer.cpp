@@ -20,6 +20,10 @@ OptExpression* CascadesOptimizer::optimize(OptExpression* expression,
                                           ColumnRefSet* required_columns) {
     ereport(WARNING, (errmsg("[CASCADES] optimize() called, expression=%p", (void*)expression)));
 
+    // Save current memory context and switch to optimizer's memory context
+    // All optimization work will be done in this context
+    MemoryContext oldcxt = MemoryContextSwitchTo(context_.get_memory_context());
+
     // Phase 1: Rewrite - apply logical transformation rules to normalize the tree
     ereport(WARNING, (errmsg("[CASCADES] Phase 1: logical_rewrite")));
     logical_rewrite(expression);
@@ -36,6 +40,9 @@ OptExpression* CascadesOptimizer::optimize(OptExpression* expression,
     ereport(WARNING, (errmsg("[CASCADES] Phase 4: extract_best_plan")));
     OptExpression* result = extract_best_plan(required_property);
     ereport(WARNING, (errmsg("[CASCADES] optimize() returning %p", (void*)result)));
+
+    // Restore original memory context
+    MemoryContextSwitchTo(oldcxt);
     return result;
 }
 
@@ -59,13 +66,12 @@ void CascadesOptimizer::explore() {
     ereport(WARNING, (errmsg("[CASCADES] >>> Entering explore()")));
 
     // Initialize root task context if not already done
+    // Note: Memory context already switched in optimize(), no need to switch here
     if (root_task_context_ == nullptr) {
-        MemoryContext oldcxt = MemoryContextSwitchTo(context_.get_memory_context());
         root_task_context_ = NEW_EX(TaskContext, &context_,
                                               PhysicalPropertySet(),
                                               nullptr,
                                               std::numeric_limits<double>::infinity());
-        MemoryContextSwitchTo(oldcxt);
         ereport(WARNING, (errmsg("[CASCADES] >>> Created root task context")));
     }
 
