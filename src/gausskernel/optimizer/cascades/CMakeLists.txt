@@ -76,6 +76,7 @@ set(CASCADES_RULES_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/rule/index_scan_impl_rule.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/rule/merge_join_impl_rule.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/rule/nest_loop_impl_rule.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/rule/project_impl_rule.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/rule/scan_impl_rule.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/rule/sort_impl_rule.cpp
 )
