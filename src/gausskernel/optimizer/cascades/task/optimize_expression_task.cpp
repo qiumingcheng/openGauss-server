@@ -70,9 +70,10 @@ std::vector<Rule*> OptimizeExpressionTask::get_valid_rules() const {
     }
 
     // Sort by promise (higher promise = earlier execution)
+    // Use ascending order so that when pushed to LIFO stack, higher promise rules execute first
     // StarRocks: validRules.sort(Comparator.comparingInt(Rule::promise))
     std::sort(valid_rules.begin(), valid_rules.end(),
-              [](Rule* a, Rule* b) { return a->promise() > b->promise(); });
+              [](Rule* a, Rule* b) { return a->promise() < b->promise(); });
 
     return valid_rules;
 }
@@ -88,10 +89,10 @@ void OptimizeExpressionTask::execute() {
                          (int)valid_rules.size())));
 
     // Push ApplyRuleTask for each valid rule
-    // Note: Task stack is LIFO, so we push in reverse order
-    // Rules with higher promise should be pushed last (executed first)
-    for (auto it = valid_rules.rbegin(); it != valid_rules.rend(); ++it) {
-        Rule* rule = *it;
+    // Stack is LIFO, so rules pushed later execute first
+    // Rules are sorted ascending by promise, so higher promise rules are at the end
+    // and will be pushed last (executed first)
+    for (Rule* rule : valid_rules) {
         ereport(WARNING, (errmsg("[CASCADES] OptimizeExpressionTask: pushing ApplyRuleTask for rule=%s",
                              rule->to_string().c_str())));
         push_task(MakeTask<ApplyRuleTask>(context_, expression_, rule, explore_));
