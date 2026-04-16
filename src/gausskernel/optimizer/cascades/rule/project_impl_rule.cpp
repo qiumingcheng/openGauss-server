@@ -22,7 +22,7 @@ ProjectImplRule::ProjectImplRule()
 std::vector<OptExpression*> ProjectImplRule::transform(
     OptExpression* input, OptimizerContext* context) {
     ereport(WARNING, (errmsg("[CASCADES] ProjectImplRule:transform, input=%s",
-                         input->to_string().c_str())));
+                         input->debug_string().c_str())));
 
     Assert(input->arity() > 0);  // Pattern must match expression with child
 
@@ -30,7 +30,7 @@ std::vector<OptExpression*> ProjectImplRule::transform(
     PhysicalProject* physical_project = NEW_EX(PhysicalProject);
 
     OptExpression* new_expr = OptExpression::create(physical_project);
-    ereport(WARNING, (errmsg("[CASCADES] ProjectImplRule:transform, created physical project: %s",
+    ereport(WARNING, (errmsg("[CASCADES] ProjectImplRule:transform, output=%s",
                          new_expr->debug_string().c_str())));
     return {new_expr};
 }
