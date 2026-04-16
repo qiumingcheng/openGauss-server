@@ -88,8 +88,10 @@ void OptimizeExpressionTask::execute() {
                          (int)valid_rules.size())));
 
     // Push ApplyRuleTask for each valid rule
-    // Note: Stack is LIFO, so rules with higher promise (sorted first) will be executed first
-    for (Rule* rule : valid_rules) {
+    // Note: Task stack is LIFO, so we push in reverse order
+    // Rules with higher promise should be pushed last (executed first)
+    for (auto it = valid_rules.rbegin(); it != valid_rules.rend(); ++it) {
+        Rule* rule = *it;
         ereport(WARNING, (errmsg("[CASCADES] OptimizeExpressionTask: pushing ApplyRuleTask for rule=%s",
                              rule->to_string().c_str())));
         push_task(MakeTask<ApplyRuleTask>(context_, expression_, rule, explore_));
