@@ -66,7 +66,6 @@ void CascadesOptimizer::explore() {
     ereport(WARNING, (errmsg("[CASCADES] >>> Entering explore()")));
 
     // Initialize root task context if not already done
-    // Note: Memory context already switched in optimize(), no need to switch here
     if (root_task_context_ == nullptr) {
         root_task_context_ = NEW_EX(TaskContext, &context_,
                                               PhysicalPropertySet(),

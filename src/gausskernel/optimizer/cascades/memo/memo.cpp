@@ -62,8 +62,6 @@ std::pair<bool, GroupExpression*> Memo::insert_group_expression(
 
 std::pair<bool, GroupExpression*> Memo::insert_transform_result(
     GroupExpression* source_expr, OptExpression* transformed_expr) {
-    // Note: Memory context already switched in optimize() entry, no need to switch here
-
     // Create new GroupExpression using the source's input groups but with transformed operator
     std::vector<Group*> input_groups;
     for (int i = 0; i < source_expr->arity(); ++i) {
@@ -87,15 +85,12 @@ void Memo::insert_enforce_expression(GroupExpression* group_expr, Group* target_
 }
 
 Group* Memo::new_group() {
-    // Note: Memory context already switched in optimize() entry, no need to switch here
     Group* g = NEW_EX(Group, next_group_id_++);
     groups_.push_back(g);
     return g;
 }
 
 std::pair<Group*, GroupExpression*> Memo::copy_in(Group* target_group, OptExpression* expr) {
-    // Note: Memory context already switched in optimize() entry, no need to switch here
-
     // Recursively copy inputs first
     std::vector<Group*> input_groups;
     for (int i = 0; i < expr->arity(); ++i) {
