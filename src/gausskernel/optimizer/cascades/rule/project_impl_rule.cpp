@@ -66,15 +66,12 @@ std::vector<OptExpression*> ProjectImplRule::transform(
         return {};
     }
 
-    // Create a simple path for project (just passes through child path)
-    // In PostgreSQL/openGauss, Project doesn't have a separate path type
-    // The projection is handled by the parent node
-    Path* project_path = child_path;  // Project inherits child's path
-
     // Create physical project operator
-    PhysicalProject* physical_project = NEW_EX(PhysicalProject, project_path, child_path);
+    // Note: Project doesn't need a separate path, it inherits child's path
+    // insert_transform_result will use source expression's input groups
+    PhysicalProject* physical_project = NEW_EX(PhysicalProject, child_path, child_path);
 
-    OptExpression* new_expr = OptExpression::create(physical_project, child);
+    OptExpression* new_expr = OptExpression::create(physical_project);
     ereport(WARNING, (errmsg("[CASCADES] ProjectImplRule:transform, created physical project: %s",
                          new_expr->to_string().c_str())));
     return {new_expr};
