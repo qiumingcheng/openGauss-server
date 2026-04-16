@@ -26,50 +26,8 @@ std::vector<OptExpression*> ProjectImplRule::transform(
 
     Assert(input->arity() > 0);  // Pattern must match expression with child
 
-    LogicalProject* project_op = static_cast<LogicalProject*>(input->get_op());
-
-    // Get child expression
-    OptExpression* child = input->input_at(0);
-    Assert(child != nullptr);  // Guaranteed by arity check above
-
-    // Get child GroupExpression
-    GroupExpression* child_group_expr = child->get_group_expression();
-    if (child_group_expr == nullptr) {
-        ereport(WARNING, (errmsg("[CASCADES] ProjectImplRule:transform, child_group_expr is null")));
-        return {};
-    }
-
-    // Get child group
-    Group* child_group = child_group_expr->get_group();
-    if (child_group == nullptr) {
-        ereport(WARNING, (errmsg("[CASCADES] ProjectImplRule:transform, child_group is null")));
-        return {};
-    }
-
-    PhysicalPropertySet required_prop;
-
-    GroupExpression* child_best = child_group->get_best_expression(required_prop);
-    if (child_best == nullptr || !child_best->get_op()->is_physical()) {
-        ereport(WARNING, (errmsg("[CASCADES] ProjectImplRule:transform, no valid child expression found")));
-        return {};
-    }
-
-    Path* child_path = static_cast<PhysicalOptExprOp*>(child_best->get_op())->get_path();
-    if (child_path == nullptr) {
-        ereport(WARNING, (errmsg("[CASCADES] ProjectImplRule:transform, child_path is null")));
-        return {};
-    }
-
-    PlannerInfo* root = context->get_root();
-    if (root == nullptr) {
-        ereport(WARNING, (errmsg("[CASCADES] ProjectImplRule:transform, PlannerInfo is null")));
-        return {};
-    }
-
     // Create physical project operator
-    // Note: Project doesn't need a separate path, it inherits child's path
-    // insert_transform_result will use source expression's input groups
-    PhysicalProject* physical_project = NEW_EX(PhysicalProject, child_path, child_path);
+    PhysicalProject* physical_project = NEW_EX(PhysicalProject);
 
     OptExpression* new_expr = OptExpression::create(physical_project);
     ereport(WARNING, (errmsg("[CASCADES] ProjectImplRule:transform, created physical project: %s",
