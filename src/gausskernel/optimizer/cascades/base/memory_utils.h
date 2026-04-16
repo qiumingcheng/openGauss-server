@@ -1,7 +1,8 @@
 // src/gausskernel/optimizer/cascades/base/memory_utils.h
 #pragma once
-#include <memory>
 #include <utility>
+#include "postgres.h"
+#include "utils/memutils.h"
 
 namespace cascades {
 
@@ -26,21 +27,20 @@ namespace cascades {
     }(__VA_ARGS__))
 
 /**
- * Factory function to create shared_ptr in C++11 style.
- * Equivalent to std::make_unique from C++14.
- * Note: Task objects are allocated with palloc0 via MakeTask wrapper in cascades_optimizer.cpp
+ * MakeTask - Factory function to create Task objects using MemoryContext
+ *
+ * Usage: MakeTask<TaskType>(args...)
+ *
+ * This function allocates memory using NEW_EX macro (MemoryContext allocation)
+ * and constructs the object using placement new.
+ *
+ * Memory will be automatically freed when the MemoryContext is reset.
+ *
+ * Note: Returns raw pointer - caller must ensure MemoryContext outlives the object.
  */
 template<typename T, typename... Args>
-std::shared_ptr<T> MakeTask(Args&&... args) {
-    return std::shared_ptr<T>(new T(std::forward<Args>(args)...));
-}
-
-/**
- * Alias for MakeTask - used for operators and expressions.
- */
-template<typename T, typename... Args>
-std::shared_ptr<T> MakeOpt(Args&&... args) {
-    return std::shared_ptr<T>(new T(std::forward<Args>(args)...));
+T* MakeTask(Args&&... args) {
+    return NEW_EX(T, std::forward<Args>(args)...);
 }
 
 }  // namespace cascades

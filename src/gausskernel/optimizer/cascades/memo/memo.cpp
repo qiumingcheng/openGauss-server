@@ -409,11 +409,25 @@ OptExpression* Memo::build_best_plan(GroupExpression* expr, const PhysicalProper
     std::vector<OptExpression*> input_plans;
     std::vector<PhysicalPropertySet> input_properties = expr->get_input_properties(required_property);
 
+    // Non-leaf nodes must have input_properties recorded when the expression was costed
+    // Leaf nodes (arity == 0) naturally have empty input_properties
+    if (expr->arity() > 0) {
+        Assert(!input_properties.empty());
+    }
+
     for (int i = 0; i < expr->arity(); ++i) {
         Group* input_group = expr->input_at(i);
-        GroupExpression* input_best = input_group->get_best_expression(input_properties[i]);
+
+        // Get input property for this child
+        // If input_properties is empty (leaf node case), use ANY property
+        PhysicalPropertySet child_required;
+        if (!input_properties.empty() && i < static_cast<int>(input_properties.size())) {
+            child_required = input_properties[i];
+        }
+
+        GroupExpression* input_best = input_group->get_best_expression(child_required);
         if (input_best != nullptr) {
-            input_plans.push_back(build_best_plan(input_best, input_properties[i]));
+            input_plans.push_back(build_best_plan(input_best, child_required));
         } else {
             // Fallback: use first logical expression
             GroupExpression* first_logical = input_group->get_first_logical_expression();

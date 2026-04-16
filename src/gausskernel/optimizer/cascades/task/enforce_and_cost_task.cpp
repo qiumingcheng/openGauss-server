@@ -33,6 +33,7 @@ void EnforceAndCostTask::execute() {
     double best_cost = std::numeric_limits<double>::max();
     GroupExpression* best_expr = nullptr;
     PhysicalPropertySet best_output_property;
+    std::vector<PhysicalPropertySet> best_children_output_properties;  // For plan reconstruction
 
     // Iterate over all physical expressions in the group
     const auto& physical_exprs = group_->get_physical_expressions();
@@ -68,8 +69,9 @@ void EnforceAndCostTask::execute() {
                                  i, child_group->id(), child_required.to_string().c_str())));
 
             // Lower bound pruning: check if this branch can be pruned
+            // Use > instead of >= to allow equal cost plans
             double child_lower_bound = child_group->get_cost_lower_bound(child_required);
-            if (child_lower_bound > 0 && accumulated_child_cost + child_lower_bound >= context_->get_upper_bound_cost()) {
+            if (child_lower_bound > 0 && accumulated_child_cost + child_lower_bound > context_->get_upper_bound_cost()) {
                 // This child's lower bound already exceeds upper bound, prune
                 ereport(WARNING, (errmsg("[CASCADES] EnforceAndCostTask: pruned by lower bound, child_lower_bound=%.2f, accumulated=%.2f, upper_bound=%.2f",
                                      child_lower_bound, accumulated_child_cost, context_->get_upper_bound_cost())));
@@ -98,25 +100,33 @@ void EnforceAndCostTask::execute() {
             // Get child's output property
             PhysicalPropertySet child_output = child_best->get_output_property(child_required);
             children_output_properties.push_back(child_output);
+            ereport(WARNING, (errmsg("[CASCADES] EnforceAndCostTask: child %d output_property=%s",
+                                 i, child_output.to_string().c_str())));
         }
 
         if (!all_children_optimized) {
             // Child groups need optimization first or was pruned
+            ereport(WARNING, (errmsg("[CASCADES] EnforceAndCostTask: all_children_optimized=false, skipping expr")));
             continue;
         }
 
         // Lower bound pruning: check total cost against upper bound
-        if (accumulated_child_cost >= context_->get_upper_bound_cost()) {
+        // Upper bound is only set by root group, so this pruning is safe
+        ereport(WARNING, (errmsg("[CASCADES] EnforceAndCostTask: accumulated_child_cost=%.2f, upper_bound=%.2f",
+                             accumulated_child_cost, context_->get_upper_bound_cost())));
+        if (accumulated_child_cost > context_->get_upper_bound_cost()) {
             // Children's cost alone exceeds upper bound, prune
             continue;
         }
 
         // Derive output property for this expression
         PhysicalPropertySet output_property = derive_output_property(expr, children_output_properties);
+        ereport(WARNING, (errmsg("[CASCADES] EnforceAndCostTask: output_property=%s", output_property.to_string().c_str())));
 
         // Compute local cost of this expression FIRST (before enforcement)
         CostEstimate local_cost_estimate = cost_model.compute_cost(expr, required_property_, {});
         double local_expr_cost = local_cost_estimate.total_cost();
+        ereport(WARNING, (errmsg("[CASCADES] EnforceAndCostTask: local_expr_cost=%.2f", local_expr_cost)));
 
         // Check if enforcement is needed
         GroupExpression* enforced_expr = expr;
@@ -137,22 +147,32 @@ void EnforceAndCostTask::execute() {
 
         // Total cost = children costs + local cost + enforcement cost
         double total_cost = accumulated_child_cost + local_expr_cost + enforcement_cost;
+        ereport(WARNING, (errmsg("[CASCADES] EnforceAndCostTask: total_cost=%.2f (accumulated=%.2f, local=%.2f, enforcement=%.2f)",
+                             total_cost, accumulated_child_cost, local_expr_cost, enforcement_cost)));
 
         // Apply cost pruning (upper bound check)
+        // Upper bound is only set by root group, so this pruning is safe
         if (total_cost >= context_->get_upper_bound_cost()) {
-            // This path is too expensive, prune it
+            // This path is too expensive, prune
+            ereport(WARNING, (errmsg("[CASCADES] EnforceAndCostTask: pruned by total_cost >= upper_bound")));
             continue;
         }
 
         // Update best expression if this is cheaper
+        ereport(WARNING, (errmsg("[CASCADES] EnforceAndCostTask: comparing total_cost=%.2f with best_cost=%.2f",
+                             total_cost, best_cost)));
         if (total_cost < best_cost) {
             best_cost = total_cost;
             best_expr = enforced_expr;
             best_output_property = output_property;
+            best_children_output_properties = children_output_properties;  // Save for plan reconstruction
+            ereport(WARNING, (errmsg("[CASCADES] EnforceAndCostTask: updated best_expr, cost=%.2f", best_cost)));
         }
     }
 
     // Store best expression with its cost
+    ereport(WARNING, (errmsg("[CASCADES] EnforceAndCostTask: final best_expr=%p, best_cost=%.2f",
+                         (void*)best_expr, best_cost)));
     if (best_expr != nullptr) {
         // Update group's best expression for this required property
         group_->set_best_expression(best_expr, best_cost, required_property_);
@@ -161,11 +181,18 @@ void EnforceAndCostTask::execute() {
         // The best cost found is a new lower bound for this group+property
         group_->set_cost_lower_bound(required_property_, best_cost);
 
-        // Update cost upper bound for pruning sibling branches
-        update_cost_upper_bound(best_cost);
+        // Update cost upper bound ONLY for root group
+        // The root group's best cost is the total plan cost, which can be used for pruning
+        Memo* memo = context_->get_optimizer_context()->get_memo();
+        if (group_ == memo->get_root_group()) {
+            ereport(WARNING, (errmsg("[CASCADES] EnforceAndCostTask: updating upper_bound=%.2f (root group)",
+                                 best_cost)));
+            update_cost_upper_bound(best_cost);
+        }
 
         // Update expression's property table
-        best_expr->update_property_with_cost(best_output_property, {}, best_cost);
+        // Save children's output properties as input properties for plan reconstruction
+        best_expr->update_property_with_cost(best_output_property, best_children_output_properties, best_cost);
     }
 }
 

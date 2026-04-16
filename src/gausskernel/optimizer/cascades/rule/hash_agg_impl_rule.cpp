@@ -16,13 +16,9 @@
 namespace cascades {
 
 // Static singleton instance
-static HashAggImplRule* g_instance = nullptr;
-
 HashAggImplRule* HashAggImplRule::instance() {
-    if (g_instance == nullptr) {
-        g_instance = new HashAggImplRule();
-    }
-    return g_instance;
+    static HashAggImplRule inst;
+    return &inst;
 }
 
 HashAggImplRule::HashAggImplRule()

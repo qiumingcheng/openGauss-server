@@ -49,6 +49,7 @@ set(CASCADES_OPERATOR_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/operator/operators/physical_hash_join.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/operator/operators/physical_merge_join.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/operator/operators/physical_nest_loop.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/operator/operators/physical_project.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/operator/operators/physical_scan.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/operator/operators/physical_sort.cpp
 )

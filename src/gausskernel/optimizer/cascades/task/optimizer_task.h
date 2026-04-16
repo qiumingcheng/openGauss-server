@@ -1,6 +1,5 @@
 #pragma once
 #include <string>
-#include <memory>
 
 namespace cascades {
 
@@ -23,7 +22,7 @@ protected:
      * Push a task to the task scheduler.
      * Used for scheduling follow-up tasks after rule application.
      */
-    void push_task(std::shared_ptr<OptimizerTask> task);
+    void push_task(OptimizerTask* task);
 
     TaskContext* context_;
 };

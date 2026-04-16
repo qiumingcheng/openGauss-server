@@ -7,7 +7,7 @@ namespace cascades {
 
 OptimizerTask::OptimizerTask(TaskContext* context) : context_(context) {}
 
-void OptimizerTask::push_task(std::shared_ptr<OptimizerTask> task) {
+void OptimizerTask::push_task(OptimizerTask* task) {
     context_->get_optimizer_context()->get_task_scheduler()->push_task(task);
 }
 

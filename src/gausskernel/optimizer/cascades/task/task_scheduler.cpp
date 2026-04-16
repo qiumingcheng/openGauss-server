@@ -6,13 +6,13 @@ TaskScheduler::TaskScheduler() {}
 
 void TaskScheduler::execute_tasks(TaskContext* context) {
     while (!tasks_.empty()) {
-        std::shared_ptr<OptimizerTask> task = tasks_.top();
+        OptimizerTask* task = tasks_.top();
         tasks_.pop();
         task->execute();
     }
 }
 
-void TaskScheduler::push_task(std::shared_ptr<OptimizerTask> task) {
+void TaskScheduler::push_task(OptimizerTask* task) {
     tasks_.push(task);
 }
 

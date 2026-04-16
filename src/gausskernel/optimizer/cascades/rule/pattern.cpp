@@ -1,6 +1,4 @@
-#include "../base/memory_utils.h"
 #include "pattern.h"
-#include "utils/palloc.h"
 #include "../memo/opt_expression.h"
 #include "../memo/group_expression.h"
 
@@ -14,26 +12,30 @@ Pattern::Pattern(Type type, OptExprOpType op_type, std::initializer_list<Pattern
 Pattern::~Pattern() {}
 
 Pattern* Pattern::leaf(OptExprOpType op_type) {
-    return NEW_EX(Pattern, Type::LEAF, op_type);
+    // Pattern objects for singleton rules must use ordinary new, not MemoryContext
+    // because singleton rules live for the entire process lifetime
+    return new Pattern(Type::LEAF, op_type);
 }
 
 Pattern* Pattern::create(OptExprOpType op_type) {
-    return NEW_EX(Pattern, Type::SINGLE, op_type);
+    // Pattern objects for singleton rules must use ordinary new, not MemoryContext
+    return new Pattern(Type::SINGLE, op_type);
 }
 
 Pattern* Pattern::create(OptExprOpType op_type, Pattern* child) {
-    void* mem = palloc0(sizeof(Pattern));
-    return new (mem) Pattern(Type::SINGLE, op_type, {child});
+    // Pattern objects for singleton rules must use ordinary new, not MemoryContext
+    return new Pattern(Type::SINGLE, op_type, {child});
 }
 
 Pattern* Pattern::create(OptExprOpType op_type, Pattern* left, Pattern* right) {
-    void* mem = palloc0(sizeof(Pattern));
-    return new (mem) Pattern(Type::MULTI, op_type, {left, right});
+    // Pattern objects for singleton rules must use ordinary new, not MemoryContext
+    return new Pattern(Type::MULTI, op_type, {left, right});
 }
 
 Pattern* Pattern::create(OptExprOpType op_type, std::initializer_list<OptExprOpType> children) {
+    // Pattern objects for singleton rules must use ordinary new, not MemoryContext
     // Build child patterns as LEAF patterns
-    Pattern* pattern = NEW_EX(Pattern, Type::MULTI, op_type);
+    Pattern* pattern = new Pattern(Type::MULTI, op_type);
     for (OptExprOpType child_type : children) {
         pattern->get_children().push_back(leaf(child_type));
     }
@@ -41,7 +43,8 @@ Pattern* Pattern::create(OptExprOpType op_type, std::initializer_list<OptExprOpT
 }
 
 Pattern* Pattern::any() {
-    return NEW_EX(Pattern, Type::LEAF, OptExprOpType::ANY);
+    // Pattern objects for singleton rules must use ordinary new, not MemoryContext
+    return new Pattern(Type::LEAF, OptExprOpType::ANY);
 }
 
 bool Pattern::match(OptExpression* expression) const {
