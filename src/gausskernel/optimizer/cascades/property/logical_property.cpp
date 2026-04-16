@@ -78,9 +78,14 @@ void LogicalProperty::derive(ExpressionContext* context) {
             LogicalScan* scan_op = static_cast<LogicalScan*>(op);
             RelOptInfo* rel = scan_op->get_rel();
             if (rel != nullptr && rel->reltarget != nullptr) {
-                // Extract column refs from reltarget's exprs
-                for (int i = 0; i < rel->reltarget->numAttrs; ++i) {
-                    output_columns_.add(rel->reltarget->attrs[i]);
+                // Extract column refs from reltarget->exprs (list of Var expressions)
+                ListCell* lc;
+                foreach(lc, rel->reltarget->exprs) {
+                    Node* expr = (Node*)lfirst(lc);
+                    if (IsA(expr, Var)) {
+                        Var* var = (Var*)expr;
+                        output_columns_.add(var->varattno);
+                    }
                 }
             }
             // Base table may have a defined sort order (e.g., primary key)
