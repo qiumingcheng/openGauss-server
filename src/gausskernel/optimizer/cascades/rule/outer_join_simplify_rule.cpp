@@ -50,15 +50,22 @@ OuterJoinSimplifyRule::OuterJoinSimplifyRule()
 
 std::vector<OptExpression*> OuterJoinSimplifyRule::transform(
     OptExpression* input, OptimizerContext* context) {
+    ereport(WARNING, (errmsg("[CASCADES] OuterJoinSimplifyRule:transform, input=%s",
+                         input->to_string().c_str())));
+
     std::vector<OptExpression*> result;
 
     OptExprOp* op = input->get_op();
     if (op->get_type() != OptExprOpType::LOGICAL_JOIN) {
+        ereport(WARNING, (errmsg("[CASCADES] OuterJoinSimplifyRule:transform, not LOGICAL_JOIN")));
         return result;
     }
 
     LogicalJoin* join = static_cast<LogicalJoin*>(op);
     JoinType join_type = join->get_join_type();
+
+    ereport(WARNING, (errmsg("[CASCADES] OuterJoinSimplifyRule:transform, join_type=%d",
+                         (int)join_type)));
 
     OptExpression* left = input->input_at(0);
     OptExpression* right = input->input_at(1);
@@ -78,6 +85,7 @@ std::vector<OptExpression*> OuterJoinSimplifyRule::transform(
         // If join has a condition (predicate_id >= 0), we can consider reduction
         // if the predicate is strict
         if (can_reduce_left_join(predicate_id, true)) {
+            ereport(WARNING, (errmsg("[CASCADES] OuterJoinSimplifyRule:transform, reducing LEFT JOIN to INNER JOIN")));
             LogicalInnerJoin* new_join = NEW_EX(LogicalInnerJoin);
             new_join->set_join_keys(join->get_join_keys());
             new_join->set_join_type(JOIN_INNER);
@@ -88,6 +96,7 @@ std::vector<OptExpression*> OuterJoinSimplifyRule::transform(
     }
     // Case 2: RIGHT JOIN -> flip to LEFT JOIN, then reduce
     else if (join_type == JOIN_RIGHT) {
+        ereport(WARNING, (errmsg("[CASCADES] OuterJoinSimplifyRule:transform, flipping RIGHT JOIN to LEFT JOIN")));
         // Flip RIGHT JOIN to LEFT JOIN: (A RIGHT JOIN B) -> (B LEFT JOIN A)
         LogicalInnerJoin* flipped_join = NEW_EX(LogicalInnerJoin);
         flipped_join->set_join_keys(join->get_join_keys());
@@ -100,6 +109,7 @@ std::vector<OptExpression*> OuterJoinSimplifyRule::transform(
     // In a full implementation, if one side is provably non-null,
     // FULL JOIN could reduce to LEFT or RIGHT JOIN
     else if (join_type == JOIN_FULL) {
+        ereport(WARNING, (errmsg("[CASCADES] OuterJoinSimplifyRule:transform, skipping FULL JOIN simplification")));
         // For now, skip FULL JOIN simplification
         // Full implementation would check:
         // 1. If WHERE clause references only one side with strict predicates
@@ -107,17 +117,23 @@ std::vector<OptExpression*> OuterJoinSimplifyRule::transform(
     }
     // Case 4: LEFT ANTI JOIN - check if can reduce to regular ANTI
     else if (join_type == JOIN_LEFT_ANTI_FULL) {
+        ereport(WARNING, (errmsg("[CASCADES] OuterJoinSimplifyRule:transform, LEFT ANTI JOIN, skipping simplification")));
         // If the join qual is strict for inner side, could simplify
         // For now, return as-is
     }
     // INNER JOIN - already simplified, no action needed
     else if (join_type == JOIN_INNER) {
+        ereport(WARNING, (errmsg("[CASCADES] OuterJoinSimplifyRule:transform, INNER JOIN, no simplification needed")));
         // INNER JOINs don't need simplification
     }
     // SEMI JOIN - currently not simplified
     else {
+        ereport(WARNING, (errmsg("[CASCADES] OuterJoinSimplifyRule:transform, other join type %d, skipping", (int)join_type)));
         // JOIN_SEMI, JOIN_ANTI, etc. - skip for now
     }
+
+    ereport(WARNING, (errmsg("[CASCADES] OuterJoinSimplifyRule:transform, returning %d results",
+                         (int)result.size())));
 
     return result;
 }

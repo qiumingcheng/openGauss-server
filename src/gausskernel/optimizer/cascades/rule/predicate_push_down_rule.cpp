@@ -18,6 +18,9 @@ PredicatePushDownRule::PredicatePushDownRule()
 
 std::vector<OptExpression*> PredicatePushDownRule::transform(
     OptExpression* input, OptimizerContext* context) {
+    ereport(WARNING, (errmsg("[CASCADES] PredicatePushDownRule:transform, input=%s",
+                         input->to_string().c_str())));
+
     Assert(input->arity() > 0);  // Pattern must match expression with child
 
     // Pattern: Filter on top of any expression
@@ -30,10 +33,14 @@ std::vector<OptExpression*> PredicatePushDownRule::transform(
     // Get the predicate ID from the filter
     int predicate_id = filter->get_predicate_id();
     if (predicate_id < 0) {
+        ereport(WARNING, (errmsg("[CASCADES] PredicatePushDownRule:transform, no predicate to push")));
         // No predicate to push, return input as-is
         result.push_back(input);
         return result;
     }
+
+    ereport(WARNING, (errmsg("[CASCADES] PredicatePushDownRule:transform, predicate_id=%d, child_op=%d",
+                         predicate_id, (int)child_op->get_type())));
 
     // Case 1: Push filter down through joins
     if (child_op->get_type() == OptExprOpType::LOGICAL_JOIN) {
@@ -85,14 +92,19 @@ std::vector<OptExpression*> PredicatePushDownRule::transform(
             result.push_back(new_expr);
         }
         // JOIN_FULL - complex, skip for now
+        else {
+            ereport(WARNING, (errmsg("[CASCADES] PredicatePushDownRule:transform, skipping JOIN_FULL")));
+        }
     }
     // Case 2: Push filter down to scan
     else if (child_op->get_type() == OptExprOpType::LOGICAL_SCAN) {
+        ereport(WARNING, (errmsg("[CASCADES] PredicatePushDownRule:transform, pushing to SCAN")));
         // Push filter directly to scan - attach predicate to scan
         LogicalScan* scan = static_cast<LogicalScan*>(child_op->clone());
 
         // If scan already has a predicate, combine them
         if (scan->has_predicate()) {
+            ereport(WARNING, (errmsg("[CASCADES] PredicatePushDownRule:transform, scan already has predicate")));
             // Keep existing predicate, for now just return input
             result.push_back(input);
         } else {
@@ -104,6 +116,7 @@ std::vector<OptExpression*> PredicatePushDownRule::transform(
     }
     // Case 3: Push filter through projection
     else if (child_op->get_type() == OptExprOpType::LOGICAL_PROJECT) {
+        ereport(WARNING, (errmsg("[CASCADES] PredicatePushDownRule:transform, pushing through PROJECT")));
         // Create a new filter on top of the projection's child
         // The predicate needs to be expressed in terms of child's columns
         // For now, just push the filter down to the projection's child
@@ -124,6 +137,7 @@ std::vector<OptExpression*> PredicatePushDownRule::transform(
     }
     // Case 4: Push filter through another filter - merge predicates
     else if (child_op->get_type() == OptExprOpType::LOGICAL_FILTER) {
+        ereport(WARNING, (errmsg("[CASCADES] PredicatePushDownRule:transform, merging FILTERs")));
         // Merge with child's filter
         // Create a new filter with combined predicate
         LogicalFilter* merged_filter = NEW_EX(LogicalFilter);
@@ -136,8 +150,13 @@ std::vector<OptExpression*> PredicatePushDownRule::transform(
     }
     // Case 5: Cannot push through other operators
     else {
+        ereport(WARNING, (errmsg("[CASCADES] PredicatePushDownRule:transform, cannot push through operator type %d",
+                             (int)child_op->get_type())));
         result.push_back(input);
     }
+
+    ereport(WARNING, (errmsg("[CASCADES] PredicatePushDownRule:transform, returning %d results",
+                         (int)result.size())));
 
     return result;
 }

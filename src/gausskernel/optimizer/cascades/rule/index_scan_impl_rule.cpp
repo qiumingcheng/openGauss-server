@@ -43,7 +43,9 @@ IndexScanImplRule::IndexScanImplRule()
 
 std::vector<OptExpression*> IndexScanImplRule::transform(
     OptExpression* input, OptimizerContext* context) {
-    // Pattern guarantees: op_type == LOGICAL_SCAN && arity == 0
+    ereport(WARNING, (errmsg("[CASCADES] IndexScanImplRule:transform, input=%s",
+                         input->to_string().c_str())));
+
     std::vector<OptExpression*> result;
 
     LogicalScan* scan_op = static_cast<LogicalScan*>(input->get_op());
@@ -52,19 +54,24 @@ std::vector<OptExpression*> IndexScanImplRule::transform(
     // Get PlannerInfo
     PlannerInfo* root = context->get_root();
     if (root == nullptr) {
+        ereport(WARNING, (errmsg("[CASCADES] IndexScanImplRule:transform, PlannerInfo is null")));
         return {};  // Cannot create paths without PlannerInfo
     }
 
     // Find the base RelOptInfo for this table
     RelOptInfo* rel = find_base_rel(root, table_id);
     if (rel == nullptr) {
+        ereport(WARNING, (errmsg("[CASCADES] IndexScanImplRule:transform, RelOptInfo not found for table_id=%d", table_id)));
         return {};
     }
 
     // Check if there are any indexes on this relation
     if (!has_indexes(rel)) {
+        ereport(WARNING, (errmsg("[CASCADES] IndexScanImplRule:transform, no indexes on relation")));
         return {};  // No indexes, cannot create index scan
     }
+
+    ereport(WARNING, (errmsg("[CASCADES] IndexScanImplRule:transform, found indexes, creating index paths")));
 
     // Get predicate if any
     int predicate_id = scan_op->get_predicate_id();
@@ -79,12 +86,17 @@ std::vector<OptExpression*> IndexScanImplRule::transform(
     List* pathlist = rel->pathlist;
     ListCell* lc = nullptr;
 
+    ereport(WARNING, (errmsg("[CASCADES] IndexScanImplRule:transform, pathlist length=%d",
+                         list_length(pathlist))));
+
     foreach (lc, pathlist) {
         Path* path = (Path*)lfirst(lc);
 
         // Check if this is an index path (IndexPath or BitmapPath)
         if (IsA(path, IndexPath)) {
             IndexPath* index_path = (IndexPath*)path;
+            ereport(WARNING, (errmsg("[CASCADES] IndexScanImplRule:transform, found IndexPath, startup_cost=%.2f",
+                                 index_path->path.startup_cost)));
 
             // Create physical scan operator with the index path
             PhysicalScan* physical_scan = NEW_EX(PhysicalScan, (Path*)index_path);
@@ -95,6 +107,7 @@ std::vector<OptExpression*> IndexScanImplRule::transform(
         } else if (IsA(path, BitmapHeapPath)) {
             // Bitmap scan path
             BitmapHeapPath* bitmap_path = (BitmapHeapPath*)path;
+            ereport(WARNING, (errmsg("[CASCADES] IndexScanImplRule:transform, found BitmapPath")));
 
             // Create physical scan for bitmap scan
             PhysicalScan* physical_scan = NEW_EX(PhysicalScan, (Path*)bitmap_path);
@@ -107,8 +120,12 @@ std::vector<OptExpression*> IndexScanImplRule::transform(
 
     // If no index paths were generated, return empty
     if (result.empty()) {
+        ereport(WARNING, (errmsg("[CASCADES] IndexScanImplRule:transform, no index paths generated")));
         return {};
     }
+
+    ereport(WARNING, (errmsg("[CASCADES] IndexScanImplRule:transform, generated %d index paths",
+                         (int)result.size())));
 
     return result;
 }

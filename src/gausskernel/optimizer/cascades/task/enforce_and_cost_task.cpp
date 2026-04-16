@@ -24,6 +24,9 @@ EnforceAndCostTask::EnforceAndCostTask(TaskContext* context, Group* group,
     : OptimizerTask(context), group_(group), required_property_(required_property) {}
 
 void EnforceAndCostTask::execute() {
+    ereport(WARNING, (errmsg("[CASCADES] EnforceAndCostTask: group id=%d, property=%s",
+                         group_->id(), required_property_.to_string().c_str())));
+
     CostModel cost_model;
     RequiredPropertyDeriver property_deriver;
 
@@ -34,9 +37,16 @@ void EnforceAndCostTask::execute() {
     // Iterate over all physical expressions in the group
     const auto& physical_exprs = group_->get_physical_expressions();
 
+    ereport(WARNING, (errmsg("[CASCADES] EnforceAndCostTask: %d physical expressions",
+                         (int)physical_exprs.size())));
+
     for (GroupExpression* expr : physical_exprs) {
+        ereport(WARNING, (errmsg("[CASCADES] EnforceAndCostTask: processing expr=%s",
+                             expr->to_string().c_str())));
+
         // Skip if expression is unused (has empty child groups)
         if (expr->is_unused()) {
+            ereport(WARNING, (errmsg("[CASCADES] EnforceAndCostTask: skipped, expression unused")));
             continue;
         }
 
@@ -54,10 +64,15 @@ void EnforceAndCostTask::execute() {
             PhysicalPropertySet child_required = property_deriver
                 .derive_child_required_properties(expr, required_property_)[i];
 
+            ereport(WARNING, (errmsg("[CASCADES] EnforceAndCostTask: child %d, group id=%d, child_required=%s",
+                                 i, child_group->id(), child_required.to_string().c_str())));
+
             // Lower bound pruning: check if this branch can be pruned
             double child_lower_bound = child_group->get_cost_lower_bound(child_required);
             if (child_lower_bound > 0 && accumulated_child_cost + child_lower_bound >= context_->get_upper_bound_cost()) {
                 // This child's lower bound already exceeds upper bound, prune
+                ereport(WARNING, (errmsg("[CASCADES] EnforceAndCostTask: pruned by lower bound, child_lower_bound=%.2f, accumulated=%.2f, upper_bound=%.2f",
+                                     child_lower_bound, accumulated_child_cost, context_->get_upper_bound_cost())));
                 all_children_optimized = false;
                 break;
             }
@@ -65,6 +80,7 @@ void EnforceAndCostTask::execute() {
             GroupExpression* child_best = child_group->get_best_expression(child_required);
 
             if (child_best == nullptr) {
+                ereport(WARNING, (errmsg("[CASCADES] EnforceAndCostTask: child %d not optimized yet, pushing tasks", i)));
                 // Child not yet optimized for this required property
                 // Push tasks to optimize child group first, then re-execute this task
                 // Note: LIFO order - push self first, then child optimize task
@@ -72,6 +88,9 @@ void EnforceAndCostTask::execute() {
                 push_task(MakeTask<EnforceAndCostTask>(context_, child_group, child_required));
                 return;
             }
+
+            ereport(WARNING, (errmsg("[CASCADES] EnforceAndCostTask: child %d best_expr found, cost=%.2f",
+                                 i, child_best->get_cost(child_required))));
 
             children_best_exprs.push_back(child_best);
             accumulated_child_cost += child_best->get_cost(child_required);

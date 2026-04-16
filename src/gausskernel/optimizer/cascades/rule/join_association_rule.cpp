@@ -19,6 +19,9 @@ JoinAssociationRule::JoinAssociationRule()
 
 std::vector<OptExpression*> JoinAssociationRule::transform(
     OptExpression* input, OptimizerContext* context) {
+    ereport(WARNING, (errmsg("[CASCADES] JoinAssociationRule:transform, input=%s",
+                         input->to_string().c_str())));
+
     // Pattern guarantees: op_type == LOGICAL_JOIN && arity == 2
     // Left child pattern guarantees: left->op_type == LOGICAL_JOIN && left->arity == 2
     OptExpression* left = input->input_at(0);
@@ -32,6 +35,8 @@ std::vector<OptExpression*> JoinAssociationRule::transform(
     OptExpression* R = left->input_at(1);
     OptExpression* C = right;
 
+    ereport(WARNING, (errmsg("[CASCADES] JoinAssociationRule:transform, reassociating joins")));
+
     // Create inner join: (R join C)
     LogicalOptExprOp* inner_join_op = static_cast<LogicalOptExprOp*>(input->get_op()->clone());
     OptExpression* inner_join = OptExpression::create(inner_join_op, R, C);
@@ -39,6 +44,8 @@ std::vector<OptExpression*> JoinAssociationRule::transform(
     // Create outer join: L join (R join C)
     OptExprOp* outer_join_op = static_cast<OptExprOp*>(input->get_op()->clone());
     OptExpression* new_outer = OptExpression::create(outer_join_op, L, inner_join);
+
+    ereport(WARNING, (errmsg("[CASCADES] JoinAssociationRule:transform, created new join tree")));
 
     return {new_outer};
 }

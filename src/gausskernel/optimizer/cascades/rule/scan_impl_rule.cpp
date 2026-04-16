@@ -22,6 +22,9 @@ ScanImplRule::ScanImplRule()
 
 std::vector<OptExpression*> ScanImplRule::transform(
     OptExpression* input, OptimizerContext* context) {
+    ereport(WARNING, (errmsg("[CASCADES] ScanImplRule:transform, input=%s",
+                         input->to_string().c_str())));
+
     // Pattern guarantees: op_type == LOGICAL_SCAN && arity == 0
     LogicalScan* scan_op = static_cast<LogicalScan*>(input->get_op());
     int table_id = scan_op->get_table_id();
@@ -29,14 +32,18 @@ std::vector<OptExpression*> ScanImplRule::transform(
     // Get PlannerInfo
     PlannerInfo* root = context->get_root();
     if (root == nullptr) {
+        ereport(WARNING, (errmsg("[CASCADES] ScanImplRule:transform, PlannerInfo is null")));
         return {};
     }
 
     // Find the base RelOptInfo for this table
     RelOptInfo* rel = find_base_rel(root, table_id);
     if (rel == nullptr) {
+        ereport(WARNING, (errmsg("[CASCADES] ScanImplRule:transform, RelOptInfo not found for table_id=%d", table_id)));
         return {};
     }
+
+    ereport(WARNING, (errmsg("[CASCADES] ScanImplRule:transform, creating seqscan path for table_id=%d", table_id)));
 
     // Create SeqScan path using OpenGauss function
     Path* scan_path = create_seqscan_path(root, rel, nullptr, 1);
@@ -45,6 +52,8 @@ std::vector<OptExpression*> ScanImplRule::transform(
     PhysicalScan* physical_scan = NEW_EX(PhysicalScan, scan_path);
 
     OptExpression* new_expr = OptExpression::create(physical_scan);
+    ereport(WARNING, (errmsg("[CASCADES] ScanImplRule:transform, created physical scan: %s",
+                         new_expr->to_string().c_str())));
     return {new_expr};
 }
 

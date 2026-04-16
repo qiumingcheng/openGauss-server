@@ -149,10 +149,14 @@ DuplicateJoinEliminationRule::DuplicateJoinEliminationRule()
 
 std::vector<OptExpression*> DuplicateJoinEliminationRule::transform(
     OptExpression* input, OptimizerContext* context) {
+    ereport(WARNING, (errmsg("[CASCADES] DuplicateJoinEliminationRule:transform, input=%s",
+                         input->to_string().c_str())));
+
     std::vector<OptExpression*> result;
 
     OptExprOp* op = input->get_op();
     if (op->get_type() != OptExprOpType::LOGICAL_JOIN) {
+        ereport(WARNING, (errmsg("[CASCADES] DuplicateJoinEliminationRule:transform, not LOGICAL_JOIN")));
         return result;
     }
 
@@ -170,6 +174,9 @@ std::vector<OptExpression*> DuplicateJoinEliminationRule::transform(
         int left_table_id = get_table_id_from_scan(left);
         int right_table_id = get_table_id_from_scan(right);
 
+        ereport(WARNING, (errmsg("[CASCADES] DuplicateJoinEliminationRule:transform, left_table_id=%d, right_table_id=%d",
+                             left_table_id, right_table_id)));
+
         // Same table on both sides - self-join
         if (left_table_id == right_table_id && left_table_id >= 0) {
             const std::vector<int>& keys = join->get_join_keys();
@@ -177,11 +184,17 @@ std::vector<OptExpression*> DuplicateJoinEliminationRule::transform(
             // Self-join with join keys can be eliminated
             // The result is equivalent to scanning the table once
             if (!keys.empty()) {
+                ereport(WARNING, (errmsg("[CASCADES] DuplicateJoinEliminationRule:transform, self-join with keys, eliminating")));
                 // Return left child as the simplified result
                 result.push_back(left);
+            } else {
+                ereport(WARNING, (errmsg("[CASCADES] DuplicateJoinEliminationRule:transform, self-join but no keys")));
             }
         }
     }
+
+    ereport(WARNING, (errmsg("[CASCADES] DuplicateJoinEliminationRule:transform, returning %d results",
+                         (int)result.size())));
 
     return result;
 }

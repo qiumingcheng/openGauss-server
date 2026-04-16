@@ -37,11 +37,15 @@ bool SubqueryUnnestRule::check(OptExpression* input, OptimizerContext* context) 
 
 std::vector<OptExpression*> SubqueryUnnestRule::transform(
     OptExpression* input, OptimizerContext* context) {
+    ereport(WARNING, (errmsg("[CASCADES] SubqueryUnnestRule:transform, input=%s",
+                         input->to_string().c_str())));
+
     (void)context;
     std::vector<OptExpression*> result;
 
     OptExprOp* op = input->get_op();
     if (op->get_type() != OptExprOpType::LOGICAL_SUBQUERY) {
+        ereport(WARNING, (errmsg("[CASCADES] SubqueryUnnestRule:transform, not LOGICAL_SUBQUERY")));
         return result;
     }
 
@@ -49,6 +53,7 @@ std::vector<OptExpression*> SubqueryUnnestRule::transform(
 
     // Check if this subquery can be unnested
     if (!can_unnest_subquery(input)) {
+        ereport(WARNING, (errmsg("[CASCADES] SubqueryUnnestRule:transform, cannot unnest subquery")));
         // Cannot unnest - return input as-is
         result.push_back(input);
         return result;
@@ -59,6 +64,7 @@ std::vector<OptExpression*> SubqueryUnnestRule::transform(
     subquery->set_correlated(correlated);
 
     if (correlated) {
+        ereport(WARNING, (errmsg("[CASCADES] SubqueryUnnestRule:transform, correlated subquery")));
         // Correlated subquery: pull up to parent
         // Reference: prepjointree.cpp pull_up_simple_subquery
         OptExpression* unnested = unnest_correlated_subquery(input, nullptr);
@@ -68,6 +74,7 @@ std::vector<OptExpression*> SubqueryUnnestRule::transform(
             result.push_back(input);
         }
     } else {
+        ereport(WARNING, (errmsg("[CASCADES] SubqueryUnnestRule:transform, uncorrelated subquery")));
         // Uncorrelated subquery: try to convert to semi-join or anti-join
         // Reference: prepjointree.cpp handling of IN/EXISTS with sublinks
         OptExpression* converted = convert_to_semi_join(input, nullptr);
@@ -77,6 +84,9 @@ std::vector<OptExpression*> SubqueryUnnestRule::transform(
             result.push_back(input);
         }
     }
+
+    ereport(WARNING, (errmsg("[CASCADES] SubqueryUnnestRule:transform, returning %d results",
+                         (int)result.size())));
 
     return result;
 }

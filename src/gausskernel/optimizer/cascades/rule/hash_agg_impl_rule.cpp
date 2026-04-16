@@ -30,6 +30,9 @@ HashAggImplRule::HashAggImplRule()
 
 std::vector<OptExpression*> HashAggImplRule::transform(
     OptExpression* input, OptimizerContext* context) {
+    ereport(WARNING, (errmsg("[CASCADES] HashAggImplRule:transform, input=%s",
+                         input->to_string().c_str())));
+
     // Pattern guarantees: op_type == LOGICAL_AGGREGATE && arity == 1
     LogicalAggregate* agg_op = static_cast<LogicalAggregate*>(input->get_op());
     const std::vector<int>& group_keys = agg_op->get_group_keys();
@@ -40,12 +43,14 @@ std::vector<OptExpression*> HashAggImplRule::transform(
     // Get child GroupExpression
     GroupExpression* child_group_expr = child->get_group_expression();
     if (child_group_expr == nullptr) {
+        ereport(WARNING, (errmsg("[CASCADES] HashAggImplRule:transform, child_group_expr is null")));
         return {};
     }
 
     // Get child group
     Group* child_group = child_group_expr->get_group();
     if (child_group == nullptr) {
+        ereport(WARNING, (errmsg("[CASCADES] HashAggImplRule:transform, child_group is null")));
         return {};
     }
 
@@ -69,11 +74,16 @@ std::vector<OptExpression*> HashAggImplRule::transform(
     }
 
     if (child_path == nullptr) {
+        ereport(WARNING, (errmsg("[CASCADES] HashAggImplRule:transform, child_path is null")));
         return {};
     }
 
+    ereport(WARNING, (errmsg("[CASCADES] HashAggImplRule:transform, child_path found, startup_cost=%.2f",
+                         child_path->startup_cost)));
+
     PlannerInfo* root = context->get_root();
     if (root == nullptr) {
+        ereport(WARNING, (errmsg("[CASCADES] HashAggImplRule:transform, PlannerInfo is null")));
         return {};
     }
 
@@ -86,6 +96,8 @@ std::vector<OptExpression*> HashAggImplRule::transform(
         (void)bms_get_singleton_member(child_rel->relids, &child_relid);
 
         if (child_relid > 0) {
+            ereport(WARNING, (errmsg("[CASCADES] HashAggImplRule:transform, creating groupClause with %d keys",
+                                 (int)group_keys.size())));
             for (int key_col : group_keys) {
                 SortGroupClause* grpcl = makeNode(SortGroupClause);
                 grpcl->tleSortGroupRef = key_col;
@@ -112,6 +124,7 @@ std::vector<OptExpression*> HashAggImplRule::transform(
     PhysicalHashAgg* hash_agg = NEW_EX(PhysicalHashAgg, (Path*)hash_path, child_path, group_keys);
 
     OptExpression* new_expr = OptExpression::create(hash_agg);
+    ereport(WARNING, (errmsg("[CASCADES] HashAggImplRule:transform, created hash agg expr")));
     return {new_expr};
 }
 

@@ -21,6 +21,9 @@ SortImplRule::SortImplRule()
 
 std::vector<OptExpression*> SortImplRule::transform(
     OptExpression* input, OptimizerContext* context) {
+    ereport(WARNING, (errmsg("[CASCADES] SortImplRule:transform, input=%s",
+                         input->to_string().c_str())));
+
     Assert(input->arity() > 0);  // Pattern must match expression with child
 
     LogicalOptExprOp* project_op = static_cast<LogicalOptExprOp*>(input->get_op());
@@ -32,12 +35,14 @@ std::vector<OptExpression*> SortImplRule::transform(
     // Get child GroupExpression
     GroupExpression* child_group_expr = child->get_group_expression();
     if (child_group_expr == nullptr) {
+        ereport(WARNING, (errmsg("[CASCADES] SortImplRule:transform, child_group_expr is null")));
         return {};
     }
 
     // Get child group
     Group* child_group = child_group_expr->get_group();
     if (child_group == nullptr) {
+        ereport(WARNING, (errmsg("[CASCADES] SortImplRule:transform, child_group is null")));
         return {};
     }
 
@@ -51,11 +56,13 @@ std::vector<OptExpression*> SortImplRule::transform(
     }
 
     if (child_path == nullptr) {
+        ereport(WARNING, (errmsg("[CASCADES] SortImplRule:transform, child_path is null")));
         return {};
     }
 
     PlannerInfo* root = context->get_root();
     if (root == nullptr) {
+        ereport(WARNING, (errmsg("[CASCADES] SortImplRule:transform, PlannerInfo is null")));
         return {};
     }
 
@@ -64,6 +71,7 @@ std::vector<OptExpression*> SortImplRule::transform(
     // For now, return empty to indicate no transformation is performed.
     (void)project_op;
     (void)child_path;
+    ereport(WARNING, (errmsg("[CASCADES] SortImplRule:transform, returning empty (not implemented)")));
     return {};
 }
 

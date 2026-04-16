@@ -181,16 +181,23 @@ AggregationSimplifyRule::AggregationSimplifyRule()
 
 std::vector<OptExpression*> AggregationSimplifyRule::transform(
     OptExpression* input, OptimizerContext* context) {
+    ereport(WARNING, (errmsg("[CASCADES] AggregationSimplifyRule:transform, input=%s",
+                         input->to_string().c_str())));
+
     // Pattern guarantees: op_type == LOGICAL_AGGREGATE && arity == 1
     std::vector<OptExpression*> result;
 
     OptExprOp* op = input->get_op();
     if (op->get_type() != OptExprOpType::LOGICAL_AGGREGATE) {
+        ereport(WARNING, (errmsg("[CASCADES] AggregationSimplifyRule:transform, not LOGICAL_AGGREGATE")));
         return result;
     }
 
     LogicalAggregate* agg = static_cast<LogicalAggregate*>(op);
     const std::vector<int>& group_keys = agg->get_group_keys();
+
+    ereport(WARNING, (errmsg("[CASCADES] AggregationSimplifyRule:transform, group_keys size=%d",
+                         (int)group_keys.size())));
 
     // =========================================================================
     // Case 1: Eliminate unnecessary GROUP BY (GROUP BY constants)
@@ -198,6 +205,7 @@ std::vector<OptExpression*> AggregationSimplifyRule::transform(
     // Example: SELECT COUNT(*) FROM t GROUP BY 1, 2, 3
     // If columns 1, 2, 3 are all constants, the GROUP BY is unnecessary
     if (!group_keys.empty() && is_group_by_constant(group_keys)) {
+        ereport(WARNING, (errmsg("[CASCADES] AggregationSimplifyRule:transform, constant GROUP BY detected")));
         OptExpression* simplified = remove_constant_group_keys(input);
         result.push_back(simplified);
     }
@@ -213,6 +221,7 @@ std::vector<OptExpression*> AggregationSimplifyRule::transform(
 
         if (child_op->get_type() == OptExprOpType::LOGICAL_AGGREGATE) {
             if (is_redundant_aggregate(input, child)) {
+                ereport(WARNING, (errmsg("[CASCADES] AggregationSimplifyRule:transform, redundant aggregate detected")));
                 // The inner aggregate already groups by the same keys,
                 // so the outer aggregate is redundant
                 // We can just return the child directly (with identity projection)
@@ -235,6 +244,7 @@ std::vector<OptExpression*> AggregationSimplifyRule::transform(
         if (child_op->get_type() == OptExprOpType::LOGICAL_JOIN) {
             bool push_to_left = true;
             if (can_push_aggregate_below_join(input, child, push_to_left)) {
+                ereport(WARNING, (errmsg("[CASCADES] AggregationSimplifyRule:transform, pushing aggregation below join")));
                 OptExpression* left_child = child->input_at(0);
                 OptExpression* right_child = child->input_at(1);
 
@@ -267,6 +277,8 @@ std::vector<OptExpression*> AggregationSimplifyRule::transform(
                     final_agg, new_join_expr);
 
                 result.push_back(final_expr);
+            } else {
+                ereport(WARNING, (errmsg("[CASCADES] AggregationSimplifyRule:transform, cannot push aggregation below join")));
             }
         }
     }
@@ -278,6 +290,9 @@ std::vector<OptExpression*> AggregationSimplifyRule::transform(
     // If t is partitioned, we can compute partial sums locally
     // This requires checking the distribution property of the child
     // For now, we just mark this as a potential optimization point
+
+    ereport(WARNING, (errmsg("[CASCADES] AggregationSimplifyRule:transform, returning %d results",
+                         (int)result.size())));
 
     return result;
 }

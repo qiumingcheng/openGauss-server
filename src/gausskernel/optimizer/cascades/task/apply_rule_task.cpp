@@ -43,39 +43,53 @@ ApplyRuleTask::ApplyRuleTask(TaskContext* context, GroupExpression* expr, Rule* 
     : OptimizerTask(context), expression_(expr), rule_(rule), is_explore_(is_explore) {}
 
 void ApplyRuleTask::execute() {
+    ereport(WARNING, (errmsg("[CASCADES] ApplyRuleTask: expr=%s, rule=%s, is_explore=%d",
+                         expression_->to_string().c_str(), rule_->to_string().c_str(),
+                         is_explore_ ? 1 : 0)));
+
     // Skip if rule has been explored (for transformation rules)
     if (is_transformation_rule(rule_->type())) {
         if (expression_->has_rule_explored(rule_->type())) {
+            ereport(WARNING, (errmsg("[CASCADES] ApplyRuleTask: skipped, rule already explored")));
             return;
         }
     }
 
     // Skip if rule has been applied (for implementation rules)
     if (expression_->has_rule_applied(rule_->type())) {
+        ereport(WARNING, (errmsg("[CASCADES] ApplyRuleTask: skipped, rule already applied")));
         return;
     }
 
     // Skip if expression is unused (has empty child groups)
     if (expression_->is_unused()) {
+        ereport(WARNING, (errmsg("[CASCADES] ApplyRuleTask: skipped, expression unused")));
         return;
     }
 
     // Skip if rule is exhausted (timeout protection)
     if (rule_->exhausted(context_->get_optimizer_context())) {
+        ereport(WARNING, (errmsg("[CASCADES] ApplyRuleTask: skipped, rule exhausted")));
         return;
     }
 
     // Check if rule's check condition passes using GroupExpression directly
     OptimizerContext* optimizer_context = context_->get_optimizer_context();
     if (!rule_->check(expression_, optimizer_context)) {
+        ereport(WARNING, (errmsg("[CASCADES] ApplyRuleTask: skipped, rule check failed")));
         return;
     }
+
+    ereport(WARNING, (errmsg("[CASCADES] ApplyRuleTask: rule check passed, building opt expression")));
 
     // Build OptExpression tree from GroupExpression for rule transform
     OptExpression* input = build_opt_expression(expression_);
 
     // Transform using the rule
     std::vector<OptExpression*> results = rule_->transform(input, optimizer_context);
+
+    ereport(WARNING, (errmsg("[CASCADES] ApplyRuleTask: transform produced %d results",
+                         (int)results.size())));
 
     // Insert transformed expressions into memo
     Memo* memo = optimizer_context->get_memo();
@@ -86,12 +100,16 @@ void ApplyRuleTask::execute() {
 
         // Skip if memo was merged during insertion
         if (expression_->get_group()->is_empty()) {
+            ereport(WARNING, (errmsg("[CASCADES] ApplyRuleTask: skipped, group is empty after merge")));
             return;
         }
 
         // Merge applied rules from parent expression
         new_group_expr->merge_applied_rules(expression_->get_applied_rules());
         new_group_expr->add_applied_rule(rule_->type());
+
+        ereport(WARNING, (errmsg("[CASCADES] ApplyRuleTask: inserted new expr, is_logical=%d",
+                             new_group_expr->get_op()->is_logical() ? 1 : 0)));
 
         // Push follow-up tasks based on expression type
         if (new_group_expr->get_op()->is_logical()) {

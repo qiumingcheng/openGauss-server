@@ -78,12 +78,20 @@ std::vector<Rule*> OptimizeExpressionTask::get_valid_rules() const {
 }
 
 void OptimizeExpressionTask::execute() {
+    ereport(WARNING, (errmsg("[CASCADES] OptimizeExpressionTask: expr=%s, explore=%d",
+                         expression_->to_string().c_str(), explore_ ? 1 : 0)));
+
     // Get valid rules sorted by promise
     std::vector<Rule*> valid_rules = get_valid_rules();
+
+    ereport(WARNING, (errmsg("[CASCADES] OptimizeExpressionTask: found %d valid rules",
+                         (int)valid_rules.size())));
 
     // Push ApplyRuleTask for each valid rule
     // Note: Stack is LIFO, so rules with higher promise (sorted first) will be executed first
     for (Rule* rule : valid_rules) {
+        ereport(WARNING, (errmsg("[CASCADES] OptimizeExpressionTask: pushing ApplyRuleTask for rule=%s",
+                             rule->to_string().c_str())));
         push_task(MakeTask<ApplyRuleTask>(context_, expression_, rule, explore_));
     }
 
@@ -94,6 +102,8 @@ void OptimizeExpressionTask::execute() {
     // StarRocks: for (int i = groupExpression.arity() - 1; i >= 0; i--)
     for (int i = expression_->arity() - 1; i >= 0; --i) {
         Group* child_group = expression_->input_at(i);
+        ereport(WARNING, (errmsg("[CASCADES] OptimizeExpressionTask: pushing ExploreGroupTask for child group id=%d",
+                             child_group->id())));
         push_task(MakeTask<ExploreGroupTask>(context_, child_group));
     }
 }

@@ -22,6 +22,12 @@ OptExpression* QueryToExprConverter::convert(PlannerInfo* root, Query* parse) {
     // Convert SELECT statement
     OptExpression* result = translate_select(root, parse);
 
+    // Print debug string for the converted expression tree
+    if (result != nullptr) {
+        ereport(WARNING, (errmsg("[CASCADES] QueryToExprConverter: converted expression tree:\n%s",
+                             result->debug_string().c_str())));
+    }
+
     return result;
 }
 

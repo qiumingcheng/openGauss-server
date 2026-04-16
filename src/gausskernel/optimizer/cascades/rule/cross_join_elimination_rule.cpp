@@ -46,28 +46,38 @@ CrossJoinEliminationRule* CrossJoinEliminationRule::instance(){
 
 std::vector<OptExpression*> CrossJoinEliminationRule::transform(
     OptExpression* input, OptimizerContext* context) {
+    ereport(WARNING, (errmsg("[CASCADES] CrossJoinEliminationRule:transform, input=%s",
+                         input->to_string().c_str())));
+
     std::vector<OptExpression*> result;
 
     OptExprOp* op = input->get_op();
     if (op->get_type() != OptExprOpType::LOGICAL_JOIN) {
+        ereport(WARNING, (errmsg("[CASCADES] CrossJoinEliminationRule:transform, not LOGICAL_JOIN")));
         return result;
     }
 
     LogicalJoin* join = static_cast<LogicalJoin*>(op);
     JoinType join_type = join->get_join_type();
 
+    ereport(WARNING, (errmsg("[CASCADES] CrossJoinEliminationRule:transform, join_type=%d",
+                         (int)join_type)));
+
     // Only handle INNER JOINs for cross join elimination
     if (join_type != JOIN_INNER) {
+        ereport(WARNING, (errmsg("[CASCADES] CrossJoinEliminationRule:transform, not INNER JOIN")));
         return result;
     }
 
     // Case 1: Pure cross join (no join keys)
     if (is_cross_join(join)) {
+        ereport(WARNING, (errmsg("[CASCADES] CrossJoinEliminationRule:transform, is cross join")));
         OptExpression* left = input->input_at(0);
         OptExpression* right = input->input_at(1);
 
         // Case 1a: If one side is empty, the result is empty
         if (is_empty_relation(left) || is_empty_relation(right)) {
+            ereport(WARNING, (errmsg("[CASCADES] CrossJoinEliminationRule:transform, empty relation detected")));
             // Return empty relation marker - for now return as-is
             // A full implementation would create a dummy scan
             return result;
@@ -77,10 +87,12 @@ std::vector<OptExpression*> CrossJoinEliminationRule::transform(
         // to projecting the other side with the single row's values
         // Example: A CROSS JOIN (VALUES (1)) => A with constant projection
         if (is_single_row_scan(right)) {
+            ereport(WARNING, (errmsg("[CASCADES] CrossJoinEliminationRule:transform, right is single row")));
             // Right side is single row - result is like left side
             // with constants from right appended
             result.push_back(left);
         } else if (is_single_row_scan(left)) {
+            ereport(WARNING, (errmsg("[CASCADES] CrossJoinEliminationRule:transform, left is single row")));
             // Left side is single row - result is like right side
             // with constants from left appended
             result.push_back(right);
@@ -96,6 +108,9 @@ std::vector<OptExpression*> CrossJoinEliminationRule::transform(
     // If the same table appears on both sides (after aliasing),
     // and the join condition is on the same key, we might eliminate
     // This requires table alias tracking
+
+    ereport(WARNING, (errmsg("[CASCADES] CrossJoinEliminationRule:transform, returning %d results",
+                         (int)result.size())));
 
     return result;
 }

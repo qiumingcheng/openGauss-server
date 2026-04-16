@@ -53,4 +53,40 @@ std::string OptExpression::to_string() const {
     return op_->to_string();
 }
 
+std::string OptExpression::debug_string() const {
+    return debug_string(0);
+}
+
+std::string OptExpression::debug_string(int indent) const {
+    const int indent_step = 4;
+    std::string indent_str(indent * indent_step, ' ');
+
+    std::string result = indent_str + op_->to_string();
+
+    // Add statistics info if available
+    if (statistics_ != nullptr) {
+        result += " [rows=" + std::to_string((int)statistics_->row_count()) + "]";
+    }
+
+    // Add cost info if available
+    if (cost_ > 0) {
+        result += " [cost=" + std::to_string(cost_) + "]";
+    }
+
+    result += "\n";
+
+    // Recursively print children
+    for (int i = 0; i < (int)inputs_.size(); ++i) {
+        OptExpression* child = inputs_[i];
+        if (child != nullptr) {
+            result += indent_str + "  child[" + std::to_string(i) + "]:\n";
+            result += child->debug_string(indent + 1);
+        } else {
+            result += indent_str + "  child[" + std::to_string(i) + "]: (null)\n";
+        }
+    }
+
+    return result;
+}
+
 }  // namespace cascades

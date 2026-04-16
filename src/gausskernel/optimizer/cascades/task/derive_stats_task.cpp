@@ -20,12 +20,17 @@ void DeriveStatsTask::execute() {
     Group* group = expression_->get_group();
     OptExprOp* op = expression_->get_op();
 
+    ereport(WARNING, (errmsg("[CASCADES] DeriveStatsTask: group id=%d, expr=%s",
+                         group->id(), expression_->to_string().c_str())));
+
     // Collect statistics from input groups
     std::vector<Statistics*> children_stats;
     for (int i = 0; i < expression_->arity(); ++i) {
         Group* input_group = expression_->input_at(i);
         Statistics* child_stats = input_group->get_statistics();
         children_stats.push_back(child_stats);
+        ereport(WARNING, (errmsg("[CASCADES] DeriveStatsTask: child %d, group id=%d, stats=%p",
+                             i, input_group->id(), (void*)child_stats)));
     }
 
     // Create result statistics using NEW_EX macro
@@ -33,6 +38,9 @@ void DeriveStatsTask::execute() {
 
     // Derive statistics based on operator type
     derive_statistics_by_type(op, result_stats, children_stats);
+
+    ereport(WARNING, (errmsg("[CASCADES] DeriveStatsTask: result row_count=%.2f",
+                         result_stats->row_count())));
 
     // Set the computed statistics on the group
     group->set_statistics(result_stats);

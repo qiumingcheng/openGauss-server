@@ -27,20 +27,27 @@ ConstantFoldRule::ConstantFoldRule()
 
 std::vector<OptExpression*> ConstantFoldRule::transform(
     OptExpression* input, OptimizerContext* context) {
+    ereport(WARNING, (errmsg("[CASCADES] ConstantFoldRule:transform, input=%s",
+                         input->to_string().c_str())));
+
     Assert(input->arity() > 0);  // Pattern must match expression with child
 
     std::vector<OptExpression*> result;
 
     OptExprOp* op = input->get_op();
     if (op->get_type() != OptExprOpType::LOGICAL_FILTER) {
+        ereport(WARNING, (errmsg("[CASCADES] ConstantFoldRule:transform, not LOGICAL_FILTER")));
         return result;
     }
 
     LogicalFilter* filter = static_cast<LogicalFilter*>(op);
     int predicate_id = filter->get_predicate_id();
 
+    ereport(WARNING, (errmsg("[CASCADES] ConstantFoldRule:transform, predicate_id=%d", predicate_id)));
+
     // Check if this is a constant predicate
     if (predicate_id == CONSTANT_TRUE_PREDICATE_ID) {
+        ereport(WARNING, (errmsg("[CASCADES] ConstantFoldRule:transform, constant TRUE predicate")));
         // Filter with constant true condition - eliminate the filter
         OptExpression* folded = eliminate_true_filter(input);
         if (folded != nullptr) {
@@ -48,12 +55,14 @@ std::vector<OptExpression*> ConstantFoldRule::transform(
         }
         return result;
     } else if (predicate_id == CONSTANT_FALSE_PREDICATE_ID) {
+        ereport(WARNING, (errmsg("[CASCADES] ConstantFoldRule:transform, constant FALSE predicate")));
         // Filter with constant false condition - this branch produces no rows
         // In OpenGauss, this would be represented as a dummy scan or empty result
         // For now, we return the false filter which will be optimized later
         result.push_back(input);
         return result;
     } else if (predicate_id == CONSTANT_NULL_PREDICATE_ID) {
+        ereport(WARNING, (errmsg("[CASCADES] ConstantFoldRule:transform, constant NULL predicate")));
         // IS UNKNOWN (NULL) condition - treat as always false for filtering
         // A filter on NULL produces no rows since NULL = NULL is not true
         result.push_back(input);
@@ -68,6 +77,7 @@ std::vector<OptExpression*> ConstantFoldRule::transform(
         LogicalProject* project = static_cast<LogicalProject*>(child_op);
         OptExpression* folded_project = fold_project(project, child->input_at(0));
         if (folded_project != nullptr && folded_project != child) {
+            ereport(WARNING, (errmsg("[CASCADES] ConstantFoldRule:transform, folded project")));
             // Replace the child of the filter with the folded projection
             LogicalFilter* new_filter = NEW_EX(LogicalFilter);
             new_filter->set_predicate_id(predicate_id);
@@ -76,6 +86,8 @@ std::vector<OptExpression*> ConstantFoldRule::transform(
             return result;
         }
     }
+
+    ereport(WARNING, (errmsg("[CASCADES] ConstantFoldRule:transform, no folding possible")));
 
     // No transformation possible
     return result;

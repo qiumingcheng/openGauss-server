@@ -18,6 +18,9 @@ FilterMergeRule::FilterMergeRule()
 
 std::vector<OptExpression*> FilterMergeRule::transform(
     OptExpression* input, OptimizerContext* context) {
+    ereport(WARNING, (errmsg("[CASCADES] FilterMergeRule:transform, input=%s",
+                         input->to_string().c_str())));
+
     Assert(input->arity() > 0);  // Pattern must match expression with child
 
     // Pattern: Filter on top of any expression
@@ -29,14 +32,19 @@ std::vector<OptExpression*> FilterMergeRule::transform(
 
     int predicate_id = filter->get_predicate_id();
 
+    ereport(WARNING, (errmsg("[CASCADES] FilterMergeRule:transform, predicate_id=%d, child_op=%d",
+                         predicate_id, (int)child_op->get_type())));
+
     // Case 1: Merge consecutive filters
     // Filter(Filter(child)) -> Filter(child)
     if (child_op->get_type() == OptExprOpType::LOGICAL_FILTER) {
+        ereport(WARNING, (errmsg("[CASCADES] FilterMergeRule:transform, merging consecutive filters")));
         LogicalFilter* child_filter = static_cast<LogicalFilter*>(child_op);
         int child_predicate_id = child_filter->get_predicate_id();
 
         // If predicates are equivalent, the child filter is redundant
         if (predicate_id == child_predicate_id) {
+            ereport(WARNING, (errmsg("[CASCADES] FilterMergeRule:transform, predicates equivalent")));
             LogicalFilter* merged_filter = NEW_EX(LogicalFilter);
             merged_filter->set_predicate_id(predicate_id);
 
@@ -46,6 +54,7 @@ std::vector<OptExpression*> FilterMergeRule::transform(
         }
         // If parent predicate is a subset of child predicate, parent is redundant
         else if (is_predicate_subset(predicate_id, child_predicate_id)) {
+            ereport(WARNING, (errmsg("[CASCADES] FilterMergeRule:transform, parent predicate is subset")));
             OptExpression* grandchild = child->input_at(0);
             LogicalFilter* new_filter = NEW_EX(LogicalFilter);
             new_filter->set_predicate_id(predicate_id);
@@ -54,6 +63,7 @@ std::vector<OptExpression*> FilterMergeRule::transform(
         }
         // If child predicate is a subset of parent predicate, child is redundant
         else if (is_predicate_subset(child_predicate_id, predicate_id)) {
+            ereport(WARNING, (errmsg("[CASCADES] FilterMergeRule:transform, child predicate is subset")));
             LogicalFilter* new_filter = NEW_EX(LogicalFilter);
             new_filter->set_predicate_id(predicate_id);
             OptExpression* new_expr = OptExpression::create(new_filter, child->input_at(0));
@@ -61,6 +71,7 @@ std::vector<OptExpression*> FilterMergeRule::transform(
         }
         // Otherwise, both predicates are needed - merge them (AND them together)
         else {
+            ereport(WARNING, (errmsg("[CASCADES] FilterMergeRule:transform, merging both predicates")));
             LogicalFilter* merged_filter = NEW_EX(LogicalFilter);
             // Use the more restrictive predicate (lower ID typically means simpler)
             merged_filter->set_predicate_id(predicate_id < child_predicate_id ?
@@ -74,6 +85,7 @@ std::vector<OptExpression*> FilterMergeRule::transform(
     // Case 2: Push filter down through LogicalProject
     // Filter(Project(child)) -> Project(Filter(child))
     else if (child_op->get_type() == OptExprOpType::LOGICAL_PROJECT) {
+        ereport(WARNING, (errmsg("[CASCADES] FilterMergeRule:transform, pushing through PROJECT")));
         LogicalProject* project = static_cast<LogicalProject*>(child_op);
         OptExpression* project_child = child->input_at(0);
 
@@ -92,11 +104,14 @@ std::vector<OptExpression*> FilterMergeRule::transform(
     }
     // Case 3: Filter on top of scan - nothing to merge
     else if (child_op->get_type() == OptExprOpType::LOGICAL_SCAN) {
+        ereport(WARNING, (errmsg("[CASCADES] FilterMergeRule:transform, filter on SCAN")));
         // Cannot merge with scan, return as-is
         result.push_back(input);
     }
     // Case 4: Filter with join child - push down to applicable sides
     else if (child_op->get_type() == OptExprOpType::LOGICAL_JOIN) {
+        ereport(WARNING, (errmsg("[CASCADES] FilterMergeRule:transform, pushing filter to JOIN, join_type=%d",
+                             (int)static_cast<LogicalJoin*>(child_op)->get_join_type())));
         // Try to push filter down to one or both children of the join
         LogicalJoin* join = static_cast<LogicalJoin*>(child_op->clone());
         OptExpression* left_child = child->input_at(0);
@@ -135,13 +150,19 @@ std::vector<OptExpression*> FilterMergeRule::transform(
             result.push_back(new_expr);
         } else {
             // JOIN_FULL or other - cannot push safely
+            ereport(WARNING, (errmsg("[CASCADES] FilterMergeRule:transform, cannot push filter to JOIN_FULL")));
             result.push_back(input);
         }
     }
     // Case 5: Cannot merge or push - return as-is
     else {
+        ereport(WARNING, (errmsg("[CASCADES] FilterMergeRule:transform, cannot merge or push, op=%d",
+                             (int)child_op->get_type())));
         result.push_back(input);
     }
+
+    ereport(WARNING, (errmsg("[CASCADES] FilterMergeRule:transform, returning %d results",
+                         (int)result.size())));
 
     return result;
 }

@@ -53,6 +53,8 @@ public:
     ColumnRefSet get_child_output_columns(int index) const;
 
     std::string to_string() const;
+    std::string debug_string() const;
+    std::string debug_string(int indent) const;
 
 private:
     OptExprOp* op_;

@@ -83,7 +83,18 @@ void CascadesOptimizer::explore() {
 }
 
 OptExpression* CascadesOptimizer::extract_best_plan(const PhysicalPropertySet& required_property) {
-    return context_.get_memo()->extract_best_plan(required_property);
+    OptExpression* result = context_.get_memo()->extract_best_plan(required_property);
+
+    // Print debug string for the optimized plan
+    if (result != nullptr) {
+        ereport(WARNING, (errmsg("[CASCADES] extract_best_plan: optimized plan tree:\n%s",
+                             result->debug_string().c_str())));
+    } else {
+        ereport(WARNING, (errmsg("[CASCADES] extract_best_plan: failed to extract plan, memo state:")));
+        ereport(WARNING, (errmsg("[CASCADES] %s", context_.get_memo()->to_string().c_str())));
+    }
+
+    return result;
 }
 
 

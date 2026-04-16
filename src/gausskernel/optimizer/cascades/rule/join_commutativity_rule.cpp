@@ -14,6 +14,9 @@ JoinCommutativityRule::JoinCommutativityRule()
 
 std::vector<OptExpression*> JoinCommutativityRule::transform(
     OptExpression* input, OptimizerContext* context) {
+    ereport(WARNING, (errmsg("[CASCADES] JoinCommutativityRule:transform, input=%s",
+                         input->to_string().c_str())));
+
     // Pattern guarantees: op_type == LOGICAL_JOIN && arity == 2
     // Get the join operator and its children
     LogicalOptExprOp* join_op = static_cast<LogicalOptExprOp*>(input->get_op());
@@ -23,6 +26,8 @@ std::vector<OptExpression*> JoinCommutativityRule::transform(
     // Clone the join operator and create new expression with swapped children
     OptExprOp* swapped_join = join_op->clone();
     OptExpression* new_expr = OptExpression::create(swapped_join, right, left);
+
+    ereport(WARNING, (errmsg("[CASCADES] JoinCommutativityRule:transform, created swapped join")));
 
     return {new_expr};
 }
