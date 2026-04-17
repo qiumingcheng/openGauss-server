@@ -30,17 +30,17 @@ std::vector<OptExpression*> PredicatePushDownRule::transform(
 
     std::vector<OptExpression*> result;
 
-    // Get the predicate ID from the filter
-    int predicate_id = filter->get_predicate_id();
-    if (predicate_id < 0) {
+    // Get predicate IDs from the filter (supports multiple predicates)
+    List* predicate_ids = filter->get_predicate_ids();
+    if (predicate_ids == nullptr || list_length(predicate_ids) == 0) {
         ereport(WARNING, (errmsg("[CASCADES] PredicatePushDownRule:transform, no predicate to push")));
         // No predicate to push, return input as-is
         result.push_back(input);
         return result;
     }
 
-    ereport(WARNING, (errmsg("[CASCADES] PredicatePushDownRule:transform, predicate_id=%d, child_op=%d",
-                         predicate_id, (int)child_op->get_type())));
+    ereport(WARNING, (errmsg("[CASCADES] PredicatePushDownRule:transform, predicate_ids has %d elements, child_op=%d",
+                         list_length(predicate_ids), (int)child_op->get_type())));
 
     // Case 1: Push filter down through joins
     if (child_op->get_type() == OptExprOpType::LOGICAL_JOIN) {
@@ -56,12 +56,12 @@ std::vector<OptExpression*> PredicatePushDownRule::transform(
         // For inner join, push predicate to both sides
         // For left/right outer join, push to the outer side only
         if (join_type == JOIN_INNER) {
-            // Create filters for both children
+            // Create filters for both children with same predicate_ids
             LogicalFilter* left_filter = NEW_EX(LogicalFilter);
-            left_filter->set_predicate_id(predicate_id);
+            left_filter->set_predicate_ids(predicate_ids);
 
             LogicalFilter* right_filter = NEW_EX(LogicalFilter);
-            right_filter->set_predicate_id(predicate_id);
+            right_filter->set_predicate_ids(predicate_ids);
 
             OptExpression* left_filtered = OptExpression::create(left_filter, left_child);
             OptExpression* right_filtered = OptExpression::create(right_filter, right_child);
@@ -73,7 +73,7 @@ std::vector<OptExpression*> PredicatePushDownRule::transform(
         } else if (join_type == JOIN_LEFT) {
             // Push to right side only for left outer join
             LogicalFilter* right_filter = NEW_EX(LogicalFilter);
-            right_filter->set_predicate_id(predicate_id);
+            right_filter->set_predicate_ids(predicate_ids);
 
             OptExpression* right_filtered = OptExpression::create(right_filter, right_child);
 
@@ -83,7 +83,7 @@ std::vector<OptExpression*> PredicatePushDownRule::transform(
         } else if (join_type == JOIN_RIGHT) {
             // Push to left side only for right outer join
             LogicalFilter* left_filter = NEW_EX(LogicalFilter);
-            left_filter->set_predicate_id(predicate_id);
+            left_filter->set_predicate_ids(predicate_ids);
 
             OptExpression* left_filtered = OptExpression::create(left_filter, left_child);
 
@@ -99,20 +99,31 @@ std::vector<OptExpression*> PredicatePushDownRule::transform(
     // Case 2: Push filter down to scan
     else if (child_op->get_type() == OptExprOpType::LOGICAL_SCAN) {
         ereport(WARNING, (errmsg("[CASCADES] PredicatePushDownRule:transform, pushing to SCAN")));
-        // Push filter directly to scan - attach predicate to scan
+        // Push filter predicates to scan - attach predicate_id to scan
         LogicalScan* scan = static_cast<LogicalScan*>(child_op->clone());
 
-        // If scan already has a predicate, combine them
+        // Get existing predicate_id from scan
+        int existing_id = scan->get_predicate_id();
+
+        // For now, use the first predicate_id from the list
+        // TODO: Support multiple predicates by merging or using list
+        int new_predicate_id = linitial_int(predicate_ids);
+
+        // Merge with existing predicate if present
         if (scan->has_predicate()) {
-            ereport(WARNING, (errmsg("[CASCADES] PredicatePushDownRule:transform, scan already has predicate")));
-            // Keep existing predicate, for now just return input
-            result.push_back(input);
+            ereport(WARNING, (errmsg("[CASCADES] PredicatePushDownRule:transform, scan already has predicate_id=%d, new=%d",
+                                 existing_id, new_predicate_id)));
+            // For simplicity, keep existing - a proper implementation would merge
         } else {
-            scan->set_predicate_id(predicate_id);
-            // LOGICAL_SCAN has no inputs
-            OptExpression* filtered_scan = OptExpression::create(scan);
-            result.push_back(filtered_scan);
+            scan->set_predicate_id(new_predicate_id);
         }
+
+        // Return scan directly without filter wrapper
+        OptExpression* scan_expr = OptExpression::create(scan);
+        result.push_back(scan_expr);
+
+        ereport(WARNING, (errmsg("[CASCADES] PredicatePushDownRule:transform, pushed filter to scan, result=%s",
+                             scan_expr->to_string().c_str())));
     }
     // Case 3: Push filter through projection
     else if (child_op->get_type() == OptExprOpType::LOGICAL_PROJECT) {
@@ -124,7 +135,7 @@ std::vector<OptExpression*> PredicatePushDownRule::transform(
         OptExpression* project_child = child->input_at(0);
 
         LogicalFilter* pushed_filter = NEW_EX(LogicalFilter);
-        pushed_filter->set_predicate_id(predicate_id);
+        pushed_filter->set_predicate_ids(predicate_ids);
 
         OptExpression* pushed_expr = OptExpression::create(pushed_filter, project_child);
 
@@ -138,11 +149,20 @@ std::vector<OptExpression*> PredicatePushDownRule::transform(
     // Case 4: Push filter through another filter - merge predicates
     else if (child_op->get_type() == OptExprOpType::LOGICAL_FILTER) {
         ereport(WARNING, (errmsg("[CASCADES] PredicatePushDownRule:transform, merging FILTERs")));
-        // Merge with child's filter
-        // Create a new filter with combined predicate
+        // Merge with child's filter - combine predicate_ids
+        LogicalFilter* child_filter = static_cast<LogicalFilter*>(child_op);
+        List* child_predicate_ids = child_filter->get_predicate_ids();
+
+        // Combine predicate_ids from both filters
+        List* merged_ids = predicate_ids;
+        if (child_predicate_ids != nullptr) {
+            for (ListCell* cell = list_head(child_predicate_ids); cell != nullptr; cell = lnext(cell)) {
+                merged_ids = lappend_int(merged_ids, lfirst_int(cell));
+            }
+        }
+
         LogicalFilter* merged_filter = NEW_EX(LogicalFilter);
-        // For now, just use the parent's predicate
-        merged_filter->set_predicate_id(predicate_id);
+        merged_filter->set_predicate_ids(merged_ids);
 
         OptExpression* grandchild = child->input_at(0);
         OptExpression* merged_expr = OptExpression::create(merged_filter, grandchild);
