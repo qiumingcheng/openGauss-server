@@ -26,6 +26,13 @@ PlannedStmt* cascades_planner(Query* parse, int cursorOptions, ParamListInfo bou
     ereport(LOG, (errmsg("[CASCADES] >>> Entering cascades_planner, enable_cascades_optimizer=%d",
                          u_sess->attr.attr_sql.enable_cascades_optimizer)));
 
+    // Debug: check quals at entry
+    if (parse != nullptr && parse->jointree != nullptr) {
+        FromExpr* f = (FromExpr*)parse->jointree;
+        Node* quals = f->quals;
+        ereport(WARNING, (errmsg("[CASCADES] ENTRY: quals=%p, nodeType=%d", (void*)quals, quals ? ((Node*)quals)->type : -1)));
+    }
+
     PlannedStmt* result = NULL;
     PlannerGlobal* glob = NULL;
     PlannerInfo* root = NULL;
@@ -61,6 +68,34 @@ PlannedStmt* cascades_planner(Query* parse, int cursorOptions, ParamListInfo bou
 
     /* Initialize simple_rel_array and simple_rte_array */
     setup_simple_rel_arrays(root);
+
+    /*
+     * Deconstruct the jointree to distribute WHERE quals to baserestrictinfo lists.
+     * This is the same process used by the standard planner.
+     *
+     * Standard planner flow (planmain.cpp):
+     * 1. setup_simple_rel_arrays() - initialize arrays
+     * 2. add_base_rels_to_query() - create RelOptInfo for all base relations
+     * 3. build_base_rel_tlists() - add targetlist entries
+     * 4. find_placeholders_in_jointree() - find PlaceHolderVars
+     * 5. find_lateral_references() - find lateral references
+     * 6. deconstruct_jointree() - distribute quals to baserestrictinfo
+     *
+     * For Cascades, we only need steps 1, 2, and 6 for basic queries.
+     */
+
+    // Step 2: Create RelOptInfo for all base relations in the jointree
+    Bitmapset* checkDuplicate = NULL;
+    add_base_rels_to_query(root, (Node*)parse->jointree, &checkDuplicate);
+    bms_free(checkDuplicate);
+
+    // Preprocess qual conditions (convert single qual node to List)
+    preprocess_qual_conditions(root, (Node*)parse->jointree);
+
+    // Step 6: Distribute WHERE quals to baserestrictinfo lists
+    Relids non_keypreserved = NULL;
+    deconstruct_jointree(root, &non_keypreserved);
+    bms_free(non_keypreserved);
 
     /* Step 1: Query → OptExpression */
     cascades::QueryToExprConverter query_converter;
