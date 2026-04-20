@@ -119,7 +119,9 @@ std::vector<OptExpression*> HashAggImplRule::transform(
 
     PhysicalHashAgg* hash_agg = NEW_EX(PhysicalHashAgg, (Path*)hash_path, child_path, group_keys);
 
-    OptExpression* new_expr = OptExpression::create(hash_agg);
+    // Must preserve the child expression so Memo::insert_transform_result can
+    // recursively insert it and get the correct input group
+    OptExpression* new_expr = OptExpression::create(hash_agg, child);
     ereport(WARNING, (errmsg("[CASCADES] HashAggImplRule:transform, created hash agg expr")));
     return {new_expr};
 }
