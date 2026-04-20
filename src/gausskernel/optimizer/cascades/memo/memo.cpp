@@ -62,9 +62,11 @@ std::pair<bool, GroupExpression*> Memo::insert_group_expression(
 
 std::pair<bool, GroupExpression*> Memo::insert_transform_result(
     GroupExpression* source_expr, OptExpression* transformed_expr) {
-    // Create new GroupExpression using the source's input groups but with transformed operator
+    // Create new GroupExpression using transformed expression's operator and inputs
+    // Use transformed_expr's arity, not source_expr's, since the operator may change
+    // (e.g., Filter->Scan transformation changes arity from 1 to 0)
     std::vector<Group*> input_groups;
-    for (int i = 0; i < source_expr->arity(); ++i) {
+    for (int i = 0; i < transformed_expr->arity(); ++i) {
         input_groups.push_back(source_expr->input_at(i));
     }
 
