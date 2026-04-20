@@ -65,7 +65,10 @@ std::pair<bool, GroupExpression*> Memo::insert_transform_result(
     // Get input groups from transformed expression's children
     // Children may be:
     // 1. Existing expressions from input tree (have group_expression from build_opt_expression)
-    // 2. New wrapper expressions created by transform rules (no group_expression, but their child does)
+    // 2. New wrapper expressions created by transform rules (no group_expression)
+    //
+    // For case 2, we must recursively insert the wrapper into the memo to create
+    // its GroupExpression, so that subsequent rules can match against it.
     std::vector<Group*> input_groups;
     for (int i = 0; i < transformed_expr->arity(); ++i) {
         OptExpression* child = transformed_expr->input_at(i);
@@ -77,13 +80,9 @@ std::pair<bool, GroupExpression*> Memo::insert_transform_result(
             input_groups.push_back(child_group_expr->get_group());
         } else {
             // Child is a new wrapper expression (e.g., Filter created by predicate pushdown)
-            // Get group from wrapper's child
-            Assert(child->arity() >= 1);
-            OptExpression* grandchild = child->input_at(0);
-            Assert(grandchild != nullptr);
-            GroupExpression* grandchild_group_expr = grandchild->get_group_expression();
-            Assert(grandchild_group_expr != nullptr);
-            input_groups.push_back(grandchild_group_expr->get_group());
+            // Recursively insert it into the memo to create its GroupExpression
+            auto child_result = copy_in(nullptr, child);
+            input_groups.push_back(child_result.first);
         }
     }
 
