@@ -126,15 +126,35 @@ PlannedStmt* cascades_planner(Query* parse, int cursorOptions, ParamListInfo bou
     }
 
     // Step 6: Distribute WHERE quals to baserestrictinfo lists
+    ereport(WARNING, (errmsg("[CASCADES] Before deconstruct_jointree: join_info_list length=%d",
+                         list_length(root->join_info_list))));
     Relids non_keypreserved = NULL;
     deconstruct_jointree(root, &non_keypreserved);
     bms_free(non_keypreserved);
+    ereport(WARNING, (errmsg("[CASCADES] After deconstruct_jointree: join_info_list length=%d",
+                         list_length(root->join_info_list))));
 
-    // Debug: check baserestrictinfo after deconstruct_jointree
+    /*
+     * Generate implied equalities from equivalence classes.
+     * This is required because mergejoinable equality clauses (like age=30)
+     * are processed by process_equivalence() during deconstruct_jointree,
+     * which stores them in eq_classes and returns early without adding to
+     * baserestrictinfo. This function generates the actual restriction clauses
+     * from the equivalence classes.
+     */
+    ereport(WARNING, (errmsg("[CASCADES] Before generate_base_implied_equalities: eq_classes length=%d",
+                         list_length(root->eq_classes))));
+    generate_base_implied_equalities(root);
+    ereport(WARNING, (errmsg("[CASCADES] After generate_base_implied_equalities: eq_classes length=%d",
+                         list_length(root->eq_classes))));
+
+    generate_base_implied_qualities(root);
+
+    // Debug: check baserestrictinfo after generate_base_implied_equalities
     for (int i = 1; i <= rtable_len && i < root->simple_rel_array_size; i++) {
         RelOptInfo* rel = root->simple_rel_array[i];
         if (rel != nullptr) {
-            ereport(WARNING, (errmsg("[CASCADES] After deconstruct: rtindex=%d, baserestrictinfo len=%d",
+            ereport(WARNING, (errmsg("[CASCADES] After generate_base_implied_equalities: rtindex=%d, baserestrictinfo len=%d",
                                  i, list_length(rel->baserestrictinfo))));
         }
     }

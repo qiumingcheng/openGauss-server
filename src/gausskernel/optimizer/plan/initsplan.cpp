@@ -951,8 +951,11 @@ static List* deconstruct_recurse(PlannerInfo* root, Node* jtnode,
         /*
          * Now process the top-level quals.
          */
+        ereport(WARNING, (errmsg("[DEBUG] deconstruct_recurse FromExpr: f->quals=%p, isList=%d, length=%d",
+                             (void*)f->quals, IsA(f->quals, List), f->quals ? list_length((List*)f->quals) : -1)));
         foreach (l, (List*)f->quals) {
             Node* qual = (Node*)lfirst(l);
+            ereport(WARNING, (errmsg("[DEBUG] deconstruct_recurse: processing qual type=%d", (int)qual->type)));
             distribute_qual_to_rels(root, qual, false, below_outer_join, JOIN_INNER,
                 root->qualSecurityLevel, *qualscope, NULL, NULL, NULL, postponed_qual_list, FALSE);
         }
@@ -1460,10 +1463,16 @@ void distribute_qual_to_rels(PlannerInfo* root, Node* clause, bool is_deduced, b
     Relids nullable_relids;
     RestrictInfo* restrictinfo = NULL;
 
+    ereport(WARNING, (errmsg("[DEBUG] distribute_qual_to_rels: clause type=%d, qualscope=%d",
+                         (int)nodeTag(clause), (int)bms_num_members(qualscope))));
+
     /*
      * Retrieve all relids mentioned within the clause.
      */
     relids = pull_varnos(clause);
+
+    ereport(WARNING, (errmsg("[DEBUG] distribute_qual_to_rels: pull_varnos returned relids=%d",
+                         (int)bms_num_members(relids))));
 
     /*
      * In ordinary SQL, a WHERE or JOIN/ON clause can't reference any rels
@@ -1478,8 +1487,9 @@ void distribute_qual_to_rels(PlannerInfo* root, Node* clause, bool is_deduced, b
      */
     if (!bms_is_subset(relids, qualscope))
     {
+        ereport(WARNING, (errmsg("[DEBUG] distribute_qual_to_rels: relids NOT subset of qualscope, postponing!")));
         PostponedQual *pq = (PostponedQual *) palloc(sizeof(PostponedQual));
-    
+
         Assert(root->hasLateralRTEs);   /* shouldn't happen otherwise */
         Assert(jointype == JOIN_INNER); /* mustn't postpone past outer join */
         Assert(!is_deduced);    /* shouldn't be deduced, either */
@@ -1525,6 +1535,7 @@ void distribute_qual_to_rels(PlannerInfo* root, Node* clause, bool is_deduced, b
      * worth).
      */
     if (bms_is_empty(relids)) {
+        ereport(WARNING, (errmsg("[DEBUG] distribute_qual_to_rels: relids is EMPTY (variable-free clause)!")));
         if (ojscope) {
             /* clause is attached to outer join, eval it there */
             relids = bms_copy(ojscope);
@@ -1574,6 +1585,7 @@ void distribute_qual_to_rels(PlannerInfo* root, Node* clause, bool is_deduced, b
      * ----------
      */
     if (is_deduced) {
+        ereport(WARNING, (errmsg("[DEBUG] distribute_qual_to_rels: is_deduced=true path")));
         /*
          * If the qual came from implied-equality deduction, it should not be
          * outerjoin-delayed, else deducer blew it.  But we can't check this
@@ -1646,9 +1658,13 @@ void distribute_qual_to_rels(PlannerInfo* root, Node* clause, bool is_deduced, b
              * not test in any of the other cases, because this will only be
              * possible for pushed-down, delayed clauses.
              */
-            if (check_redundant_nullability_qual(root, clause))
+            ereport(WARNING, (errmsg("[DEBUG] distribute_qual_to_rels: outerjoin_delayed=true, checking redundant")));
+            if (check_redundant_nullability_qual(root, clause)) {
+                ereport(WARNING, (errmsg("[DEBUG] distribute_qual_to_rels: redundant nullability qual, RETURNING EARLY")));
                 return;
+            }
         } else {
+            ereport(WARNING, (errmsg("[DEBUG] distribute_qual_to_rels: outerjoin_delayed=false")));
             /*
              * Qual is not delayed by any lower outer-join restriction, so we
              * can consider feeding it to the equivalence machinery. However,
@@ -1738,10 +1754,14 @@ void distribute_qual_to_rels(PlannerInfo* root, Node* clause, bool is_deduced, b
      * otherwise, we have to call initialize_mergeclause_eclasses to do it.
      */
     if (restrictinfo->mergeopfamilies) {
+        ereport(WARNING, (errmsg("[DEBUG] distribute_qual_to_rels: clause is mergejoinable, maybe_equivalence=%d",
+                             maybe_equivalence ? 1 : 0)));
         if (maybe_equivalence) {
             if (check_equivalence_delay(root, restrictinfo) &&
-                process_equivalence(root, restrictinfo, below_outer_join))
+                process_equivalence(root, restrictinfo, below_outer_join)) {
+                ereport(WARNING, (errmsg("[DEBUG] distribute_qual_to_rels: process_equivalence returned true, RETURNING EARLY")));
                 return;
+            }
             /* EC rejected it, so set left_ec/right_ec the hard way ... */
             initialize_mergeclause_eclasses(root, restrictinfo);
             /* ... and fall through to distribute_restrictinfo_to_rels */
@@ -1774,7 +1794,9 @@ void distribute_qual_to_rels(PlannerInfo* root, Node* clause, bool is_deduced, b
     }
 
     /* No EC special case applies, so push it into the clause lists */
+    ereport(WARNING, (errmsg("[DEBUG] distribute_qual_to_rels: calling distribute_restrictinfo_to_rels")));
     distribute_restrictinfo_to_rels(root, restrictinfo);
+    ereport(WARNING, (errmsg("[DEBUG] distribute_qual_to_rels: returned from distribute_restrictinfo_to_rels")));
 }
 
 /*
@@ -1835,6 +1857,9 @@ static bool check_outerjoin_delay(PlannerInfo* root, Relids* relids_p, /* in/out
     Relids nullable_relids;
     bool outerjoin_delayed = false;
     bool found_some = false;
+
+    ereport(WARNING, (errmsg("[DEBUG] check_outerjoin_delay: join_info_list length=%d, is_pushed_down=%d",
+                         list_length(root->join_info_list), is_pushed_down)));
 
     /* fast path if no special joins */
     if (root->join_info_list == NIL) {
@@ -1972,6 +1997,10 @@ void distribute_restrictinfo_to_rels(PlannerInfo* root, RestrictInfo* restrictin
     Relids relids = restrictinfo->required_relids;
     RelOptInfo* rel = NULL;
 
+    ereport(WARNING, (errmsg("[DEBUG] >>> distribute_restrictinfo_to_rels called, restrictinfo=%p", (void*)restrictinfo)));
+    ereport(WARNING, (errmsg("[DEBUG] distribute_restrictinfo_to_rels: required_relids=%d, membership=%d",
+                         (int)bms_num_members(relids), (int)bms_membership(relids))));
+
     switch (bms_membership(relids)) {
         case BMS_SINGLETON:
 
@@ -1979,6 +2008,7 @@ void distribute_restrictinfo_to_rels(PlannerInfo* root, RestrictInfo* restrictin
              * There is only one relation participating in the clause, so it
              * is a restriction clause for that relation.
              */
+            ereport(WARNING, (errmsg("[DEBUG] distribute_restrictinfo_to_rels: BMS_SINGLETON, adding to baserestrictinfo")));
             rel = find_base_rel(root, bms_singleton_member(relids));
 
             /* Add clause to rel's restriction list */
@@ -1992,6 +2022,7 @@ void distribute_restrictinfo_to_rels(PlannerInfo* root, RestrictInfo* restrictin
              * The clause is a join clause, since there is more than one rel
              * in its relid set.
              */
+            ereport(WARNING, (errmsg("[DEBUG] distribute_restrictinfo_to_rels: BMS_MULTIPLE, adding to joininfo")));
             /*
              * Check for hashjoinable operators.  (We don't bother setting the
              * hashjoin info except in true join clauses.)
@@ -2011,6 +2042,7 @@ void distribute_restrictinfo_to_rels(PlannerInfo* root, RestrictInfo* restrictin
              * clause references no rels, and therefore we have no place to
              * attach it.  Shouldn't get here if callers are working properly.
              */
+            ereport(WARNING, (errmsg("[DEBUG] distribute_restrictinfo_to_rels: BMS_EMPTY, no rels!")));
             ereport(ERROR,
                 (errmodule(MOD_OPT),
                     errcode(ERRCODE_OPTIMIZER_INCONSISTENT_STATE),
