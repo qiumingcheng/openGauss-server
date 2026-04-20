@@ -62,12 +62,20 @@ std::pair<bool, GroupExpression*> Memo::insert_group_expression(
 
 std::pair<bool, GroupExpression*> Memo::insert_transform_result(
     GroupExpression* source_expr, OptExpression* transformed_expr) {
-    // Create new GroupExpression using transformed expression's operator and inputs
-    // Use transformed_expr's arity, not source_expr's, since the operator may change
-    // (e.g., Filter->Scan transformation changes arity from 1 to 0)
+    // Recursively insert transformed expression's children and get their groups
+    // This is needed because transform rules may create new OptExpression trees
+    // that haven't been inserted into the memo yet
     std::vector<Group*> input_groups;
     for (int i = 0; i < transformed_expr->arity(); ++i) {
-        input_groups.push_back(source_expr->input_at(i));
+        OptExpression* child = transformed_expr->input_at(i);
+        if (child != nullptr) {
+            // Recursively copy child into memo and get its group
+            auto child_result = copy_in(nullptr, child);
+            input_groups.push_back(child_result.first);
+        } else {
+            // This shouldn't happen for valid expressions
+            Assert(false);
+        }
     }
 
     GroupExpression* new_expr = NEW_EX(GroupExpression, transformed_expr->get_op(), input_groups);
