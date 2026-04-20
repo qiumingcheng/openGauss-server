@@ -92,10 +92,52 @@ PlannedStmt* cascades_planner(Query* parse, int cursorOptions, ParamListInfo bou
     // Preprocess qual conditions (convert single qual node to List)
     preprocess_qual_conditions(root, (Node*)parse->jointree);
 
+    // Debug: check baserestrictinfo after preprocess
+    if (parse->jointree != nullptr && IsA(parse->jointree, FromExpr)) {
+        FromExpr* f = (FromExpr*)parse->jointree;
+        ereport(WARNING, (errmsg("[CASCADES] After preprocess: f->quals type=%d, isList=%d",
+                             (int)((Node*)f->quals)->type, IsA(f->quals, List))));
+        if (IsA(f->quals, List)) {
+            ereport(WARNING, (errmsg("[CASCADES] After preprocess: f->quals length=%d",
+                                 list_length((List*)f->quals))));
+            // Print each qual's type
+            int idx = 0;
+            ListCell* lc;
+            foreach(lc, (List*)f->quals) {
+                Node* qual = (Node*)lfirst(lc);
+                ereport(WARNING, (errmsg("[CASCADES] After preprocess: qual[%d] type=%d", idx++, (int)qual->type)));
+            }
+        } else if (f->quals != nullptr) {
+            ereport(WARNING, (errmsg("[CASCADES] After preprocess: f->quals is not List, type=%d",
+                                 (int)((Node*)f->quals)->type)));
+        } else {
+            ereport(WARNING, (errmsg("[CASCADES] After preprocess: f->quals is NULL")));
+        }
+    }
+
+    // Check baserestrictinfo before deconstruct
+    int rtable_len = list_length(parse->rtable);
+    for (int i = 1; i <= rtable_len && i < root->simple_rel_array_size; i++) {
+        RelOptInfo* rel = root->simple_rel_array[i];
+        if (rel != nullptr) {
+            ereport(WARNING, (errmsg("[CASCADES] Before deconstruct: rtindex=%d, baserestrictinfo len=%d",
+                                 i, list_length(rel->baserestrictinfo))));
+        }
+    }
+
     // Step 6: Distribute WHERE quals to baserestrictinfo lists
     Relids non_keypreserved = NULL;
     deconstruct_jointree(root, &non_keypreserved);
     bms_free(non_keypreserved);
+
+    // Debug: check baserestrictinfo after deconstruct_jointree
+    for (int i = 1; i <= rtable_len && i < root->simple_rel_array_size; i++) {
+        RelOptInfo* rel = root->simple_rel_array[i];
+        if (rel != nullptr) {
+            ereport(WARNING, (errmsg("[CASCADES] After deconstruct: rtindex=%d, baserestrictinfo len=%d",
+                                 i, list_length(rel->baserestrictinfo))));
+        }
+    }
 
     /* Step 1: Query → OptExpression */
     cascades::QueryToExprConverter query_converter;
