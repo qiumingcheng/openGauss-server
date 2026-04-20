@@ -30,6 +30,9 @@ static OptExpression* build_opt_expression(GroupExpression* group_expr) {
 
     OptExpression* result = OptExpression::create_with_childrens(op, children);
 
+    // Attach group_expression so transform rules can access it
+    result->attach_group_expression(group_expr);
+
     // Copy logical property from group
     Group* group = group_expr->get_group();
     if (group != nullptr && group->get_logical_property() != nullptr) {
