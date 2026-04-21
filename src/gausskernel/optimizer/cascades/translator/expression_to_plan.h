@@ -31,6 +31,8 @@ private:
     Plan* translate_material(OptExpression* expr);
     Plan* translate_exchange(OptExpression* expr);
     Plan* translate_default(OptExpression* expr);
+    Plan* translate_limit(OptExpression* expr);
+    Plan* translate_subquery_scan(OptExpression* expr);
 };
 
 }

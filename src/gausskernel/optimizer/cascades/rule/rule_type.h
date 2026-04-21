@@ -18,6 +18,7 @@ enum class RuleType {
     TF_CONSTANT_FOLD,
 
     // Implementation rules (IMP_*)
+    IMP_FILTER,
     IMP_HASH_JOIN,
     IMP_MERGE_JOIN,
     IMP_NESTLOOP_JOIN,
@@ -26,6 +27,8 @@ enum class RuleType {
     IMP_SORT,
     IMP_SCAN,
     IMP_INDEX_SCAN,
+    IMP_LIMIT,
+    IMP_SUBQUERY_SCAN,
 
     NUM_RULES
 };
@@ -43,7 +46,7 @@ inline bool is_transformation_rule(RuleType type) {
  */
 inline bool is_implementation_rule(RuleType type) {
     return type >= RuleType::IMP_HASH_JOIN &&
-           type <= RuleType::IMP_INDEX_SCAN;
+           type <= RuleType::IMP_SUBQUERY_SCAN;
 }
 
 }

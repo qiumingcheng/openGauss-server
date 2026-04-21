@@ -16,4 +16,11 @@ set(CASCADES_OPERATOR_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/operators/physical_hash_agg.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/operators/physical_exchange.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/operators/logical_subquery.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/operators/logical_subquery_scan.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/operators/physical_subquery_scan.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/operators/logical_limit.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/operators/physical_limit.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/operators/physical_filter.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/operators/physical_project.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/operators/logical_sort.cpp
     PARENT_SCOPE)

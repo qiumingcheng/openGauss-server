@@ -9,6 +9,7 @@
 #include "../operator/operators/logical_filter.h"
 #include "../operator/operators/logical_join.h"
 #include "../operator/operators/physical_hash_agg.h"
+#include "../operator/operators/logical_subquery_scan.h"
 #include <cstdint>
 
 namespace cascades {
@@ -54,6 +55,7 @@ void DeriveStatsTask::derive_statistics_by_type(
     switch (op->get_type()) {
         case OptExprOpType::LOGICAL_SCAN:
         case OptExprOpType::PHYSICAL_SCAN:
+        case OptExprOpType::LOGICAL_SUBQUERY_SCAN:
             derive_scan_statistics(result_stats, children_stats, op);
             break;
 
@@ -102,6 +104,22 @@ void DeriveStatsTask::derive_scan_statistics(
     Statistics* result_stats,
     const std::vector<Statistics*>& children_stats,
     OptExprOp* op) {
+
+    // Handle LogicalSubqueryScan - derive stats from subquery plan
+    if (op->get_type() == OptExprOpType::LOGICAL_SUBQUERY_SCAN) {
+        LogicalSubqueryScan* subquery_scan = static_cast<LogicalSubqueryScan*>(op);
+        RelOptInfo* rel = subquery_scan->get_rel();
+
+        if (rel != nullptr && rel->subplan != nullptr) {
+            // Use subplan's row count estimate
+            result_stats->set_row_count(rel->subplan->plan_rows);
+            result_stats->set_width(rel->subplan->plan_width);
+
+            ereport(WARNING, (errmsg("[CASCADES] DeriveStatsTask: subquery stats, rows=%.0f, width=%d",
+                                 rel->subplan->plan_rows, rel->subplan->plan_width)));
+            return;
+        }
+    }
 
     // Try to get table OID from PhysicalScan
     PhysicalScan* scan_op = dynamic_cast<PhysicalScan*>(op);

@@ -3,6 +3,7 @@
 #include "../rule/join_association_rule.h"
 #include "../rule/predicate_push_down_rule.h"
 #include "../rule/filter_merge_rule.h"
+#include "../rule/filter_impl_rule.h"
 #include "../rule/column_prune_rule.h"
 #include "../rule/outer_join_simplify_rule.h"
 #include "../rule/cross_join_elimination_rule.h"
@@ -18,6 +19,8 @@
 #include "../rule/sort_impl_rule.h"
 #include "../rule/scan_impl_rule.h"
 #include "../rule/index_scan_impl_rule.h"
+#include "../rule/limit_impl_rule.h"
+#include "../rule/subquery_scan_impl_rule.h"
 
 namespace cascades {
 OptimizerContext::OptimizerContext(PlannerInfo* root, MemoryContext context)
@@ -37,14 +40,17 @@ OptimizerContext::OptimizerContext(PlannerInfo* root, MemoryContext context)
     rule_set_.add_rule(ConstantFoldRule::instance());
 
     // Initialize implementation rules
+    rule_set_.add_rule(FilterImplRule::instance());
     rule_set_.add_rule(HashJoinImplRule::instance());
     rule_set_.add_rule(MergeJoinImplRule::instance());
     rule_set_.add_rule(NestLoopImplRule::instance());
     rule_set_.add_rule(HashAggImplRule::instance());
     rule_set_.add_rule(ProjectImplRule::instance());
-    //rule_set_.add_rule(SortImplRule::instance());
+    rule_set_.add_rule(SortImplRule::instance());
     rule_set_.add_rule(ScanImplRule::instance());
     rule_set_.add_rule(IndexScanImplRule::instance());
+    rule_set_.add_rule(LimitImplRule::instance());
+    rule_set_.add_rule(SubqueryScanImplRule::instance());
 }
 
 

@@ -232,8 +232,30 @@ OptExpression* QueryToExprConverter::translate_scan(PlannerInfo* root, Query* pa
         }
         OptExpression* result = OptExpression::create(scan_op);
         return result;
-    } else if (rte->subquery != nullptr) {
-        return translate_select(root, rte->subquery);
+    } else if (rte->rtekind == RTE_SUBQUERY) {
+        // Handle subquery RTE
+        if (rte->subquery != nullptr) {
+            // Create LogicalSubqueryScan operator
+            LogicalSubqueryScan* subquery_scan = NEW_EX(LogicalSubqueryScan, rtindex, rte->subquery);
+
+            // Find or create RelOptInfo for this subquery RTE
+            RelOptInfo* rel = find_base_rel(root, rtindex);
+            if (rel != nullptr) {
+                subquery_scan->set_rel(rel);
+            }
+
+            OptExpression* scan_expr = OptExpression::create(subquery_scan);
+
+            // First, plan the subquery itself recursively
+            OptExpression* subquery_expr = translate_select(root, rte->subquery);
+
+            // The subquery becomes the child of the subquery scan
+            if (subquery_expr != nullptr) {
+                scan_expr = OptExpression::create(subquery_scan, subquery_expr);
+            }
+
+            return scan_expr;
+        }
     }
 
     return nullptr;
