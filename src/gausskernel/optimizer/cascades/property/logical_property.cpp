@@ -3,6 +3,7 @@
 #include "../memo/group_expression.h"
 #include "../operator/operator.h"
 #include "../operator/operators/logical_scan.h"
+#include "../operator/operators/logical_project.h"
 
 namespace cascades {
 
@@ -25,9 +26,33 @@ void LogicalProperty::derive(ExpressionContext* context) {
     // Derive output columns and sort keys based on operator type
     switch (op->get_type()) {
         case OptExprOpType::LOGICAL_PROJECT: {
-            // Project passes through columns from child
-            if (context->arity() > 0) {
-                output_columns_ = context->get_child_output_columns(0);
+            // Project outputs columns defined by its target_list or projections
+            LogicalProject* project_op = static_cast<LogicalProject*>(op);
+            List* target_list = project_op->get_target_list();
+
+            if (target_list != nullptr && target_list != NIL) {
+                // Extract column numbers from target list expressions
+                ListCell* lc;
+                foreach(lc, target_list) {
+                    Node* expr = (Node*)lfirst(lc);
+                    if (IsA(expr, Var)) {
+                        Var* var = (Var*)expr;
+                        output_columns_.add(var->varattno);
+                    }
+                    // For other expression types (Const, FuncExpr, etc.), they don't
+                    // reference child columns, so no column pruning needed for them
+                }
+            } else {
+                // Fallback: use projections_ if set
+                const std::vector<int>& projections = project_op->get_projections();
+                if (!projections.empty()) {
+                    for (int col : projections) {
+                        output_columns_.add(col);
+                    }
+                } else if (context->arity() > 0) {
+                    // No projection info, pass through all child columns
+                    output_columns_ = context->get_child_output_columns(0);
+                }
             }
             // Sort order preserved through project
             break;

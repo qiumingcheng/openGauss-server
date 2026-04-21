@@ -22,26 +22,33 @@ std::vector<OptExpression*> ColumnPruneRule::transform(
     Assert(input->arity() > 0);  // Pattern must match expression with child
 
     // Get the projection operator and its child
+    LogicalProject* project_op = static_cast<LogicalProject*>(input->get_op());
     OptExpression* child = input->input_at(0);
 
-    // Get the output columns of the projection
+    // Get the output columns of the projection (what parent needs)
     const ColumnRefSet& project_output = input->get_logical_property()->get_output_columns();
 
     // Get the output columns of the child
     const ColumnRefSet& child_output = child->get_logical_property()->get_output_columns();
 
-    // Find columns that are needed by parent but not produced by projection
-    // For now, we assume all projection columns are needed
-    // A full implementation would analyze the parent to find required columns
+    // Check if projection can prune columns from child
+    // We can prune if project_output is a proper subset of child_output
+    bool can_prune = false;
 
-    // Check if we can prune any columns from the child
-    std::vector<int> needed_columns;
+    // Count how many child columns are actually needed
+    int needed_count = 0;
     for (int col : project_output) {
-        needed_columns.push_back(col);
+        if (child_output.contains(col)) {
+            needed_count++;
+        }
     }
 
-    // If projection output equals child output, no pruning needed
-    if (project_output.size() == child_output.size()) {
+    // Can prune if we need fewer columns than child produces
+    if (needed_count < static_cast<int>(child_output.size())) {
+        can_prune = true;
+    }
+
+    if (!can_prune) {
         return {};
     }
 
@@ -49,7 +56,7 @@ std::vector<OptExpression*> ColumnPruneRule::transform(
 
     // Create a pruned projection that only outputs needed columns
     LogicalProject* pruned_project = NEW_EX(LogicalProject);
-    pruned_project->set_projections(needed_columns);
+    pruned_project->set_target_list(project_op->get_target_list());
 
     OptExpression* pruned_expr = OptExpression::create(pruned_project, child);
 
@@ -70,7 +77,7 @@ std::vector<OptExpression*> ColumnPruneRule::transform(
         LogicalProject* pushed_project = NEW_EX(LogicalProject);
         std::vector<int> pushed_columns;
 
-        for (int needed_col : needed_columns) {
+        for (int needed_col : project_output) {
             if (needed_col < static_cast<int>(child_projections.size())) {
                 pushed_columns.push_back(child_projections[needed_col]);
             } else {
@@ -79,6 +86,7 @@ std::vector<OptExpression*> ColumnPruneRule::transform(
         }
 
         pushed_project->set_projections(pushed_columns);
+        pushed_project->set_target_list(child_project->get_target_list());
 
         OptExpression* left_child = child->input_at(0);
         OptExpression* pushed_child = OptExpression::create(pushed_project, left_child);
