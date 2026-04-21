@@ -545,12 +545,6 @@ static void checkTsstoreQuery(Query* query)
 
 PlannedStmt* standard_planner(Query* parse, int cursorOptions, ParamListInfo boundParams)
 {
-    if (parse != nullptr && parse->jointree != nullptr) {
-        FromExpr* f = (FromExpr*)parse->jointree;
-        ereport(WARNING, (errmsg("[STANDARD] Entry: quals type=%d",
-                             f->quals ? ((Node*)f->quals)->type : -1)));
-    }
-
     PlannedStmt* result = NULL;
     PlannerGlobal* glob = NULL;
     double tuple_fraction;

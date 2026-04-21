@@ -1589,12 +1589,6 @@ PlannedStmt* pg_plan_query(Query* querytree, int cursorOptions, ParamListInfo bo
     OgRecordAutoController _local_opt(PLAN_TIME);
     bool multi_node_hint = false;
 
-    if (querytree != nullptr && querytree->jointree != nullptr) {
-        FromExpr* f = (FromExpr*)querytree->jointree;
-        ereport(WARNING, (errmsg("[PG_PLAN_QUERY] Entry: quals type=%d",
-                             f->quals ? ((Node*)f->quals)->type : -1)));
-    }
-
     /* Utility commands have no plans. */
     if (querytree->commandType == CMD_UTILITY)
         return NULL;
