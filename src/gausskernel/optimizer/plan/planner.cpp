@@ -392,6 +392,13 @@ PlannedStmt* planner(Query* parse, int cursorOptions, ParamListInfo boundParams)
     instr_time starttime;
     double totaltime = 0;
 
+    if (parse != nullptr && parse->jointree != nullptr) {
+        FromExpr* f = (FromExpr*)parse->jointree;
+        ereport(WARNING, (errmsg("[PLANNER ENTRY] quals type=%d, enable_cascades=%d",
+                             f->quals ? ((Node*)f->quals)->type : -1,
+                             u_sess->attr.attr_sql.enable_cascades_optimizer)));
+    }
+
 #ifdef USE_SPQ
     if (spq_planner_hook) {
         return (*spq_planner_hook) (parse, cursorOptions, boundParams);
@@ -401,9 +408,6 @@ PlannedStmt* planner(Query* parse, int cursorOptions, ParamListInfo boundParams)
     INSTR_TIME_SET_CURRENT(starttime);
 
 #ifdef PGXC
-    /*
-     * streaming engine hook for agg rewrite.
-     */
     if (t_thrd.streaming_cxt.streaming_planner_hook)
         (*(planner_hook_type) t_thrd.streaming_cxt.streaming_planner_hook)\
                  (parse, cursorOptions, boundParams);
@@ -415,7 +419,6 @@ PlannedStmt* planner(Query* parse, int cursorOptions, ParamListInfo boundParams)
         result = (*(planner_hook_type) u_sess->hook_cxt.pluginPlannerHook)\
                  (parse, cursorOptions, boundParams);
     } else if (u_sess->attr.attr_sql.enable_cascades_optimizer) {
-        /* Cascades optimizer - experimental feature */
         result = cascades_planner(parse, cursorOptions, boundParams);
     } else if ((IS_PGXC_COORDINATOR || IS_SINGLE_NODE) && !IsConnFromCoord()){
         result = pgxc_planner(parse, cursorOptions, boundParams);
@@ -542,6 +545,12 @@ static void checkTsstoreQuery(Query* query)
 
 PlannedStmt* standard_planner(Query* parse, int cursorOptions, ParamListInfo boundParams)
 {
+    if (parse != nullptr && parse->jointree != nullptr) {
+        FromExpr* f = (FromExpr*)parse->jointree;
+        ereport(WARNING, (errmsg("[STANDARD] Entry: quals type=%d",
+                             f->quals ? ((Node*)f->quals)->type : -1)));
+    }
+
     PlannedStmt* result = NULL;
     PlannerGlobal* glob = NULL;
     double tuple_fraction;

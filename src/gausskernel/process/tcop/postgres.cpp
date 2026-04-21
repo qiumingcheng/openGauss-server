@@ -1589,6 +1589,12 @@ PlannedStmt* pg_plan_query(Query* querytree, int cursorOptions, ParamListInfo bo
     OgRecordAutoController _local_opt(PLAN_TIME);
     bool multi_node_hint = false;
 
+    if (querytree != nullptr && querytree->jointree != nullptr) {
+        FromExpr* f = (FromExpr*)querytree->jointree;
+        ereport(WARNING, (errmsg("[PG_PLAN_QUERY] Entry: quals type=%d",
+                             f->quals ? ((Node*)f->quals)->type : -1)));
+    }
+
     /* Utility commands have no plans. */
     if (querytree->commandType == CMD_UTILITY)
         return NULL;
@@ -2652,6 +2658,11 @@ static void exec_simple_query(const char* query_string, MessageType messageType,
     bool savedisAllowCommitRollback = false;
     bool needResetErrMsg = false;
     const char* querystringForLibpqsw = NULL;
+
+    // Debug: log entry
+    if (query_string != nullptr) {
+        ereport(WARNING, (errmsg("[EXEC_SIMPLE_QUERY] Entry: query_string=\"%s\"", query_string)));
+    }
     /*
      * @hdfs
      * When messageType is 1, we get hybridmessage. This message

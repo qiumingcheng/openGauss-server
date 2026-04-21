@@ -285,6 +285,15 @@ void ExplainQuery(
     ListCell* lc = NULL;
     bool timing_set = false;
 
+    if (stmt != nullptr && stmt->query != nullptr) {
+        Query* query = (Query*)stmt->query;
+        if (query->jointree != nullptr) {
+            FromExpr* f = (FromExpr*)query->jointree;
+            ereport(WARNING, (errmsg("[EXPLAIN_QUERY] Entry: quals type=%d",
+                                 f->quals ? ((Node*)f->quals)->type : -1)));
+        }
+    }
+
     /* Initialize ExplainState. */
     ExplainInitState(&es);
 

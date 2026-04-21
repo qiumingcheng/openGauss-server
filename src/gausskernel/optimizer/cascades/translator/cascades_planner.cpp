@@ -23,14 +23,10 @@
 
 PlannedStmt* cascades_planner(Query* parse, int cursorOptions, ParamListInfo boundParams)
 {
-    ereport(LOG, (errmsg("[CASCADES] >>> Entering cascades_planner, enable_cascades_optimizer=%d",
-                         u_sess->attr.attr_sql.enable_cascades_optimizer)));
-
-    // Debug: check quals at entry
     if (parse != nullptr && parse->jointree != nullptr) {
         FromExpr* f = (FromExpr*)parse->jointree;
-        Node* quals = f->quals;
-        ereport(WARNING, (errmsg("[CASCADES] ENTRY: quals=%p, nodeType=%d", (void*)quals, quals ? ((Node*)quals)->type : -1)));
+        ereport(WARNING, (errmsg("[CASCADES] ENTRY: quals type=%d",
+                             f->quals ? ((Node*)f->quals)->type : -1)));
     }
 
     PlannedStmt* result = NULL;
@@ -92,47 +88,45 @@ PlannedStmt* cascades_planner(Query* parse, int cursorOptions, ParamListInfo bou
     // Preprocess qual conditions (convert single qual node to List)
     preprocess_qual_conditions(root, (Node*)parse->jointree);
 
-    // Debug: check baserestrictinfo after preprocess
+    // Debug: check f->quals after preprocess
     if (parse->jointree != nullptr && IsA(parse->jointree, FromExpr)) {
         FromExpr* f = (FromExpr*)parse->jointree;
-        ereport(WARNING, (errmsg("[CASCADES] After preprocess: f->quals type=%d, isList=%d",
-                             (int)((Node*)f->quals)->type, IsA(f->quals, List))));
-        if (IsA(f->quals, List)) {
-            ereport(WARNING, (errmsg("[CASCADES] After preprocess: f->quals length=%d",
-                                 list_length((List*)f->quals))));
-            // Print each qual's type
+        if (f->quals == nullptr) {
+            ereport(WARNING, (errmsg("[CASCADES] After preprocess: f->quals is NULL")));
+        } else if (IsA(f->quals, List)) {
+            StringInfoData qual_types;
+            initStringInfo(&qual_types);
             int idx = 0;
             ListCell* lc;
             foreach(lc, (List*)f->quals) {
                 Node* qual = (Node*)lfirst(lc);
-                ereport(WARNING, (errmsg("[CASCADES] After preprocess: qual[%d] type=%d", idx++, (int)qual->type)));
+                if (idx > 0)
+                    appendStringInfoString(&qual_types, ", ");
+                appendStringInfo(&qual_types, "qual[%d]=%d", idx++, (int)qual->type);
             }
-        } else if (f->quals != nullptr) {
+            ereport(WARNING, (errmsg("[CASCADES] After preprocess: f->quals is List, length=%d, %s",
+                                 list_length((List*)f->quals), qual_types.data)));
+            pfree(qual_types.data);
+        } else {
             ereport(WARNING, (errmsg("[CASCADES] After preprocess: f->quals is not List, type=%d",
                                  (int)((Node*)f->quals)->type)));
-        } else {
-            ereport(WARNING, (errmsg("[CASCADES] After preprocess: f->quals is NULL")));
-        }
-    }
-
-    // Check baserestrictinfo before deconstruct
-    int rtable_len = list_length(parse->rtable);
-    for (int i = 1; i <= rtable_len && i < root->simple_rel_array_size; i++) {
-        RelOptInfo* rel = root->simple_rel_array[i];
-        if (rel != nullptr) {
-            ereport(WARNING, (errmsg("[CASCADES] Before deconstruct: rtindex=%d, baserestrictinfo len=%d",
-                                 i, list_length(rel->baserestrictinfo))));
         }
     }
 
     // Step 6: Distribute WHERE quals to baserestrictinfo lists
-    ereport(WARNING, (errmsg("[CASCADES] Before deconstruct_jointree: join_info_list length=%d",
-                         list_length(root->join_info_list))));
+    // Safety check: ensure f->quals is a List before deconstruct_jointree
+    if (parse->jointree != nullptr && IsA(parse->jointree, FromExpr)) {
+        FromExpr* f = (FromExpr*)parse->jointree;
+        if (f->quals != nullptr && !IsA(f->quals, List)) {
+            ereport(WARNING, (errmsg("[CASCADES] ERROR: f->quals is not a List! type=%d",
+                                 (int)((Node*)f->quals)->type)));
+            f->quals = (Node*)list_make1(f->quals);
+        }
+    }
+
     Relids non_keypreserved = NULL;
     deconstruct_jointree(root, &non_keypreserved);
     bms_free(non_keypreserved);
-    ereport(WARNING, (errmsg("[CASCADES] After deconstruct_jointree: join_info_list length=%d",
-                         list_length(root->join_info_list))));
 
     /*
      * Generate implied equalities from equivalence classes.
@@ -142,22 +136,8 @@ PlannedStmt* cascades_planner(Query* parse, int cursorOptions, ParamListInfo bou
      * baserestrictinfo. This function generates the actual restriction clauses
      * from the equivalence classes.
      */
-    ereport(WARNING, (errmsg("[CASCADES] Before generate_base_implied_equalities: eq_classes length=%d",
-                         list_length(root->eq_classes))));
     generate_base_implied_equalities(root);
-    ereport(WARNING, (errmsg("[CASCADES] After generate_base_implied_equalities: eq_classes length=%d",
-                         list_length(root->eq_classes))));
-
     generate_base_implied_qualities(root);
-
-    // Debug: check baserestrictinfo after generate_base_implied_equalities
-    for (int i = 1; i <= rtable_len && i < root->simple_rel_array_size; i++) {
-        RelOptInfo* rel = root->simple_rel_array[i];
-        if (rel != nullptr) {
-            ereport(WARNING, (errmsg("[CASCADES] After generate_base_implied_equalities: rtindex=%d, baserestrictinfo len=%d",
-                                 i, list_length(rel->baserestrictinfo))));
-        }
-    }
 
     /* Step 1: Query → OptExpression */
     cascades::QueryToExprConverter query_converter;
@@ -169,26 +149,20 @@ PlannedStmt* cascades_planner(Query* parse, int cursorOptions, ParamListInfo bou
         return standard_planner(parse, cursorOptions, boundParams);
     }
 
-    ereport(WARNING, (errmsg("[CASCADES] >>> Query conversion succeeded, starting optimization")));
+    ereport(WARNING, (errmsg("[CASCADES] Query conversion succeeded, starting optimization")));
 
-    /* Step 2: Cascades optimization */
     cascades::PhysicalPropertySet required_prop;
     cascades::ColumnRefSet required_cols;
 
-    ereport(WARNING, (errmsg("[CASCADES] >>> Creating CascadesOptimizer")));
     cascades::CascadesOptimizer optimizer(root);
-    ereport(WARNING, (errmsg("[CASCADES] >>> Calling optimizer.optimize()")));
     cascades::OptExpression* optimized_expr = optimizer.optimize(opt_expr, required_prop, &required_cols);
-    ereport(WARNING, (errmsg("[CASCADES] >>> optimize() returned, optimized_expr=%p", (void*)optimized_expr)));
 
     if (optimized_expr == nullptr) {
         ereport(WARNING, (errmsg("Cascades optimizer: optimization failed, falling back to standard planner")));
         return standard_planner(parse, cursorOptions, boundParams);
     }
 
-    ereport(WARNING, (errmsg("[CASCADES] >>> Optimization succeeded, converting to plan")));
-
-    /* Step 3: OptExpression → PlannedStmt */
+    /* Step 3: OptExpression -> PlannedStmt */
     cascades::ExprToPlanConverter plan_converter(root);
     result = plan_converter.convert(optimized_expr);
 
@@ -196,8 +170,6 @@ PlannedStmt* cascades_planner(Query* parse, int cursorOptions, ParamListInfo bou
         ereport(WARNING, (errmsg("Cascades optimizer: plan conversion failed, falling back to standard planner")));
         return standard_planner(parse, cursorOptions, boundParams);
     }
-
-    ereport(LOG, (errmsg("[CASCADES] >>> Plan conversion succeeded, returning plan")));
 
     result->utilityStmt = parse->utilityStmt;
     result->commandType = parse->commandType;

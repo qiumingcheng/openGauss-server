@@ -8,6 +8,7 @@
 #include "nodes/parsenodes.h"
 #include "nodes/relation.h"
 #include "nodes/makefuncs.h"
+#include "nodes/value.h"
 
 namespace cascades {
 
@@ -33,28 +34,50 @@ OptExpression* QueryToExprConverter::convert(PlannerInfo* root, Query* parse) {
 
 OptExpression* QueryToExprConverter::translate_select(PlannerInfo* root, Query* parse) {
     // 1. Convert FROM clause
+    // Note: translate_scan now creates LogicalFilter on top of scans with baserestrictinfo
     OptExpression* from_expr = nullptr;
     if (parse->jointree != nullptr) {
         from_expr = translate_from(root, parse, (Node*)parse->jointree);
     }
 
-    // 2. Convert WHERE clause to Filter
-    OptExpression* filter_expr = nullptr;
-    if (parse->jointree != nullptr && parse->jointree->quals != nullptr) {
-        LogicalFilter* filter_op = NEW_EX(LogicalFilter, parse->jointree->quals);
-        if (from_expr != nullptr) {
-            filter_expr = OptExpression::create(filter_op, from_expr);
-        } else {
-            filter_expr = OptExpression::create(filter_op);
-        }
-    } else {
-        filter_expr = from_expr;
-    }
+    // 2. WHERE clause handling
+    // Predicates from baserestrictinfo are already attached to scans by translate_scan
+    // For join quals, they are handled by translate_join
+    // So we don't need to create an additional filter here
+    OptExpression* filter_expr = from_expr;
 
     // 3. Convert SELECT LIST to Project
     OptExpression* project_expr = translate_target_list(root, parse, filter_expr);
 
-    return project_expr ? project_expr : filter_expr;
+    // 4. Handle ORDER BY
+    OptExpression* result = project_expr ? project_expr : filter_expr;
+    if (parse->sortClause != nullptr) {
+        // Create LogicalSort operator
+        LogicalSort* sort_op = NEW_EX(LogicalSort);
+        sort_op->set_sort_clause(parse->sortClause);
+
+        if (result != nullptr) {
+            result = OptExpression::create(sort_op, result);
+        } else {
+            result = OptExpression::create(sort_op);
+        }
+    }
+
+    // 5. Handle LIMIT/OFFSET
+    if (parse->limitCount != nullptr || parse->limitOffset != nullptr) {
+        // Create LogicalLimit operator
+        LogicalLimit* limit_op = NEW_EX(LogicalLimit);
+        limit_op->set_limit_count(parse->limitCount);
+        limit_op->set_limit_offset(parse->limitOffset);
+
+        if (result != nullptr) {
+            result = OptExpression::create(limit_op, result);
+        } else {
+            result = OptExpression::create(limit_op);
+        }
+    }
+
+    return result;
 }
 
 OptExpression* QueryToExprConverter::translate_from(PlannerInfo* root, Query* parse, Node* jointree) {
@@ -176,13 +199,39 @@ OptExpression* QueryToExprConverter::translate_scan(PlannerInfo* root, Query* pa
     if (rte->relid != InvalidOid) {
         LogicalScan* scan_op = NEW_EX(LogicalScan, rtindex);
         if (root != nullptr) {
-            // Build RelOptInfo if not already exists
-            RelOptInfo* rel = build_simple_rel(root, rtindex, RELOPT_BASEREL);
+            // Find the existing RelOptInfo (already created by add_base_rels_to_query)
+            RelOptInfo* rel = find_base_rel(root, rtindex);
             if (rel != nullptr) {
                 scan_op->set_rel(rel);
+
+                // If there are restriction clauses, create a LogicalFilter on top of the scan
+                // This handles multiple predicates from baserestrictinfo
+                if (rel->baserestrictinfo != NIL) {
+                    // Create predicate_ids list from baserestrictinfo
+                    // Each RestrictInfo contains a clause that needs to be applied
+                    // For now, we create a filter with the full baserestrictinfo list
+                    // The predicate_id mechanism will be used for tracking during optimization
+
+                    LogicalFilter* filter_op = NEW_EX(LogicalFilter);
+                    filter_op->set_qual_list(rel->baserestrictinfo);
+
+                    // Create predicate_ids: for simplicity, use index 0 to indicate "use baserestrictinfo"
+                    // In a full implementation, each clause would have its own predicate_id
+                    List* predicate_ids = nullptr;
+                    int idx = 0;
+                    for (ListCell* cell = list_head(rel->baserestrictinfo); cell != nullptr; cell = lnext(cell)) {
+                        predicate_ids = lappend_int(predicate_ids, idx++);
+                    }
+                    filter_op->set_predicate_ids(predicate_ids);
+
+                    OptExpression* scan_expr = OptExpression::create(scan_op);
+                    OptExpression* result = OptExpression::create(filter_op, scan_expr);
+                    return result;
+                }
             }
         }
-        return OptExpression::create(scan_op);
+        OptExpression* result = OptExpression::create(scan_op);
+        return result;
     } else if (rte->subquery != nullptr) {
         return translate_select(root, rte->subquery);
     }
@@ -199,9 +248,11 @@ OptExpression* QueryToExprConverter::translate_target_list(PlannerInfo* root, Qu
     LogicalProject* project_op = NEW_EX(LogicalProject, targetList);
 
     if (child != nullptr) {
-        return OptExpression::create(project_op, child);
+        OptExpression* result = OptExpression::create(project_op, child);
+        return result;
     }
-    return OptExpression::create(project_op);
+    OptExpression* result = OptExpression::create(project_op);
+    return result;
 }
 
 std::vector<int> QueryToExprConverter::extract_join_keys_from_using(Node* usingClause) {

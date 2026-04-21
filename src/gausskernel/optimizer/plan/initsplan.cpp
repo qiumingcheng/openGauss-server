@@ -951,8 +951,6 @@ static List* deconstruct_recurse(PlannerInfo* root, Node* jtnode,
         /*
          * Now process the top-level quals.
          */
-        ereport(WARNING, (errmsg("[DEBUG] deconstruct_recurse FromExpr: f->quals=%p, isList=%d, length=%d",
-                             (void*)f->quals, IsA(f->quals, List), f->quals ? list_length((List*)f->quals) : -1)));
         foreach (l, (List*)f->quals) {
             Node* qual = (Node*)lfirst(l);
             ereport(WARNING, (errmsg("[DEBUG] deconstruct_recurse: processing qual type=%d", (int)qual->type)));
@@ -1060,7 +1058,7 @@ static List* deconstruct_recurse(PlannerInfo* root, Node* jtnode,
         my_quals = NIL;
         foreach(l, child_postponed_quals) {
             PostponedQual *pq = (PostponedQual *) lfirst(l);
-            
+
             if (bms_is_subset(pq->relids, *qualscope)) {
                 my_quals = lappend(my_quals, pq->qual);
             } else {
