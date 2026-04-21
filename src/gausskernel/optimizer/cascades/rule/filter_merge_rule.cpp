@@ -1,6 +1,8 @@
 #include "../base/memory_utils.h"
 #include "filter_merge_rule.h"
 #include "../operator/operators.h"
+#include "../operator/operators/logical_project.h"
+#include "../operator/operators/logical_join.h"
 #include "../memo/opt_expression.h"
 
 namespace cascades {
@@ -73,9 +75,29 @@ std::vector<OptExpression*> FilterMergeRule::transform(
         else {
             ereport(WARNING, (errmsg("[CASCADES] FilterMergeRule:transform, merging both predicates")));
             LogicalFilter* merged_filter = NEW_EX(LogicalFilter);
-            // Use the more restrictive predicate (lower ID typically means simpler)
-            merged_filter->set_predicate_id(predicate_id < child_predicate_id ?
-                                            predicate_id : child_predicate_id);
+            // Merge both predicates into a single filter
+            // Copy qual_list from both filters if available
+            merged_filter->add_predicate_id(predicate_id);
+            merged_filter->add_predicate_id(child_predicate_id);
+
+            // Also merge qual lists if present
+            void* parent_qual_list = filter->get_qual_list();
+            void* child_qual_list = child_filter->get_qual_list();
+
+            if (parent_qual_list != nullptr && child_qual_list != nullptr) {
+                // Concatenate both qual lists
+                List* merged_quals = (List*)parent_qual_list;
+                List* child_quals = (List*)child_qual_list;
+                ListCell* cell;
+                foreach(cell, child_quals) {
+                    merged_quals = lappend(merged_quals, lfirst(cell));
+                }
+                merged_filter->set_qual_list(merged_quals);
+            } else if (parent_qual_list != nullptr) {
+                merged_filter->set_qual_list(parent_qual_list);
+            } else if (child_qual_list != nullptr) {
+                merged_filter->set_qual_list(child_qual_list);
+            }
 
             OptExpression* grandchild = child->input_at(0);
             OptExpression* merged_expr = OptExpression::create(merged_filter, grandchild);
@@ -174,13 +196,11 @@ bool FilterMergeRule::are_predicates_equivalent(int pred_id1, int pred_id2) cons
 }
 
 bool FilterMergeRule::is_predicate_subset(int pred_id1, int pred_id2) const {
-    // Predicate1 is a subset of predicate2 if:
-    // - They are equivalent (same ID)
-    // - A full implementation would check if pred1 is more restrictive
-    //
-    // For now, we assume that if pred_id1 <= pred_id2, pred_id1 is simpler/more restrictive
-    // This is a simplification - real implementation would analyze predicate structure
-    return pred_id1 <= pred_id2;
+    // Predicate1 is a subset of predicate2 if pred_id1 == pred_id2
+    // A full implementation would analyze the actual predicate expressions
+    // to determine if one logically implies the other
+    // For now, only return true for identical predicates
+    return pred_id1 == pred_id2;
 }
 
 
