@@ -111,14 +111,13 @@ bool ConstantFoldRule::is_constant_expression(OptExpression* expr) const {
     // A projection with all constant inputs could be folded
     if (op->get_type() == OptExprOpType::LOGICAL_PROJECT) {
         LogicalProject* project = static_cast<LogicalProject*>(op);
-        const std::vector<int>& projections = project->get_projections();
+        List* target_list = project->get_target_list();
 
-        // Check if all projections reference constant columns
-        // In a real implementation, we would check the actual expression
-        // For now, we assume projections are column references
-        for (int col : projections) {
-            if (col < 0) {
-                // Negative column index might indicate a constant
+        // Check if all target entries are constants
+        ListCell* lc;
+        foreach(lc, target_list) {
+            TargetEntry* tle = (TargetEntry*)lfirst(lc);
+            if (tle && tle->expr && IsA(tle->expr, Const)) {
                 return true;
             }
         }

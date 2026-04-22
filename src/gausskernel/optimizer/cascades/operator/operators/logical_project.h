@@ -20,11 +20,7 @@ public:
     size_t hash() const override;
     std::string to_string() const override;
 
-    const std::vector<int>& get_projections() const { return projections_; }
-    void set_projections(const std::vector<int>& cols) { projections_ = cols; }
-
 private:
-    std::vector<int> projections_;
     List* target_list_ = nullptr;  // OpenGauss target list
 };
 

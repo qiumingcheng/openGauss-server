@@ -4,6 +4,7 @@
 #include "../operator/operator.h"
 #include "../operator/operators/logical_scan.h"
 #include "../operator/operators/logical_project.h"
+#include "nodes/primnodes.h"
 
 namespace cascades {
 
@@ -32,27 +33,27 @@ void LogicalProperty::derive(ExpressionContext* context) {
 
             if (target_list != nullptr && target_list != NIL) {
                 // Extract column numbers from target list expressions
+                // Note: target_list is List<TargetEntry*>, need to extract TargetEntry->expr
                 ListCell* lc;
                 foreach(lc, target_list) {
-                    Node* expr = (Node*)lfirst(lc);
+                    TargetEntry* tle = (TargetEntry*)lfirst(lc);
+                    if (tle == nullptr || tle->expr == nullptr) {
+                        continue;
+                    }
+                    Node* expr = (Node*)tle->expr;
                     if (IsA(expr, Var)) {
                         Var* var = (Var*)expr;
                         output_columns_.add(var->varattno);
+                        ereport(WARNING, (errmsg("[CASCADES][LOGICAL_PROPERTY] Project: adding column %d from Var", var->varattno)));
+                    } else {
+                        ereport(WARNING, (errmsg("[CASCADES][LOGICAL_PROPERTY] Project: expr type=%d (not Var)", (int)expr->type)));
                     }
                     // For other expression types (Const, FuncExpr, etc.), they don't
                     // reference child columns, so no column pruning needed for them
                 }
-            } else {
-                // Fallback: use projections_ if set
-                const std::vector<int>& projections = project_op->get_projections();
-                if (!projections.empty()) {
-                    for (int col : projections) {
-                        output_columns_.add(col);
-                    }
-                } else if (context->arity() > 0) {
-                    // No projection info, pass through all child columns
-                    output_columns_ = context->get_child_output_columns(0);
-                }
+            } else if (context->arity() > 0) {
+                // No target_list, pass through all child columns
+                output_columns_ = context->get_child_output_columns(0);
             }
             // Sort order preserved through project
             break;
@@ -102,7 +103,11 @@ void LogicalProperty::derive(ExpressionContext* context) {
             // Get column info from RelOptInfo's reltarget
             LogicalScan* scan_op = static_cast<LogicalScan*>(op);
             RelOptInfo* rel = scan_op->get_rel();
-            if (rel != nullptr && rel->reltarget != nullptr) {
+            ereport(WARNING, (errmsg("[CASCADES][LOGICAL_PROPERTY] Scan: rel=%p, reltarget=%p, exprs=%p, length=%d",
+                                 (void*)rel, rel ? (void*)rel->reltarget : nullptr,
+                                 rel && rel->reltarget ? (void*)rel->reltarget->exprs : nullptr,
+                                 rel && rel->reltarget ? list_length(rel->reltarget->exprs) : 0)));
+            if (rel != nullptr && rel->reltarget != nullptr && rel->reltarget->exprs != NIL) {
                 // Extract column refs from reltarget->exprs (list of Var expressions)
                 ListCell* lc;
                 foreach(lc, rel->reltarget->exprs) {
@@ -110,6 +115,7 @@ void LogicalProperty::derive(ExpressionContext* context) {
                     if (IsA(expr, Var)) {
                         Var* var = (Var*)expr;
                         output_columns_.add(var->varattno);
+                        ereport(WARNING, (errmsg("[CASCADES][LOGICAL_PROPERTY] Scan: adding column %d", var->varattno)));
                     }
                 }
             }

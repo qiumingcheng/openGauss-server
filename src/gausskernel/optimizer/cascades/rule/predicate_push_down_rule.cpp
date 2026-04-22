@@ -141,7 +141,7 @@ std::vector<OptExpression*> PredicatePushDownRule::transform(
 
         // Create new projection on top of the pushed filter
         LogicalProject* new_project = NEW_EX(LogicalProject);
-        new_project->set_projections(project->get_projections());
+        new_project->set_target_list(project->get_target_list());
 
         OptExpression* result_expr = OptExpression::create(new_project, pushed_expr);
         result.push_back(result_expr);
