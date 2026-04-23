@@ -21,7 +21,7 @@ public:
     OptimizerContext* get_context() { return &context_; }
 
 private:
-    void logical_rewrite(OptExpression* expression);
+    OptExpression* logical_rewrite(OptExpression* expression);
     void init_memo(OptExpression* expression);
     void explore();
     OptExpression* extract_best_plan(const PhysicalPropertySet& required_property);

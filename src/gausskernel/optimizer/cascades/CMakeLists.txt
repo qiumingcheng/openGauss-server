@@ -32,6 +32,7 @@ set(CASCADES_TASK_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/task/apply_rule_task.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/task/derive_stats_task.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/task/enforce_and_cost_task.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/task/rewrite_tree_task.cpp
 )
 
 # Operator sources
@@ -44,7 +45,10 @@ set(CASCADES_OPERATOR_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/operator/operators/logical_project.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/operator/operators/logical_scan.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/operator/operators/logical_subquery.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/operator/operators/logical_sort.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/operator/operators/logical_limit.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/operator/operators/physical_exchange.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/operator/operators/physical_filter.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/operator/operators/physical_hash_agg.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/operator/operators/physical_hash_join.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/operator/operators/physical_merge_join.cpp
@@ -52,6 +56,7 @@ set(CASCADES_OPERATOR_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/operator/operators/physical_project.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/operator/operators/physical_scan.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/operator/operators/physical_sort.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/operator/operators/physical_limit.cpp
 )
 
 # Rule sources (transformation + implementation merged in rule/)
@@ -72,14 +77,17 @@ set(CASCADES_RULES_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/rule/predicate_push_down_rule.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/rule/subquery_unnest_rule.cpp
     # Implementation rules
+    ${CMAKE_CURRENT_SOURCE_DIR}/rule/filter_impl_rule.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/rule/hash_agg_impl_rule.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/rule/hash_join_impl_rule.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/rule/index_scan_impl_rule.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/rule/limit_impl_rule.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/rule/merge_join_impl_rule.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/rule/nest_loop_impl_rule.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/rule/project_impl_rule.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/rule/scan_impl_rule.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/rule/sort_impl_rule.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/rule/subquery_scan_impl_rule.cpp
 )
 
 # Property sources

@@ -376,7 +376,7 @@ Plan* ExprToPlanConverter::translate_filter(OptExpression* expr) {
     }
 
     PhysicalFilter* filter_op = dynamic_cast<PhysicalFilter*>(expr->get_op());
-    List* predicate_ids = filter_op ? filter_op->get_predicate_ids() : nullptr;
+    List* predicate_ids = filter_op ? (List*)filter_op->get_predicate_ids() : nullptr;
 
     // Build qual from predicate_ids using rel->baserestrictinfo
     List* qual = NIL;
@@ -398,13 +398,13 @@ Plan* ExprToPlanConverter::translate_filter(OptExpression* expr) {
         }
     }
 
-    Result* result = makeNode(Result);
-    result->plan.lefttree = child_plan;
-    result->plan.targetlist = (List*)copyObject(child_plan->targetlist);
-    result->plan.qual = qual;
-    result->resconstantqual = nullptr;
+    BaseResult* result_plan = makeNode(BaseResult);
+    result_plan->plan.lefttree = child_plan;
+    result_plan->plan.targetlist = (List*)copyObject(child_plan->targetlist);
+    result_plan->plan.qual = qual;
+    result_plan->resconstantqual = nullptr;
 
-    return (Plan*)result;
+    return (Plan*)result_plan;
 }
 
 /* Stub join translation - should be implemented with proper physical join operators */
@@ -451,7 +451,7 @@ Plan* ExprToPlanConverter::translate_sort(OptExpression* expr) {
 
     // For logical sort, extract sort keys and create a Sort plan node
     LogicalSort* logical_sort = dynamic_cast<LogicalSort*>(op);
-    List* sort_clause = logical_sort ? logical_sort->get_sort_clause() : nullptr;
+    List* sort_clause = logical_sort ? (List*)logical_sort->get_sort_clause() : nullptr;
 
     if (sort_clause == nullptr || list_length(sort_clause) == 0) {
         // No sort keys, return child plan

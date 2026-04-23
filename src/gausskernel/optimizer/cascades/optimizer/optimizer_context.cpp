@@ -29,15 +29,12 @@ OptimizerContext::OptimizerContext(PlannerInfo* root, MemoryContext context)
     rule_set_.add_rule(JoinCommutativityRule::instance());
     rule_set_.add_rule(JoinAssociationRule::instance());
     rule_set_.add_rule(PredicatePushDownRule::instance());
-    rule_set_.add_rule(FilterMergeRule::instance());
-    rule_set_.add_rule(ColumnPruneRule::instance());
     rule_set_.add_rule(OuterJoinSimplifyRule::instance());
     rule_set_.add_rule(CrossJoinEliminationRule::instance());
     rule_set_.add_rule(DuplicateJoinEliminationRule::instance());
     // SortEliminationRule removed: Sort elimination logic moved to EnforceAndCostTask
     rule_set_.add_rule(AggregationSimplifyRule::instance());
     rule_set_.add_rule(SubqueryUnnestRule::instance());
-    rule_set_.add_rule(ConstantFoldRule::instance());
 
     // Initialize implementation rules
     rule_set_.add_rule(FilterImplRule::instance());

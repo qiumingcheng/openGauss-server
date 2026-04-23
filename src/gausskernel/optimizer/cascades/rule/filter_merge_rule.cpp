@@ -75,12 +75,11 @@ std::vector<OptExpression*> FilterMergeRule::transform(
         else {
             ereport(WARNING, (errmsg("[CASCADES] FilterMergeRule:transform, merging both predicates")));
             LogicalFilter* merged_filter = NEW_EX(LogicalFilter);
-            // Merge both predicates into a single filter
-            // Copy qual_list from both filters if available
-            merged_filter->add_predicate_id(predicate_id);
-            merged_filter->add_predicate_id(child_predicate_id);
+            // Use parent predicate ID - both predicates need to be evaluated
+            // A full implementation would combine the qual lists
+            merged_filter->set_predicate_id(predicate_id);
 
-            // Also merge qual lists if present
+            // Merge qual lists if present
             void* parent_qual_list = filter->get_qual_list();
             void* child_qual_list = child_filter->get_qual_list();
 

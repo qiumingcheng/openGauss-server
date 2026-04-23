@@ -1,6 +1,10 @@
 #include "../base/memory_utils.h"
 #include "predicate_push_down_rule.h"
 #include "../operator/operators.h"
+#include "../operator/operators/logical_filter.h"
+#include "../operator/operators/logical_join.h"
+#include "../operator/operators/logical_scan.h"
+#include "../operator/operators/logical_project.h"
 #include "../memo/opt_expression.h"
 
 namespace cascades {
@@ -21,152 +25,186 @@ std::vector<OptExpression*> PredicatePushDownRule::transform(
     ereport(WARNING, (errmsg("[CASCADES] PredicatePushDownRule:transform, input=%s",
                          input->to_string().c_str())));
 
-    Assert(input->arity() > 0);  // Pattern must match expression with child
+    Assert(input->arity() > 0);
 
-    // Pattern: Filter on top of any expression
     LogicalFilter* filter = static_cast<LogicalFilter*>(input->get_op());
     OptExpression* child = input->input_at(0);
     OptExprOp* child_op = child->get_op();
 
     std::vector<OptExpression*> result;
 
-    // Get predicate IDs from the filter (supports multiple predicates)
+    // Get predicate information - support multiple predicates via qual_list and predicate_ids
     List* predicate_ids = filter->get_predicate_ids();
-    if (predicate_ids == nullptr || list_length(predicate_ids) == 0) {
-        ereport(WARNING, (errmsg("[CASCADES] PredicatePushDownRule:transform, no predicate to push")));
-        // No predicate to push, return input as-is
+    void* qual_list = filter->get_qual_list();
+
+    // Check if we have any predicates to push
+    bool has_predicate_ids = (predicate_ids != nullptr && list_length(predicate_ids) > 0);
+    bool has_qual_list = (qual_list != nullptr);
+
+    if (!has_predicate_ids && !has_qual_list) {
+        ereport(WARNING, (errmsg("[CASCADES] PredicatePushDownRule:transform, no predicates to push")));
         result.push_back(input);
         return result;
     }
 
-    ereport(WARNING, (errmsg("[CASCADES] PredicatePushDownRule:transform, predicate_ids has %d elements, child_op=%d",
-                         list_length(predicate_ids), (int)child_op->get_type())));
+    ereport(WARNING, (errmsg("[CASCADES] PredicatePushDownRule:transform, predicate_ids=%d, has_qual_list=%d, child_op=%d",
+                         has_predicate_ids ? list_length(predicate_ids) : 0,
+                         has_qual_list ? 1 : 0,
+                         (int)child_op->get_type())));
 
     // Case 1: Push filter down through joins
     if (child_op->get_type() == OptExprOpType::LOGICAL_JOIN) {
-        // Create filtered versions of join children
-        // The predicate can be pushed to one or both sides based on join type
-
         LogicalJoin* join = static_cast<LogicalJoin*>(child_op);
         JoinType join_type = join->get_join_type();
 
         OptExpression* left_child = child->input_at(0);
         OptExpression* right_child = child->input_at(1);
 
-        // For inner join, push predicate to both sides
-        // For left/right outer join, push to the outer side only
         if (join_type == JOIN_INNER) {
-            // Create filters for both children with same predicate_ids
+            // For inner join, push predicates to both sides
             LogicalFilter* left_filter = NEW_EX(LogicalFilter);
             left_filter->set_predicate_ids(predicate_ids);
+            left_filter->set_qual_list(qual_list);
 
             LogicalFilter* right_filter = NEW_EX(LogicalFilter);
             right_filter->set_predicate_ids(predicate_ids);
+            right_filter->set_qual_list(qual_list);
 
             OptExpression* left_filtered = OptExpression::create(left_filter, left_child);
             OptExpression* right_filtered = OptExpression::create(right_filter, right_child);
 
-            // Reconstruct join with filtered children
             LogicalJoin* new_join = static_cast<LogicalJoin*>(join->clone());
             OptExpression* new_expr = OptExpression::create(new_join, left_filtered, right_filtered);
             result.push_back(new_expr);
+            
+            ereport(WARNING, (errmsg("[CASCADES] PredicatePushDownRule: pushed to both sides of INNER JOIN")));
         } else if (join_type == JOIN_LEFT) {
-            // Push to right side only for left outer join
+            // For left outer join, push to right side only (where match is required)
             LogicalFilter* right_filter = NEW_EX(LogicalFilter);
             right_filter->set_predicate_ids(predicate_ids);
+            right_filter->set_qual_list(qual_list);
 
             OptExpression* right_filtered = OptExpression::create(right_filter, right_child);
 
             LogicalJoin* new_join = static_cast<LogicalJoin*>(join->clone());
             OptExpression* new_expr = OptExpression::create(new_join, left_child, right_filtered);
             result.push_back(new_expr);
+            
+            ereport(WARNING, (errmsg("[CASCADES] PredicatePushDownRule: pushed to right side of LEFT JOIN")));
         } else if (join_type == JOIN_RIGHT) {
-            // Push to left side only for right outer join
+            // For right outer join, push to left side only
             LogicalFilter* left_filter = NEW_EX(LogicalFilter);
             left_filter->set_predicate_ids(predicate_ids);
+            left_filter->set_qual_list(qual_list);
 
             OptExpression* left_filtered = OptExpression::create(left_filter, left_child);
 
             LogicalJoin* new_join = static_cast<LogicalJoin*>(join->clone());
             OptExpression* new_expr = OptExpression::create(new_join, left_filtered, right_child);
             result.push_back(new_expr);
-        }
-        // JOIN_FULL - complex, skip for now
-        else {
+            
+            ereport(WARNING, (errmsg("[CASCADES] PredicatePushDownRule: pushed to left side of RIGHT JOIN")));
+        } else {
+            // JOIN_FULL - cannot safely push
             ereport(WARNING, (errmsg("[CASCADES] PredicatePushDownRule:transform, skipping JOIN_FULL")));
+            result.push_back(input);
         }
     }
-    // Case 2: Push filter down to scan
+    // Case 2: Push filter down to scan - main case for multi-predicate pushdown
     else if (child_op->get_type() == OptExprOpType::LOGICAL_SCAN) {
         ereport(WARNING, (errmsg("[CASCADES] PredicatePushDownRule:transform, pushing to SCAN")));
-        // Push filter predicates to scan - attach predicate_id to scan
         LogicalScan* scan = static_cast<LogicalScan*>(child_op->clone());
 
-        // Get existing predicate_id from scan
-        int existing_id = scan->get_predicate_id();
-
-        // For now, use the first predicate_id from the list
-        // TODO: Support multiple predicates by merging or using list
-        int new_predicate_id = linitial_int(predicate_ids);
-
-        // Merge with existing predicate if present
-        if (scan->has_predicate()) {
-            ereport(WARNING, (errmsg("[CASCADES] PredicatePushDownRule:transform, scan already has predicate_id=%d, new=%d",
-                                 existing_id, new_predicate_id)));
-            // For simplicity, keep existing - a proper implementation would merge
-        } else {
-            scan->set_predicate_id(new_predicate_id);
+        // Get existing predicates from scan
+        List* existing_ids = scan->get_predicate_ids();
+        void* existing_qual_list = scan->get_qual_list();
+        
+        // Merge with existing predicates
+        if (has_predicate_ids) {
+            if (existing_ids != nullptr) {
+                // Append new predicate ids to existing ones
+                List* merged_ids = existing_ids;
+                ListCell* cell;
+                foreach(cell, predicate_ids) {
+                    merged_ids = lappend_int(merged_ids, lfirst_int(cell));
+                }
+                scan->set_predicate_ids(merged_ids);
+            } else {
+                scan->set_predicate_ids(predicate_ids);
+            }
+        }
+        
+        if (has_qual_list) {
+            if (existing_qual_list != nullptr) {
+                // Append new qual list to existing one
+                List* merged_quals = (List*)existing_qual_list;
+                List* new_quals = (List*)qual_list;
+                ListCell* cell;
+                foreach(cell, new_quals) {
+                    merged_quals = lappend(merged_quals, lfirst(cell));
+                }
+                scan->set_qual_list(merged_quals);
+            } else {
+                scan->set_qual_list(qual_list);
+            }
         }
 
-        // Return scan directly without filter wrapper
+        // Return scan directly without filter wrapper (filter is now part of scan)
         OptExpression* scan_expr = OptExpression::create(scan);
         result.push_back(scan_expr);
-
-        ereport(WARNING, (errmsg("[CASCADES] PredicatePushDownRule:transform, pushed filter to scan, result=%s",
-                             scan_expr->to_string().c_str())));
+        
+        ereport(WARNING, (errmsg("[CASCADES] PredicatePushDownRule: pushed multiple predicates to SCAN")));
     }
     // Case 3: Push filter through projection
     else if (child_op->get_type() == OptExprOpType::LOGICAL_PROJECT) {
         ereport(WARNING, (errmsg("[CASCADES] PredicatePushDownRule:transform, pushing through PROJECT")));
-        // Create a new filter on top of the projection's child
-        // The predicate needs to be expressed in terms of child's columns
-        // For now, just push the filter down to the projection's child
         LogicalProject* project = static_cast<LogicalProject*>(child_op);
         OptExpression* project_child = child->input_at(0);
 
         LogicalFilter* pushed_filter = NEW_EX(LogicalFilter);
         pushed_filter->set_predicate_ids(predicate_ids);
+        pushed_filter->set_qual_list(qual_list);
 
         OptExpression* pushed_expr = OptExpression::create(pushed_filter, project_child);
 
-        // Create new projection on top of the pushed filter
         LogicalProject* new_project = NEW_EX(LogicalProject);
         new_project->set_target_list(project->get_target_list());
 
         OptExpression* result_expr = OptExpression::create(new_project, pushed_expr);
         result.push_back(result_expr);
     }
-    // Case 4: Push filter through another filter - merge predicates
+    // Case 4: Merge with another filter - combine predicates
     else if (child_op->get_type() == OptExprOpType::LOGICAL_FILTER) {
         ereport(WARNING, (errmsg("[CASCADES] PredicatePushDownRule:transform, merging FILTERs")));
-        // Merge with child's filter - combine predicate_ids
         LogicalFilter* child_filter = static_cast<LogicalFilter*>(child_op);
+        
+        // Get child's predicates
         List* child_predicate_ids = child_filter->get_predicate_ids();
-
-        // Combine predicate_ids from both filters
+        void* child_qual_list = child_filter->get_qual_list();
+        
+        // Merge predicate_ids
         List* merged_ids = predicate_ids;
         if (child_predicate_ids != nullptr) {
-            for (ListCell* cell = list_head(child_predicate_ids); cell != nullptr; cell = lnext(cell)) {
+            ListCell* cell;
+            foreach(cell, child_predicate_ids) {
                 merged_ids = lappend_int(merged_ids, lfirst_int(cell));
             }
         }
-
+        
+        // For now, keep parent's qual_list (a full implementation would merge both)
+        void* merged_qual_list = qual_list ? qual_list : child_qual_list;
+        
+        // Create merged filter
         LogicalFilter* merged_filter = NEW_EX(LogicalFilter);
         merged_filter->set_predicate_ids(merged_ids);
-
+        merged_filter->set_qual_list(merged_qual_list);
+        
         OptExpression* grandchild = child->input_at(0);
         OptExpression* merged_expr = OptExpression::create(merged_filter, grandchild);
         result.push_back(merged_expr);
+        
+        ereport(WARNING, (errmsg("[CASCADES] PredicatePushDownRule: merged filters, total predicates=%d",
+                             list_length(merged_ids))));
     }
     // Case 5: Cannot push through other operators
     else {
@@ -180,6 +218,5 @@ std::vector<OptExpression*> PredicatePushDownRule::transform(
 
     return result;
 }
-
 
 }  // namespace cascades

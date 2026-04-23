@@ -3,8 +3,11 @@
 #include "../task/explore_group_task.h"
 #include "../task/optimize_expression_task.h"
 #include "../task/enforce_and_cost_task.h"
+#include "../task/rewrite_tree_task.h"
 #include "../memo/group.h"
 #include "../rule/rule_set.h"
+#include "../rule/column_prune_rule.h"
+#include "../rule/constant_fold_rule.h"
 #include <limits>
 
 namespace cascades {
@@ -26,7 +29,7 @@ OptExpression* CascadesOptimizer::optimize(OptExpression* expression,
 
     // Phase 1: Rewrite - apply logical transformation rules to normalize the tree
     ereport(WARNING, (errmsg("[CASCADES] Phase 1: logical_rewrite")));
-    logical_rewrite(expression);
+    expression = logical_rewrite(expression);
 
     // Phase 2: Initialize memo
     ereport(WARNING, (errmsg("[CASCADES] Phase 2: init_memo")));
@@ -46,15 +49,47 @@ OptExpression* CascadesOptimizer::optimize(OptExpression* expression,
     return result;
 }
 
-void CascadesOptimizer::logical_rewrite(OptExpression* expression) {
+OptExpression* CascadesOptimizer::logical_rewrite(OptExpression* expression) {
     // Apply logical transformation rules to normalize the expression tree
     // This includes:
-    // - Predicate pushdown
-    // - Column pruning
-    // - Join reordering hints (if supported)
+    // - Column pruning (Project -> Scan pattern)
+    // - Constant folding
 
-    // Logical rewrite would apply transformation rules here
-    // For now, we rely on the explore phase to do transformations
+    ereport(WARNING, (errmsg("[CASCADES] logical_rewrite: starting")));
+
+    // Create temporary task context for rewrite phase
+    MemoryContext oldcxt = MemoryContextSwitchTo(context_.get_memory_context());
+
+    TaskContext* rewrite_context = NEW_EX(TaskContext, &context_,
+                                          PhysicalPropertySet(),
+                                          nullptr,
+                                          std::numeric_limits<double>::infinity());
+
+    // Collect transformation rules for logical rewrite
+    // Only include rules that are safe to apply in pre-memo phase
+    std::vector<Rule*> rewrite_rules;
+
+    // Column pruning: Project -> Scan pattern
+    rewrite_rules.push_back(ColumnPruneRule::instance());
+
+    // Constant folding
+    // rewrite_rules.push_back(ConstantFoldRule::instance());
+
+    // Note: PredicatePushDownRule is NOT included here
+    // It will be applied during explore phase via OptimizeExpressionTask
+
+    // Create and execute RewriteTreeTask
+    // only_once=true means we run one pass only
+    RewriteTreeTask* rewrite_task = NEW_EX(RewriteTreeTask, rewrite_context, expression, rewrite_rules, true);
+    rewrite_task->execute();
+
+    MemoryContextSwitchTo(oldcxt);
+
+    OptExpression* result = rewrite_task->get_result();
+
+    ereport(WARNING, (errmsg("[CASCADES] logical_rewrite: complete, changes=%ld", rewrite_task->has_change() ? 1 : 0)));
+
+    return result;
 }
 
 void CascadesOptimizer::init_memo(OptExpression* expression) {

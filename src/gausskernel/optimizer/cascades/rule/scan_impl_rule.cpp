@@ -103,6 +103,24 @@ std::vector<OptExpression*> ScanImplRule::transform(
     // Create SeqScan path using OpenGauss function
     // Note: predicates are attached via baserestrictinfo in RelOptInfo
     // and will be picked up by create_seqscan_path through get_baserel_parampathinfo
+
+    // If LogicalScan has qual_list from predicate pushdown, restore it to rel->baserestrictinfo
+    // This handles the case where Filter was eliminated by PredicatePushDownRule
+    List* pushed_qual_list = (List*)scan_op->get_qual_list();
+    if (pushed_qual_list != NIL) {
+        ereport(WARNING, (errmsg("[CASCADES] ScanImplRule: restoring %d predicates from LogicalScan.qual_list",
+                             list_length(pushed_qual_list))));
+        // Merge with existing baserestrictinfo if present
+        if (rel->baserestrictinfo != NIL) {
+            // Already has baserestrictinfo - predicates were not eliminated
+            ereport(WARNING, (errmsg("[CASCADES] ScanImplRule: baserestrictinfo already has %d clauses",
+                                 list_length(rel->baserestrictinfo))));
+        } else {
+            // Restore baserestrictinfo from qual_list
+            rel->baserestrictinfo = pushed_qual_list;
+        }
+    }
+
     Path* scan_path = create_seqscan_path(root, rel, nullptr, 1);
 
     // Log pathtarget after creating path

@@ -10,6 +10,7 @@
 #include "../operator/operators/logical_join.h"
 #include "../operator/operators/physical_hash_agg.h"
 #include "../operator/operators/logical_subquery_scan.h"
+#include "nodes/plannodes.h"
 #include <cstdint>
 
 namespace cascades {

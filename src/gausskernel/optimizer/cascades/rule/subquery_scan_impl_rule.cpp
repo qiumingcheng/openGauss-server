@@ -1,6 +1,8 @@
 #include "../base/memory_utils.h"
 #include "subquery_scan_impl_rule.h"
 #include "../operator/operators.h"
+#include "../operator/operators/logical_subquery_scan.h"
+#include "../operator/operators/physical_subquery_scan.h"
 #include "../memo/opt_expression.h"
 #include "optimizer/pathnode.h"
 #include "optimizer/planmain.h"
