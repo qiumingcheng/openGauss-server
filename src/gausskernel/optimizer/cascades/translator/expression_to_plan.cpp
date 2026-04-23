@@ -341,14 +341,18 @@ Plan* ExprToPlanConverter::translate_project(OptExpression* expr) {
         }
     }
 
+#ifdef USE_SPQ
     Result* result_plan = makeNode(Result);
+    result_plan->numHashFilterCols = 0;
+    result_plan->hashFilterColIdx = nullptr;
+    result_plan->hashFilterFuncs = nullptr;
+#else
+    BaseResult* result_plan = makeNode(BaseResult);
+#endif
 
     result_plan->plan.lefttree = child_plan;
     result_plan->plan.qual = NIL;
     result_plan->resconstantqual = nullptr;
-    result_plan->numHashFilterCols = 0;
-    result_plan->hashFilterColIdx = nullptr;
-    result_plan->hashFilterFuncs = nullptr;
 
     /*
      * Build new target list: convert Vars to reference child plan output
