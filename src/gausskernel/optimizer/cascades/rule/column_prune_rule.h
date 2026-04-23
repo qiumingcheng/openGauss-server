@@ -1,5 +1,6 @@
 #pragma once
 #include "rule.h"
+#include <set>
 
 namespace cascades {
 
@@ -15,8 +16,6 @@ public:
         OptExpression* input, OptimizerContext* context) override;
 
 protected:
-    OptExpression* transform_nested_project(OptExpression* child,
-                                            const std::set<int>& needed_columns);
     List* filter_target_list(List* target_list, const std::set<int>& needed);
 };
 

@@ -8,11 +8,37 @@
 #include "nodes/plannodes.h"
 #include "nodes/value.h"
 #include "nodes/parsenodes.h"
+#include "nodes/primnodes.h"
+#include "nodes/nodeFuncs.h"
 #include "optimizer/planmain.h"
 #include "utils/palloc.h"
 #include "utils/lsyscache.h"
+#include <stddef.h>
 
 namespace cascades {
+
+/*
+ * Assign plan_node_id to each node in the plan tree.
+ * This is needed by the executor to identify plan nodes.
+ */
+static void assign_plan_node_ids(Plan* plan, int* next_id)
+{
+    if (plan == nullptr) {
+        return;
+    }
+
+    plan->plan_node_id = (*next_id)++;
+
+    /* Recurse into children */
+    if (plan->lefttree != nullptr) {
+        assign_plan_node_ids(plan->lefttree, next_id);
+    }
+    if (plan->righttree != nullptr) {
+        assign_plan_node_ids(plan->righttree, next_id);
+    }
+
+    /* Note: initPlan handling omitted for simplicity - Cascades doesn't generate initPlans yet */
+}
 
 ExprToPlanConverter::ExprToPlanConverter() : root_(nullptr) {}
 
@@ -23,10 +49,18 @@ PlannedStmt* ExprToPlanConverter::convert(OptExpression* expr) {
         return nullptr;
     }
 
+    ereport(WARNING, (errmsg("[CASCADES] ExprToPlanConverter::convert: expr=%s", expr->to_string().c_str())));
+
     Plan* plan = translate_expression(expr);
     if (plan == nullptr) {
         return nullptr;
     }
+
+    ereport(WARNING, (errmsg("[CASCADES] ExprToPlanConverter::convert: plan created, type=%d", (int)plan->type)));
+
+    /* Assign plan_node_id to each node in the plan tree */
+    int next_id = 1;
+    assign_plan_node_ids(plan, &next_id);
 
     PlannedStmt* result = makeNode(PlannedStmt);
     result->commandType = CMD_SELECT;
@@ -103,7 +137,25 @@ Plan* ExprToPlanConverter::translate_expression(OptExpression* expr) {
             return translate_subquery_scan(expr);
         }
 
+        // Handle PhysicalLimit specially (it has no Path)
+        if (phys_op->get_type() == OptExprOpType::PHYSICAL_LIMIT) {
+            return translate_limit(expr);
+        }
+
+        // Handle PhysicalProject specially (it has no Path, uses target list)
+        if (phys_op->get_type() == OptExprOpType::PHYSICAL_PROJECT) {
+            return translate_project(expr);
+        }
+
+        // Handle PhysicalScan specially to preserve column pruning
+        // create_plan() uses build_physical_tlist() which reads all table columns,
+        // ignoring path->pathtarget. We build the scan node directly here.
+        if (phys_op->get_type() == OptExprOpType::PHYSICAL_SCAN) {
+            return translate_physical_scan(expr);
+        }
+
         Path* path = phys_op->get_path();
+
         if (path != nullptr && root_ != nullptr) {
             return create_plan(root_, path);
         }
@@ -147,6 +199,146 @@ Plan* ExprToPlanConverter::translate_scan(OptExpression* expr) {
     return create_plan(root_, best_path);
 }
 
+/*
+ * Translate PhysicalScan to SeqScan plan node.
+ *
+ * We build the target list from path->pathtarget to preserve column pruning
+ * from Cascades optimizer. This is different from create_plan() which calls
+ * build_physical_tlist() and reads all table columns.
+ */
+Plan* ExprToPlanConverter::translate_physical_scan(OptExpression* expr) {
+    if (expr == nullptr || root_ == nullptr) {
+        return nullptr;
+    }
+
+    PhysicalScan* scan_op = dynamic_cast<PhysicalScan*>(expr->get_op());
+    if (scan_op == nullptr) {
+        return nullptr;
+    }
+
+    Path* path = scan_op->get_path();
+    if (path == nullptr) {
+        return nullptr;
+    }
+
+    RelOptInfo* rel = path->parent;
+    if (rel == nullptr) {
+        return nullptr;
+    }
+
+    /* Build target list from path->pathtarget to preserve column pruning */
+    List* tlist = NIL;
+    if (path->pathtarget != nullptr && path->pathtarget->exprs != NIL) {
+        int resno = 1;
+        ListCell* lc;
+        foreach(lc, path->pathtarget->exprs) {
+            Var* var = (Var*)lfirst(lc);
+            TargetEntry* tle = makeTargetEntry((Expr*)var, resno, NULL, false);
+            tlist = lappend(tlist, tle);
+            resno++;
+        }
+    }
+
+    /* Create SeqScan node */
+    SeqScan* scan_plan = makeNode(SeqScan);
+    Plan* plan = &scan_plan->plan;
+
+    /* Initialize Plan fields like make_seqscan does */
+    plan->targetlist = tlist;
+    plan->qual = NIL;
+    plan->lefttree = NULL;
+    plan->righttree = NULL;
+    plan->isDeltaTable = false;
+
+    /* Initialize SeqScan fields */
+    scan_plan->scanrelid = rel->relid;
+    scan_plan->scanBatchMode = false;
+    scan_plan->isPartTbl = false;
+    scan_plan->itrs = 0;
+    scan_plan->pruningInfo = nullptr;
+    scan_plan->bucketInfo = nullptr;
+    scan_plan->partScanDirection = ForwardScanDirection;
+    scan_plan->tablesample = nullptr;
+
+    /* Copy cost estimates from path */
+    plan->startup_cost = path->startup_cost;
+    plan->total_cost = path->total_cost;
+    plan->plan_rows = path->rows;
+    plan->plan_width = path->pathtarget ? path->pathtarget->width : 0;
+
+    return (Plan*)scan_plan;
+}
+
+/*
+ * Convert Vars in expression to reference child plan output.
+ * Original Vars have varno = RTE index (e.g., 1), we keep varno=1.
+ * varattno is changed to position in child targetlist.
+ * Executor will fetch tuple from ecxt_scantuple which should point to child's output slot.
+ */
+typedef struct {
+    List* child_tlist;  /* child plan's targetlist */
+} ConvertVarContext;
+
+static Node* convert_var_references_mutator(Node* node, void* context)
+{
+    ConvertVarContext* ctx = (ConvertVarContext*)context;
+    List* child_tlist = ctx->child_tlist;
+
+    if (node == NULL)
+        return NULL;
+
+    if (IsA(node, Var)) {
+        Var* var = (Var*)node;
+
+        /* Find corresponding TargetEntry in child targetlist by varattno */
+        TargetEntry* child_tle = NULL;
+        ListCell* lc;
+        foreach(lc, child_tlist) {
+            TargetEntry* ctle = (TargetEntry*)lfirst(lc);
+            if (IsA(ctle->expr, Var)) {
+                Var* cvar = (Var*)ctle->expr;
+                if (cvar->varattno == var->varattno) {
+                    child_tle = ctle;
+                    break;
+                }
+            }
+        }
+
+        if (child_tle != NULL) {
+            /* Create new Var with varno=OUTER_VAR and varattno=child_tle->resno */
+            /* Executor will fetch from ecxt_outertuple (standard PostgreSQL semantics) */
+            return (Node*)makeVar(OUTER_VAR, child_tle->resno,
+                                  var->vartype, var->vartypmod, var->varcollid, 0);
+        }
+        /* If not found, return original Var (shouldn't happen) */
+        return node;
+    }
+
+    /* Recurse into expression tree */
+    return expression_tree_mutator(node, convert_var_references_mutator, context);
+}
+
+static List* convert_var_references(List* target_list, List* child_tlist)
+{
+    List* new_target_list = NIL;
+    ListCell* lc;
+    ConvertVarContext context;
+
+    context.child_tlist = child_tlist;
+
+    foreach(lc, target_list) {
+        TargetEntry* tle = (TargetEntry*)lfirst(lc);
+        Node* new_expr = convert_var_references_mutator((Node*)tle->expr, &context);
+        TargetEntry* new_tle = makeTargetEntry((Expr*)new_expr,
+                                               tle->resno,
+                                               tle->resname,
+                                               tle->resjunk);
+        new_target_list = lappend(new_target_list, new_tle);
+    }
+
+    return new_target_list;
+}
+
 Plan* ExprToPlanConverter::translate_project(OptExpression* expr) {
     if (expr->arity() < 1) {
         return nullptr;
@@ -157,15 +349,36 @@ Plan* ExprToPlanConverter::translate_project(OptExpression* expr) {
         return nullptr;
     }
 
-    LogicalProject* proj_op = dynamic_cast<LogicalProject*>(expr->get_op());
-    List* target_list = proj_op ? proj_op->get_target_list() : NIL;
+    List* target_list = NIL;
 
-    BaseResult* result_plan = (BaseResult*)palloc0(sizeof(BaseResult));
-    result_plan->plan.type = T_BaseResult;
+    // Try PhysicalProject first
+    PhysicalProject* physical_proj = dynamic_cast<PhysicalProject*>(expr->get_op());
+    if (physical_proj != nullptr) {
+        target_list = physical_proj->get_target_list();
+    } else {
+        // Try LogicalProject
+        LogicalProject* logical_proj = dynamic_cast<LogicalProject*>(expr->get_op());
+        if (logical_proj != nullptr) {
+            target_list = logical_proj->get_target_list();
+        }
+    }
+
+    BaseResult* result_plan = makeNode(BaseResult);
+
     result_plan->plan.lefttree = child_plan;
-    result_plan->plan.targetlist = target_list ? target_list : child_plan->targetlist;
     result_plan->plan.qual = NIL;
     result_plan->resconstantqual = nullptr;
+
+    /*
+     * Build new target list: convert Vars to reference child plan output
+     * Original Vars have varno = RTE index, we need varno = position in child targetlist
+     * This supports expressions like "id+id" by preserving the expression tree
+     */
+    if (target_list != NIL) {
+        result_plan->plan.targetlist = convert_var_references(target_list, child_plan->targetlist);
+    } else {
+        result_plan->plan.targetlist = child_plan->targetlist;
+    }
 
     return (Plan*)result_plan;
 }
@@ -315,19 +528,25 @@ Plan* ExprToPlanConverter::translate_limit(OptExpression* expr) {
         return nullptr;
     }
 
-    LogicalLimit* limit_op = dynamic_cast<LogicalLimit*>(expr->get_op());
-    long count = -1;
-    long offset = 0;
+    Node* limit_count = nullptr;
+    Node* limit_offset = nullptr;
 
-    if (limit_op != nullptr) {
-        if (limit_op->get_limit_count() != nullptr) {
-            if (IsA(limit_op->get_limit_count(), Integer)) {
-                count = (long)intVal(limit_op->get_limit_count());
+    // Try LogicalLimit first
+    LogicalLimit* logical_limit = dynamic_cast<LogicalLimit*>(expr->get_op());
+    if (logical_limit != nullptr) {
+        limit_count = logical_limit->get_limit_count();
+        limit_offset = logical_limit->get_limit_offset();
+    } else {
+        // Try PhysicalLimit
+        PhysicalLimit* physical_limit = dynamic_cast<PhysicalLimit*>(expr->get_op());
+        if (physical_limit != nullptr) {
+            long count = physical_limit->get_limit_count();
+            long offset = physical_limit->get_limit_offset();
+            if (count >= 0) {
+                limit_count = (Node*)makeInteger(count);
             }
-        }
-        if (limit_op->get_limit_offset() != nullptr) {
-            if (IsA(limit_op->get_limit_offset(), Integer)) {
-                offset = (long)intVal(limit_op->get_limit_offset());
+            if (offset > 0) {
+                limit_offset = (Node*)makeInteger(offset);
             }
         }
     }
@@ -335,8 +554,8 @@ Plan* ExprToPlanConverter::translate_limit(OptExpression* expr) {
     Limit* limit_plan = makeNode(Limit);
     limit_plan->plan.lefttree = child_plan;
     limit_plan->plan.targetlist = child_plan->targetlist;
-    limit_plan->limitCount = limit_op->get_limit_count();
-    limit_plan->limitOffset = limit_op->get_limit_offset();
+    limit_plan->limitCount = limit_count;
+    limit_plan->limitOffset = limit_offset;
 
     return (Plan*)limit_plan;
 }
@@ -360,18 +579,16 @@ Plan* ExprToPlanConverter::translate_subquery_scan(OptExpression* expr) {
     }
 
     // Check if the path is a SubqueryScanPath
-    if (subquery_path->pathtype != T_SubqueryScan) {
-        // If not already a SubqueryScan path, use create_plan to handle it
-        return create_plan(root_, subquery_path);
-    }
-
+    // Note: openGauss sets pathtype = T_SubqueryScan (the Plan type) for SubqueryScanPath.
+    // The exact value of T_SubqueryScan may vary depending on compile-time macros (e.g., USE_SPQ).
+    // We trust that create_subqueryscan_path returns a valid SubqueryScanPath.
     SubqueryScanPath* sq_path = (SubqueryScanPath*)subquery_path;
 
     // Create SubqueryScan plan node using make_subqueryscan
     // scanrelid = 0 indicates this is a subquery (not a table scan)
     SubqueryScan* scan_node = make_subqueryscan(
         NIL,  // target list will be inherited from subplan
-        NIL,  // no restriction clauses for subquery scan
+        NIL,  // no restriction clauses for stranslate_target_listbquery scan
         0,
         sq_path->subplan
     );

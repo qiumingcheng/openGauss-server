@@ -9,6 +9,9 @@
 #include "nodes/relation.h"
 #include "nodes/makefuncs.h"
 #include "nodes/value.h"
+#include "nodes/primnodes.h"
+#include "optimizer/tlist.h"
+#include "utils/lsyscache.h"
 
 namespace cascades {
 
@@ -204,6 +207,33 @@ OptExpression* QueryToExprConverter::translate_scan(PlannerInfo* root, Query* pa
             if (rel != nullptr) {
                 scan_op->set_rel(rel);
 
+                // Initialize reltarget with all table columns from rel->max_attr
+                // reltarget is used by physical implementation (ScanImplRule) for pathtarget
+                if (rel->reltarget == nullptr) {
+                    rel->reltarget = create_empty_pathtarget();
+                }
+                if (rel->max_attr > 0) {
+                    for (int att = 1; att <= rel->max_attr; att++) {
+                        Oid atttype = get_atttype(rte->relid, att);
+                        Var* var = makeVar(rtindex, att, atttype, -1, InvalidOid, 0);
+                        rel->reltarget->exprs = lappend(rel->reltarget->exprs, var);
+                        rel->reltarget->width += 32;
+                    }
+                }
+
+                // Initialize output_columns_ with all table columns
+                // This is the LOGICAL output columns, independent of reltarget
+                // ColumnPruneRule will modify reltarget but output_columns_ tracks logical output
+                ColumnRefSet all_columns;
+                for (int att = 1; att <= rel->max_attr; att++) {
+                    all_columns.add(att);
+                }
+                scan_op->set_output_columns(all_columns);
+
+                ereport(WARNING, (errmsg("[CASCADES] translate_scan: table_id=%d, output_columns=%d, reltarget=%d",
+                                     rtindex, scan_op->get_output_columns().size(),
+                                     rel->reltarget ? list_length(rel->reltarget->exprs) : 0)));
+
                 // If there are restriction clauses, create a LogicalFilter on top of the scan
                 // This handles multiple predicates from baserestrictinfo
                 if (rel->baserestrictinfo != NIL) {
@@ -234,26 +264,14 @@ OptExpression* QueryToExprConverter::translate_scan(PlannerInfo* root, Query* pa
         return result;
     } else if (rte->rtekind == RTE_SUBQUERY) {
         // Handle subquery RTE
+        // Note: We do NOT expand the subquery here. The subquery will be planned by
+        // SubqueryScanImplRule which calls subquery_planner() to create proper RelOptInfo.
         if (rte->subquery != nullptr) {
-            // Create LogicalSubqueryScan operator
+            // Create LogicalSubqueryScan operator with the subquery
+            // rel_ will be set by SubqueryScanImplRule after subquery_planner() runs
             LogicalSubqueryScan* subquery_scan = NEW_EX(LogicalSubqueryScan, rtindex, rte->subquery);
 
-            // Find or create RelOptInfo for this subquery RTE
-            RelOptInfo* rel = find_base_rel(root, rtindex);
-            if (rel != nullptr) {
-                subquery_scan->set_rel(rel);
-            }
-
             OptExpression* scan_expr = OptExpression::create(subquery_scan);
-
-            // First, plan the subquery itself recursively
-            OptExpression* subquery_expr = translate_select(root, rte->subquery);
-
-            // The subquery becomes the child of the subquery scan
-            if (subquery_expr != nullptr) {
-                scan_expr = OptExpression::create(subquery_scan, subquery_expr);
-            }
-
             return scan_expr;
         }
     }
@@ -265,6 +283,15 @@ OptExpression* QueryToExprConverter::translate_target_list(PlannerInfo* root, Qu
     List* targetList = parse->targetList;
     if (targetList == nullptr || targetList == NIL) {
         return child;
+    }
+
+    ereport(WARNING, (errmsg("[CASCADES] translate_target_list: targetList length=%d", list_length(targetList))));
+
+    // Debug: print first TargetEntry type
+    if (list_length(targetList) > 0) {
+        TargetEntry* tle = (TargetEntry*)linitial(targetList);
+        ereport(WARNING, (errmsg("[CASCADES] translate_target_list: first TargetEntry=%p, expr=%p, expr->type=%d",
+                             (void*)tle, (void*)tle->expr, tle->expr ? (int)((Node*)tle->expr)->type : -1)));
     }
 
     LogicalProject* project_op = NEW_EX(LogicalProject, targetList);

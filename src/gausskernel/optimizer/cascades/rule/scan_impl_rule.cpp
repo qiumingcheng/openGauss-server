@@ -8,6 +8,9 @@
 #include "nodes/parsenodes.h"
 #include "optimizer/pathnode.h"
 #include "nodes/relation.h"
+#include "nodes/makefuncs.h"
+#include "utils/lsyscache.h"
+#include "optimizer/pathnode.h"
 
 namespace cascades {
 
@@ -29,10 +32,14 @@ std::vector<OptExpression*> ScanImplRule::transform(
     LogicalScan* scan_op = static_cast<LogicalScan*>(input->get_op());
     int table_id = scan_op->get_table_id();
 
+    // Note: predicate_id is no longer used directly from LogicalScan
+    // Predicates are now handled by LogicalFilter on top of LogicalScan
+    // and transferred by FilterImplRule to PhysicalScan
+
     // Get PlannerInfo
     PlannerInfo* root = context->get_root();
     if (root == nullptr) {
-        ereport(WARNING, (errmsg("[CASCADES] ScanImplRule:transform, PlannerInfo is null")));
+        ereport(WARNING, (errmsg("[CASCADES] ScanImplRule:transform, PlannerRoot is null")));
         return {};
     }
 
@@ -43,13 +50,74 @@ std::vector<OptExpression*> ScanImplRule::transform(
         return {};
     }
 
-    ereport(WARNING, (errmsg("[CASCADES] ScanImplRule:transform, creating seqscan path for table_id=%d", table_id)));
+    // Check if this is a base relation (not a subquery or other RTE type)
+    // Subquery RTEs have rtekind == RTE_SUBQUERY and cannot use SeqScan
+    if (rel->rtekind != RTE_RELATION) {
+        ereport(WARNING, (errmsg("[CASCADES] ScanImplRule:transform, skipping non-relation rtekind=%d for table_id=%d",
+                             (int)rel->rtekind, table_id)));
+        return {};
+    }
+
+    ereport(WARNING, (errmsg("[CASCADES] ScanImplRule:transform, creating seqscan path for table_id=%d",
+                         table_id)));
+
+    // Get output columns from LogicalScan operator (not from logical property)
+    // The output_columns_ member stores the logical output after column pruning
+    ColumnRefSet output_cols = scan_op->get_output_columns();
+    ereport(WARNING, (errmsg("[CASCADES] ScanImplRule: LogicalScan output_columns.size=%d", output_cols.size())));
+
+    // Log reltarget before creating path
+    int reltarget_cols = 0;
+    if (rel->reltarget != nullptr && rel->reltarget->exprs != NIL) {
+        reltarget_cols = list_length(rel->reltarget->exprs);
+    }
+    ereport(WARNING, (errmsg("[CASCADES] ScanImplRule: reltarget has %d columns before create_seqscan_path", reltarget_cols)));
+
+    // Set reltarget from output_columns if available (for column pruning)
+    // This ensures the path's pathtarget reflects the actual columns needed
+    if (output_cols.size() > 0) {
+        if (rel->reltarget == nullptr) {
+            rel->reltarget = (PathTarget*)palloc0(sizeof(PathTarget));
+            rel->reltarget->exprs = NIL;
+            rel->reltarget->width = 0;
+        } else {
+            // Clear existing reltarget and rebuild from output_columns
+            rel->reltarget->exprs = NIL;
+            rel->reltarget->width = 0;
+        }
+
+        RangeTblEntry* rte = (root->parse && table_id <= list_length(root->parse->rtable))
+                             ? (RangeTblEntry*)list_nth(root->parse->rtable, table_id - 1)
+                             : nullptr;
+        for (int col : output_cols) {
+            if (col > 0 && col <= rel->max_attr && rte != nullptr) {
+                Oid atttype = get_atttype(rte->relid, col);
+                Var* var = makeVar(table_id, col, atttype, -1, InvalidOid, 0);
+                rel->reltarget->exprs = lappend(rel->reltarget->exprs, var);
+                rel->reltarget->width += get_typlen(atttype);
+                ereport(WARNING, (errmsg("[CASCADES] ScanImplRule: adding column %d to reltarget", col)));
+            }
+        }
+    }
 
     // Create SeqScan path using OpenGauss function
+    // Note: predicates are attached via baserestrictinfo in RelOptInfo
+    // and will be picked up by create_seqscan_path through get_baserel_parampathinfo
     Path* scan_path = create_seqscan_path(root, rel, nullptr, 1);
+
+    // Log pathtarget after creating path
+    int pathtarget_cols = 0;
+    if (scan_path->pathtarget != nullptr && scan_path->pathtarget->exprs != NIL) {
+        pathtarget_cols = list_length(scan_path->pathtarget->exprs);
+    }
+    ereport(WARNING, (errmsg("[CASCADES] ScanImplRule: created Path with pathtarget=%d columns, path=%p", pathtarget_cols, (void*)scan_path)));
 
     // Create physical scan operator using NEW_EX macro
     PhysicalScan* physical_scan = NEW_EX(PhysicalScan, scan_path);
+    physical_scan->set_relid(rel->relid);
+
+    // Note: predicate transfer is now handled by FilterImplRule
+    // which adds predicate_ids from LogicalFilter to PhysicalScan
 
     OptExpression* new_expr = OptExpression::create(physical_scan);
     ereport(WARNING, (errmsg("[CASCADES] ScanImplRule:transform, created physical scan: %s",

@@ -4,9 +4,52 @@
 #include "../operator/operator.h"
 #include "../operator/operators/logical_scan.h"
 #include "../operator/operators/logical_project.h"
+#include "../operator/operators/logical_filter.h"
 #include "nodes/primnodes.h"
+#include "nodes/nodeFuncs.h"
 
 namespace cascades {
+
+/*
+ * Helper context for extracting Var references from expressions
+ */
+typedef struct
+{
+    ColumnRefSet* columns;
+} ExtractVarsContext;
+
+/*
+ * Walker function to extract all Var references from an expression tree
+ */
+static bool
+extract_vars_walker(Node* node, ExtractVarsContext* context)
+{
+    if (node == NULL)
+        return false;
+
+    if (IsA(node, Var))
+    {
+        Var* var = (Var*)node;
+        /* Only add base relation Vars (not OUTER_VAR, INNER_VAR, etc.) */
+        if (var->varno > 0 && var->varno < 65000)
+        {
+            context->columns->add(var->varattno);
+        }
+    }
+
+    return expression_tree_walker(node, (bool (*)())extract_vars_walker, (void*)context);
+}
+
+/*
+ * Extract all Var references from an expression and add to column set
+ */
+static void
+extract_vars_from_expr(Node* expr, ColumnRefSet* columns)
+{
+    ExtractVarsContext context;
+    context.columns = columns;
+    (void)extract_vars_walker(expr, &context);
+}
 
 LogicalProperty::LogicalProperty() {}
 
@@ -41,15 +84,9 @@ void LogicalProperty::derive(ExpressionContext* context) {
                         continue;
                     }
                     Node* expr = (Node*)tle->expr;
-                    if (IsA(expr, Var)) {
-                        Var* var = (Var*)expr;
-                        output_columns_.add(var->varattno);
-                        ereport(WARNING, (errmsg("[CASCADES][LOGICAL_PROPERTY] Project: adding column %d from Var", var->varattno)));
-                    } else {
-                        ereport(WARNING, (errmsg("[CASCADES][LOGICAL_PROPERTY] Project: expr type=%d (not Var)", (int)expr->type)));
-                    }
-                    // For other expression types (Const, FuncExpr, etc.), they don't
-                    // reference child columns, so no column pruning needed for them
+                    // Extract all Var references from the expression (not just bare Vars)
+                    // This handles expressions like "id+id" which reference column 1
+                    extract_vars_from_expr(expr, &output_columns_);
                 }
             } else if (context->arity() > 0) {
                 // No target_list, pass through all child columns
@@ -60,7 +97,11 @@ void LogicalProperty::derive(ExpressionContext* context) {
         }
 
         case OptExprOpType::LOGICAL_FILTER: {
-            // Filter passes through columns from child
+            // Filter passes through columns from child unchanged
+            // Note: qual columns are NOT part of logical output - they are evaluation
+            // conditions that must be computed at runtime, but not returned to parent.
+            // The pathtarget (physical property) will include qual columns, but the
+            // logical output columns are just the child's output columns.
             if (context->arity() > 0) {
                 output_columns_ = context->get_child_output_columns(0);
             }
@@ -99,26 +140,12 @@ void LogicalProperty::derive(ExpressionContext* context) {
         }
 
         case OptExprOpType::LOGICAL_SCAN: {
-            // Scan outputs all columns of the table
-            // Get column info from RelOptInfo's reltarget
+            // Scan outputs columns stored in the operator itself
+            // Note: We do NOT read from rel->reltarget because reltarget may be
+            // modified by ColumnPruneRule during logical_rewrite phase.
+            // The output_columns_ member stores the logical output independently.
             LogicalScan* scan_op = static_cast<LogicalScan*>(op);
-            RelOptInfo* rel = scan_op->get_rel();
-            ereport(WARNING, (errmsg("[CASCADES][LOGICAL_PROPERTY] Scan: rel=%p, reltarget=%p, exprs=%p, length=%d",
-                                 (void*)rel, rel ? (void*)rel->reltarget : nullptr,
-                                 rel && rel->reltarget ? (void*)rel->reltarget->exprs : nullptr,
-                                 rel && rel->reltarget ? list_length(rel->reltarget->exprs) : 0)));
-            if (rel != nullptr && rel->reltarget != nullptr && rel->reltarget->exprs != NIL) {
-                // Extract column refs from reltarget->exprs (list of Var expressions)
-                ListCell* lc;
-                foreach(lc, rel->reltarget->exprs) {
-                    Node* expr = (Node*)lfirst(lc);
-                    if (IsA(expr, Var)) {
-                        Var* var = (Var*)expr;
-                        output_columns_.add(var->varattno);
-                        ereport(WARNING, (errmsg("[CASCADES][LOGICAL_PROPERTY] Scan: adding column %d", var->varattno)));
-                    }
-                }
-            }
+            output_columns_ = scan_op->get_output_columns();
             // Base table may have a defined sort order (e.g., primary key)
             // This would come from table metadata in a full implementation
             break;

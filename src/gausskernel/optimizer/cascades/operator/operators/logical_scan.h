@@ -1,6 +1,7 @@
 #pragma once
 #include "../operator.h"
 #include "nodes/relation.h"
+#include "../../statistics/statistics.h"
 
 namespace cascades {
 
@@ -22,10 +23,15 @@ public:
     RelOptInfo* get_rel() const { return rel_; }
     void set_rel(RelOptInfo* rel) { rel_ = rel; }
 
+    // Output columns management
+    const ColumnRefSet& get_output_columns() const { return output_columns_; }
+    void set_output_columns(const ColumnRefSet& cols) { output_columns_ = cols; }
+
 private:
     int table_id_;
     int predicate_id_ = -1;  // -1 means no predicate pushed down
     RelOptInfo* rel_ = nullptr;  // OpenGauss relation optimization info
+    ColumnRefSet output_columns_;  // Logical output columns (independent of reltarget)
 };
 
 }  // namespace cascades
