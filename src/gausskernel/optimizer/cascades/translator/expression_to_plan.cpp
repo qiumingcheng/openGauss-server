@@ -100,6 +100,11 @@ PlannedStmt* ExprToPlanConverter::convert(OptExpression* expr) {
     return result;
 }
 
+/*
+ * Translate an optimized expression tree to a plan tree.
+ * After Cascades optimization, the expression tree should contain only physical operators.
+ * Logical operators should have been transformed to physical operators during optimization.
+ */
 Plan* ExprToPlanConverter::translate_expression(OptExpression* expr) {
     if (expr == nullptr) {
         return nullptr;
@@ -107,96 +112,55 @@ Plan* ExprToPlanConverter::translate_expression(OptExpression* expr) {
 
     OptExprOp* op = expr->get_op();
 
-    if (op->is_logical()) {
-        LogicalOptExprOp* logical_op = dynamic_cast<LogicalOptExprOp*>(op);
-        if (logical_op != nullptr) {
-            switch (logical_op->get_type()) {
-                case OptExprOpType::LOGICAL_SCAN:
-                    return translate_scan(expr);
-                case OptExprOpType::LOGICAL_PROJECT:
-                    return translate_project(expr);
-                case OptExprOpType::LOGICAL_FILTER:
-                    return translate_filter(expr);
-                case OptExprOpType::LOGICAL_JOIN:
-                case OptExprOpType::LOGICAL_AGGREGATE:
-                case OptExprOpType::LOGICAL_SUBQUERY:
-                    return translate_join(expr);
-                case OptExprOpType::LOGICAL_SORT:
-                    return translate_sort(expr);
-                case OptExprOpType::LOGICAL_LIMIT:
-                    return translate_limit(expr);
-                default:
-                    return translate_default(expr);
-            }
-        }
-    } else if (op->is_physical()) {
-        PhysicalOptExprOp* phys_op = static_cast<PhysicalOptExprOp*>(op);
-
-        // Handle PhysicalSubqueryScan specially
-        if (phys_op->get_type() == OptExprOpType::PHYSICAL_SUBQUERY_SCAN) {
-            return translate_subquery_scan(expr);
-        }
-
-        // Handle PhysicalLimit specially (it has no Path)
-        if (phys_op->get_type() == OptExprOpType::PHYSICAL_LIMIT) {
-            return translate_limit(expr);
-        }
-
-        // Handle PhysicalProject specially (it has no Path, uses target list)
-        if (phys_op->get_type() == OptExprOpType::PHYSICAL_PROJECT) {
-            return translate_project(expr);
-        }
-
-        // Handle PhysicalScan specially to preserve column pruning
-        // create_plan() uses build_physical_tlist() which reads all table columns,
-        // ignoring path->pathtarget. We build the scan node directly here.
-        if (phys_op->get_type() == OptExprOpType::PHYSICAL_SCAN) {
-            return translate_physical_scan(expr);
-        }
-
-        Path* path = phys_op->get_path();
-
-        if (path != nullptr && root_ != nullptr) {
-            return create_plan(root_, path);
-        }
+    // Should only receive physical operators from Cascades optimizer
+    if (!op->is_physical()) {
+        ereport(WARNING, (errmsg("[CASCADES] translate_expression: unexpected logical op type=%d",
+                             (int)op->get_type())));
+        assert(false);
+        return nullptr;
     }
 
-    // Fallback: recursively translate children
+    PhysicalOptExprOp* phys_op = static_cast<PhysicalOptExprOp*>(op);
+
+    // Handle PhysicalSubqueryScan specially
+    if (phys_op->get_type() == OptExprOpType::PHYSICAL_SUBQUERY_SCAN) {
+        return translate_subquery_scan(expr);
+    }
+
+    // Handle PhysicalLimit specially (it has no Path)
+    if (phys_op->get_type() == OptExprOpType::PHYSICAL_LIMIT) {
+        return translate_limit(expr);
+    }
+
+    // Handle PhysicalProject specially (it has no Path, uses target list)
+    if (phys_op->get_type() == OptExprOpType::PHYSICAL_PROJECT) {
+        return translate_project(expr);
+    }
+
+    // Handle PhysicalScan specially to preserve column pruning
+    // create_plan() uses build_physical_tlist() which reads all table columns,
+    // ignoring path->pathtarget. We build the scan node directly here.
+    if (phys_op->get_type() == OptExprOpType::PHYSICAL_SCAN) {
+        return translate_scan(expr);
+    }
+
+    // Handle PhysicalFilter - create Result node with qual
+    if (phys_op->get_type() == OptExprOpType::PHYSICAL_FILTER) {
+        return translate_filter(expr);
+    }
+
+    // Handle other physical operators with Path
+    Path* path = phys_op->get_path();
+    if (path != nullptr && root_ != nullptr) {
+        return create_plan(root_, path);
+    }
+
+    // Fallback: recursively translate child
     if (expr->arity() >= 1) {
         return translate_expression(expr->input_at(0));
     }
 
     return nullptr;
-}
-
-Plan* ExprToPlanConverter::translate_scan(OptExpression* expr) {
-    if (expr == nullptr || root_ == nullptr) {
-        return nullptr;
-    }
-
-    LogicalScan* scan_op = dynamic_cast<LogicalScan*>(expr->get_op());
-    if (scan_op == nullptr) {
-        return nullptr;
-    }
-
-    int relid = scan_op->get_table_id();
-
-    // simple_rel_array is 1-based in PostgreSQL/openGauss
-    if (relid <= 0 || relid >= root_->simple_rel_array_size) {
-        return nullptr;
-    }
-
-    RelOptInfo* rel = root_->simple_rel_array[relid];
-    if (rel == nullptr) {
-        return nullptr;
-    }
-
-    Path* best_path = (Path*)linitial(rel->cheapest_total_path);
-    if (best_path == nullptr) {
-        return nullptr;
-    }
-
-    return create_plan(root_, best_path);
 }
 
 /*
@@ -206,7 +170,7 @@ Plan* ExprToPlanConverter::translate_scan(OptExpression* expr) {
  * from Cascades optimizer. This is different from create_plan() which calls
  * build_physical_tlist() and reads all table columns.
  */
-Plan* ExprToPlanConverter::translate_physical_scan(OptExpression* expr) {
+Plan* ExprToPlanConverter::translate_scan(OptExpression* expr) {
     if (expr == nullptr || root_ == nullptr) {
         return nullptr;
     }
@@ -265,6 +229,20 @@ Plan* ExprToPlanConverter::translate_physical_scan(OptExpression* expr) {
     plan->total_cost = path->total_cost;
     plan->plan_rows = path->rows;
     plan->plan_width = path->pathtarget ? path->pathtarget->width : 0;
+
+    /* Attach restriction clauses from rel->baserestrictinfo */
+    /* These are the WHERE conditions that were pushed down to this scan */
+    if (rel->baserestrictinfo != NIL) {
+        List* qual_list = NIL;
+        ListCell* lc;
+        foreach(lc, rel->baserestrictinfo) {
+            RestrictInfo* ri = (RestrictInfo*)lfirst(lc);
+            if (ri != nullptr && ri->clause != nullptr) {
+                qual_list = lappend(qual_list, ri->clause);
+            }
+        }
+        plan->qual = qual_list;
+    }
 
     return (Plan*)scan_plan;
 }
@@ -383,6 +361,10 @@ Plan* ExprToPlanConverter::translate_project(OptExpression* expr) {
     return (Plan*)result_plan;
 }
 
+/*
+ * Translate PhysicalFilter to Result node with qual.
+ * PhysicalFilter represents a runtime filter operation in the plan.
+ */
 Plan* ExprToPlanConverter::translate_filter(OptExpression* expr) {
     if (expr->arity() < 1) {
         return nullptr;
@@ -393,18 +375,39 @@ Plan* ExprToPlanConverter::translate_filter(OptExpression* expr) {
         return nullptr;
     }
 
-    LogicalFilter* filter_op = dynamic_cast<LogicalFilter*>(expr->get_op());
-    Node* qual = filter_op ? filter_op->get_qual() : nullptr;
+    PhysicalFilter* filter_op = dynamic_cast<PhysicalFilter*>(expr->get_op());
+    List* predicate_ids = filter_op ? filter_op->get_predicate_ids() : nullptr;
 
-    SeqScan* scan = makeNode(SeqScan);
-    scan->plan.lefttree = child_plan;
-    scan->plan.targetlist = (List*)copyObject(child_plan->targetlist);
-    scan->plan.qual = qual ? list_make1(qual) : NIL;
-    scan->scanrelid = 0;
+    // Build qual from predicate_ids using rel->baserestrictinfo
+    List* qual = NIL;
+    if (predicate_ids != nullptr && root_ != nullptr) {
+        // Get the rel from child plan's relation info
+        // For now, use the root's baserestrictinfo directly
+        if (root_->parse && root_->parse->rtable && list_length(root_->parse->rtable) > 0) {
+            int rtindex = 1;
+            RelOptInfo* rel = root_->simple_rel_array[rtindex];
+            if (rel != nullptr && rel->baserestrictinfo != NIL) {
+                ListCell* lc;
+                foreach(lc, rel->baserestrictinfo) {
+                    RestrictInfo* ri = (RestrictInfo*)lfirst(lc);
+                    if (ri != nullptr && ri->clause != nullptr) {
+                        qual = lappend(qual, ri->clause);
+                    }
+                }
+            }
+        }
+    }
 
-    return (Plan*)scan;
+    Result* result = makeNode(Result);
+    result->plan.lefttree = child_plan;
+    result->plan.targetlist = (List*)copyObject(child_plan->targetlist);
+    result->plan.qual = qual;
+    result->resconstantqual = nullptr;
+
+    return (Plan*)result;
 }
 
+/* Stub join translation - should be implemented with proper physical join operators */
 Plan* ExprToPlanConverter::translate_join(OptExpression* expr) {
     return translate_expression(expr);
 }
