@@ -45,6 +45,7 @@ set(CASCADES_OPERATOR_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/operator/operators/logical_project.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/operator/operators/logical_scan.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/operator/operators/logical_subquery.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/operator/operators/logical_subquery_scan.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/operator/operators/logical_sort.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/operator/operators/logical_limit.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/operator/operators/physical_exchange.cpp
@@ -57,6 +58,7 @@ set(CASCADES_OPERATOR_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/operator/operators/physical_scan.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/operator/operators/physical_sort.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/operator/operators/physical_limit.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/operator/operators/physical_subquery_scan.cpp
 )
 
 # Rule sources (transformation + implementation merged in rule/)
