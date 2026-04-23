@@ -3802,7 +3802,13 @@ Path* create_subqueryscan_path(PlannerInfo* root, RelOptInfo* rel, List* pathkey
 
     /* For subquery scan, read it's node group information from sub-plan directly */
     Distribution* distribution = ng_get_dest_distribution(rel->subplan);
-    ng_copy_distribution(&pathnode->distribution, distribution);
+    if (distribution != nullptr && distribution->group_oid != InvalidOid) {
+        ng_copy_distribution(&pathnode->distribution, distribution);
+    } else {
+        /* Initialize with default distribution if subplan has none */
+        pathnode->distribution.group_oid = InvalidOid;
+        pathnode->distribution.bms_data_nodeids = nullptr;
+    }
 #endif
 
     subquery_path->subroot = rel->subroot;
