@@ -51,6 +51,11 @@ void EnforceAndCostTask::execute() {
             continue;
         }
 
+        if(expr->is_implement(required_property_)){
+            ereport(WARNING, (errmsg("[CASCADES] EnforceAndCostTask: skipped, expression has implemented")));
+            continue;
+        }
+
         // Collect children's costs and best expressions
         std::vector<PhysicalPropertySet> children_output_properties;
         std::vector<GroupExpression*> children_best_exprs;
