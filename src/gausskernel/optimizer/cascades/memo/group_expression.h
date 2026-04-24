@@ -86,6 +86,11 @@ public:
      */
     bool is_physical() const;
 
+    bool is_implement(const PhysicalPropertySet& required_property) const {
+        auto it = output_property_map_.find(required_property);
+        return (it != output_property_map_.end());
+    }
+
     /**
      * Derive the logical property for this expression.
      * Assumes child group logical properties are already derived.
