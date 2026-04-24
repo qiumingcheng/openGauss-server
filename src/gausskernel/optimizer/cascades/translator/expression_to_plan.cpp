@@ -405,7 +405,14 @@ Plan* ExprToPlanConverter::translate_filter(OptExpression* expr) {
         }
     }
 
+#ifdef USE_SPQ
+    Result* result_plan = makeNode(Result);
+    result_plan->numHashFilterCols = 0;
+    result_plan->hashFilterColIdx = nullptr;
+    result_plan->hashFilterFuncs = nullptr;
+#else
     BaseResult* result_plan = makeNode(BaseResult);
+#endif
     result_plan->plan.lefttree = child_plan;
     result_plan->plan.targetlist = (List*)copyObject(child_plan->targetlist);
     result_plan->plan.qual = qual;

@@ -1,6 +1,7 @@
 #include "../base/memory_utils.h"
 #include "filter_impl_rule.h"
 #include "../operator/operators.h"
+#include "../operator/operators/physical_filter.h"
 #include "../memo/opt_expression.h"
 #include "../optimizer/optimizer_context.h"
 #include "optimizer/pathnode.h"
@@ -45,12 +46,31 @@ std::vector<OptExpression*> FilterImplRule::transform(
         return {child};
     }
 
-    // Create physical filter - for now, just return the input
-    // A full implementation would create a PhysicalFilter operator
-    ereport(WARNING, (errmsg("[CASCADES] FilterImplRule: creating physical filter")));
+    // Create PhysicalFilter operator
+    // PhysicalFilter applies runtime predicates on top of child plan
+    ereport(WARNING, (errmsg("[CASCADES] FilterImplRule: creating PhysicalFilter")));
 
-    // For now, return input as-is - PhysicalFilter creation needs more context
-    return {input};
+    PhysicalFilter* physical_filter = NEW_EX(PhysicalFilter);
+
+    // Transfer predicate information to PhysicalFilter
+    // For multi-predicate support, use qual_list
+    if (qual_list != nullptr) {
+        physical_filter->set_qual_list(qual_list);
+    }
+    if (predicate_ids != nullptr && list_length(predicate_ids) > 0) {
+        physical_filter->set_predicate_ids(predicate_ids);
+    } else if (filter->has_predicate()) {
+        // Single predicate fallback
+        physical_filter->set_predicate_id(filter->get_predicate_id());
+    }
+
+    // Build new expression with PhysicalFilter on top of child
+    OptExpression* new_expr = OptExpression::create(physical_filter, child);
+
+    ereport(WARNING, (errmsg("[CASCADES] FilterImplRule: created PhysicalFilter on child %s",
+                         child->to_string().c_str())));
+
+    return {new_expr};
 }
 
 }  // namespace cascades
