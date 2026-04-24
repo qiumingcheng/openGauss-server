@@ -37,8 +37,7 @@ std::vector<OptExpression*> FilterImplRule::transform(
     void* qual_list = filter->get_qual_list();
 
     // Check if we have predicates
-    bool has_predicates = (predicate_ids != nullptr && list_length(predicate_ids) > 0) ||
-                          (qual_list != nullptr);
+    bool has_predicates = (qual_list != nullptr && list_length((List*)qual_list) > 0);
 
     if (!has_predicates) {
         // No predicates - eliminate filter, return child directly
@@ -52,17 +51,9 @@ std::vector<OptExpression*> FilterImplRule::transform(
 
     PhysicalFilter* physical_filter = NEW_EX(PhysicalFilter);
 
-    // Transfer predicate information to PhysicalFilter
-    // For multi-predicate support, use qual_list
-    if (qual_list != nullptr) {
-        physical_filter->set_qual_list(qual_list);
-    }
-    if (predicate_ids != nullptr && list_length(predicate_ids) > 0) {
-        physical_filter->set_predicate_ids(predicate_ids);
-    } else if (filter->has_predicate()) {
-        // Single predicate fallback
-        physical_filter->set_predicate_id(filter->get_predicate_id());
-    }
+    // Transfer qual_list to PhysicalFilter
+    // qual_list contains List* of RestrictInfo (single or multiple predicates)
+    physical_filter->set_qual_list(qual_list);
 
     // Build new expression with PhysicalFilter on top of child
     OptExpression* new_expr = OptExpression::create(physical_filter, child);

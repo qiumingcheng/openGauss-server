@@ -383,24 +383,17 @@ Plan* ExprToPlanConverter::translate_filter(OptExpression* expr) {
     }
 
     PhysicalFilter* filter_op = dynamic_cast<PhysicalFilter*>(expr->get_op());
-    List* predicate_ids = filter_op ? (List*)filter_op->get_predicate_ids() : nullptr;
+    List* qual_list = filter_op ? (List*)filter_op->get_qual_list() : nullptr;
 
-    // Build qual from predicate_ids using rel->baserestrictinfo
+    // Build qual from qual_list (List* of RestrictInfo)
     List* qual = NIL;
-    if (predicate_ids != nullptr && root_ != nullptr) {
-        // Get the rel from child plan's relation info
-        // For now, use the root's baserestrictinfo directly
-        if (root_->parse && root_->parse->rtable && list_length(root_->parse->rtable) > 0) {
-            int rtindex = 1;
-            RelOptInfo* rel = root_->simple_rel_array[rtindex];
-            if (rel != nullptr && rel->baserestrictinfo != NIL) {
-                ListCell* lc;
-                foreach(lc, rel->baserestrictinfo) {
-                    RestrictInfo* ri = (RestrictInfo*)lfirst(lc);
-                    if (ri != nullptr && ri->clause != nullptr) {
-                        qual = lappend(qual, ri->clause);
-                    }
-                }
+    if (qual_list != nullptr) {
+        // Extract clauses from RestrictInfo list
+        ListCell* lc;
+        foreach(lc, qual_list) {
+            RestrictInfo* ri = (RestrictInfo*)lfirst(lc);
+            if (ri != nullptr && ri->clause != nullptr) {
+                qual = lappend(qual, ri->clause);
             }
         }
     }
