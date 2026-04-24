@@ -70,7 +70,7 @@ private:
      */
     std::pair<GroupExpression*, double> add_enforcers(
         GroupExpression* expr,
-        const PhysicalPropertySet& output_property,
+        PhysicalPropertySet& output_property,
         const PhysicalPropertySet& required_property,
         double current_cost) const;
 
