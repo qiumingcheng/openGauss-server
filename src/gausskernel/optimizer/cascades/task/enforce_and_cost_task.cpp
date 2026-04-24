@@ -192,7 +192,7 @@ void EnforceAndCostTask::execute() {
 
         // Update expression's property table
         // Save children's output properties as input properties for plan reconstruction
-        best_expr->update_property_with_cost(best_output_property, best_children_output_properties, best_cost);
+        best_expr->update_property_with_cost(required_property_, best_output_property, best_children_output_properties, best_cost);
     }
 }
 

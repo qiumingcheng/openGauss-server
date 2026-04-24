@@ -115,12 +115,16 @@ public:
 
     /**
      * Update the property with cost.
-     * @param output_property The output property
+     * Stores the cost for the required property and records the mapping
+     * from required_property to output_property.
+     * @param required_property The required physical property
+     * @param output_property The output property that satisfies the required property
      * @param input_properties The input properties
      * @param cost The cost
      * @return true if updated (new lower cost)
      */
-    bool update_property_with_cost(const PhysicalPropertySet& output_property,
+    bool update_property_with_cost(const PhysicalPropertySet& required_property,
+                                   const PhysicalPropertySet& output_property,
                                    const std::vector<PhysicalPropertySet>& input_properties,
                                    double cost);
 
@@ -130,15 +134,6 @@ public:
      * @return The output property
      */
     PhysicalPropertySet get_output_property(const PhysicalPropertySet& required_property) const;
-
-    /**
-     * Set the output property that satisfies a required property.
-     * @param output_property_set The output property set
-     * @param required_property_set The required property set
-     */
-    void set_output_property_satisfy_required_property(
-        const PhysicalPropertySet& output_property_set,
-        const PhysicalPropertySet& required_property_set);
 
     /**
      * Mark a rule as explored for this expression.

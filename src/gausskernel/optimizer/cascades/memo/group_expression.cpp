@@ -60,18 +60,21 @@ std::vector<PhysicalPropertySet> GroupExpression::get_input_properties(
 }
 
 bool GroupExpression::update_property_with_cost(
+    const PhysicalPropertySet& required_property,
     const PhysicalPropertySet& output_property,
     const std::vector<PhysicalPropertySet>& input_properties,
     double cost) {
-    auto it = lowest_cost_table_.find(output_property);
+    auto it = lowest_cost_table_.find(required_property);
     if (it != lowest_cost_table_.end()) {
         if (it->second.first > cost) {
-            lowest_cost_table_[output_property] = {cost, input_properties};
+            lowest_cost_table_[required_property] = {cost, input_properties};
+            output_property_map_[required_property] = output_property;
             return true;
         }
         return false;
     } else {
-        lowest_cost_table_[output_property] = {cost, input_properties};
+        lowest_cost_table_[required_property] = {cost, input_properties};
+        output_property_map_[required_property] = output_property;
         return true;
     }
 }
@@ -83,12 +86,6 @@ PhysicalPropertySet GroupExpression::get_output_property(
         return it->second;
     }
     return PhysicalPropertySet();  // Return empty property
-}
-
-void GroupExpression::set_output_property_satisfy_required_property(
-    const PhysicalPropertySet& output_property_set,
-    const PhysicalPropertySet& required_property_set) {
-    output_property_map_[required_property_set] = output_property_set;
 }
 
 void GroupExpression::set_rule_explored(RuleType rule_type) {
