@@ -6,8 +6,116 @@
 #include "nodes/makefuncs.h"
 #include "nodes/relation.h"
 #include "optimizer/tlist.h"
+#include "nodes/nodeFuncs.h"
 
 namespace cascades {
+
+// Helper: Recursively extract Var column indices from an expression
+static void collect_vars_from_expr(Node* expr, std::set<int>* columns)
+{
+    if (expr == NULL) {
+        return;
+    }
+
+    if (IsA(expr, Var)) {
+        Var* var = (Var*)expr;
+        columns->insert(var->varattno);
+        return;
+    }
+
+    if (IsA(expr, List)) {
+        List* list = (List*)expr;
+        ListCell* lc;
+        foreach(lc, list) {
+            collect_vars_from_expr((Node*)lfirst(lc), columns);
+        }
+        return;
+    }
+
+    // Recurse based on node type
+    switch (nodeTag(expr)) {
+        case T_OpExpr: {
+            OpExpr* op = (OpExpr*)expr;
+            collect_vars_from_expr((Node*)op->args, columns);
+            break;
+        }
+        case T_Const:
+            break;
+        case T_FuncExpr: {
+            FuncExpr* func = (FuncExpr*)expr;
+            collect_vars_from_expr((Node*)func->args, columns);
+            break;
+        }
+        case T_BoolExpr: {
+            BoolExpr* bool_expr = (BoolExpr*)expr;
+            collect_vars_from_expr((Node*)bool_expr->args, columns);
+            break;
+        }
+        case T_SubLink: {
+            SubLink* sublink = (SubLink*)expr;
+            collect_vars_from_expr((Node*)sublink->subselect, columns);
+            break;
+        }
+        case T_CaseExpr: {
+            CaseExpr* case_expr = (CaseExpr*)expr;
+            collect_vars_from_expr((Node*)case_expr->args, columns);
+            collect_vars_from_expr((Node*)case_expr->defresult, columns);
+            break;
+        }
+        case T_CaseWhen: {
+            CaseWhen* case_when = (CaseWhen*)expr;
+            collect_vars_from_expr((Node*)case_when->expr, columns);
+            collect_vars_from_expr((Node*)case_when->result, columns);
+            break;
+        }
+        case T_CoalesceExpr: {
+            CoalesceExpr* coalesce = (CoalesceExpr*)expr;
+            collect_vars_from_expr((Node*)coalesce->args, columns);
+            break;
+        }
+        case T_NullTest: {
+            NullTest* nulltest = (NullTest*)expr;
+            collect_vars_from_expr((Node*)nulltest->arg, columns);
+            break;
+        }
+        case T_BooleanTest: {
+            BooleanTest* booltest = (BooleanTest*)expr;
+            collect_vars_from_expr((Node*)booltest->arg, columns);
+            break;
+        }
+        case T_ArrayExpr: {
+            ArrayExpr* arr = (ArrayExpr*)expr;
+            collect_vars_from_expr((Node*)arr->elements, columns);
+            break;
+        }
+        case T_RelabelType: {
+            RelabelType* relabel = (RelabelType*)expr;
+            collect_vars_from_expr((Node*)relabel->arg, columns);
+            break;
+        }
+        case T_ConvertRowtypeExpr: {
+            ConvertRowtypeExpr* conv = (ConvertRowtypeExpr*)expr;
+            collect_vars_from_expr((Node*)conv->arg, columns);
+            break;
+        }
+        case T_MinMaxExpr: {
+            MinMaxExpr* mm = (MinMaxExpr*)expr;
+            collect_vars_from_expr((Node*)mm->args, columns);
+            break;
+        }
+        case T_XmlExpr: {
+            XmlExpr* xml = (XmlExpr*)expr;
+            collect_vars_from_expr((Node*)xml->args, columns);
+            collect_vars_from_expr((Node*)xml->named_args, columns);
+            break;
+        }
+        default:
+            // For other node types, try to recurse using expression_tree_mutator with NULL walker
+            // This handles common node types that have exprs field
+            expression_tree_mutator(expr, NULL, columns);
+            break;
+    }
+}
 
 // Helper: Extract column indices from a target list
 static std::set<int> collect_columns_from_target_list(List* target_list) {
@@ -18,9 +126,8 @@ static std::set<int> collect_columns_from_target_list(List* target_list) {
     ListCell* lc;
     foreach(lc, target_list) {
         TargetEntry* tle = (TargetEntry*)lfirst(lc);
-        if (tle && tle->expr && IsA(tle->expr, Var)) {
-            Var* var = (Var*)tle->expr;
-            columns.insert(var->varattno);
+        if (tle && tle->expr) {
+            collect_vars_from_expr((Node*)tle->expr, &columns);
         }
     }
     return columns;
