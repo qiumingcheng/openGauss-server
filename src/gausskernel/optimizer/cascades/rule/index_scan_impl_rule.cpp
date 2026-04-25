@@ -8,6 +8,7 @@
 #include "../optimizer/optimizer_context.h"
 #include "optimizer/pathnode.h"
 #include "optimizer/paths.h"
+#include "optimizer/plancat.h"
 #include "nodes/relation.h"
 
 namespace cascades {
@@ -15,7 +16,7 @@ namespace cascades {
 bool IndexScanImplRule::has_indexes(RelOptInfo* rel) const {
     // Check if the relation has any indexes
     // In OpenGauss, RelOptInfo has an 'indexlist' field that contains IndexOptInfo
-    return rel->indexlist != NIL && rel->indexlist->length > 0;
+    return rel->indexlist != NIL && list_length(rel->indexlist) > 0;
 }
 
 bool IndexScanImplRule::can_use_index(RelOptInfo* rel, int predicate_id) const {
@@ -66,6 +67,37 @@ std::vector<OptExpression*> IndexScanImplRule::transform(
     }
 
     // Check if there are any indexes on this relation
+    // Debug: also check rte info
+    RangeTblEntry* rte = root->simple_rte_array[table_id];
+    RangeTblEntry* rte_by_relid = nullptr;
+    // Find RTE by relid matching rel->relid
+    for (int i = 1; i < root->simple_rel_array_size; i++) {
+        if (root->simple_rte_array[i] != nullptr && root->simple_rte_array[i]->relid == (Oid)rel->relid) {
+            rte_by_relid = root->simple_rte_array[i];
+            break;
+        }
+    }
+    ereport(WARNING, (errmsg("[CASCADES] IndexScanImplRule:transform, table_id=%d, rel->relid=%d, rel->indexlist=%p",
+                         table_id, rel->relid, (void*)rel->indexlist)));
+    if (rte != nullptr) {
+        ereport(WARNING, (errmsg("[CASCADES] IndexScanImplRule:transform, RTE[table_id] rtekind=%d, relid=%u, inh=%d",
+                             rte->rtekind, rte->relid, rte->inh)));
+    }
+    if (rte_by_relid != nullptr) {
+        ereport(WARNING, (errmsg("[CASCADES] IndexScanImplRule:transform, RTE[by_relid] rtekind=%d, relid=%u, inh=%d",
+                             rte_by_relid->rtekind, rte_by_relid->relid, rte_by_relid->inh)));
+    }
+
+    // If indexlist is empty, ensure relation info is populated
+    if (rel->indexlist == NIL) {
+        RangeTblEntry* target_rte = rte_by_relid ? rte_by_relid : rte;
+        if (target_rte != nullptr && target_rte->rtekind == RTE_RELATION) {
+            get_relation_info(root, target_rte, rel);
+            ereport(WARNING, (errmsg("[CASCADES] IndexScanImplRule:transform, after get_relation_info, indexlist=%p, length=%d",
+                                 (void*)rel->indexlist, rel->indexlist ? list_length(rel->indexlist) : 0)));
+        }
+    }
+
     if (!has_indexes(rel)) {
         ereport(WARNING, (errmsg("[CASCADES] IndexScanImplRule:transform, no indexes on relation")));
         return {};  // No indexes, cannot create index scan
@@ -95,8 +127,8 @@ std::vector<OptExpression*> IndexScanImplRule::transform(
         // Check if this is an index path (IndexPath or BitmapPath)
         if (IsA(path, IndexPath)) {
             IndexPath* index_path = (IndexPath*)path;
-            ereport(WARNING, (errmsg("[CASCADES] IndexScanImplRule:transform, found IndexPath, startup_cost=%.2f",
-                                 index_path->path.startup_cost)));
+            ereport(WARNING, (errmsg("[CASCADES] IndexScanImplRule:transform, found IndexPath, path=%p, type=%d, total_cost=%.2f, startup_cost=%.2f",
+                                 (void*)path, (int)path->type, index_path->path.total_cost, index_path->path.startup_cost)));
 
             // Create physical scan operator with the index path
             PhysicalScan* physical_scan = NEW_EX(PhysicalScan, (Path*)index_path);

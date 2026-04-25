@@ -12,6 +12,7 @@
 #include "nodes/nodeFuncs.h"
 #include "optimizer/planmain.h"
 #include "optimizer/tlist.h"
+#include "optimizer/restrictinfo.h"
 #include "utils/palloc.h"
 #include "utils/lsyscache.h"
 #include <stddef.h>
@@ -155,6 +156,11 @@ Plan* ExprToPlanConverter::translate_expression(OptExpression* expr) {
         return translate_hash_agg(expr);
     }
 
+    // Handle PhysicalSort - create Sort node
+    if (phys_op->get_type() == OptExprOpType::PHYSICAL_SORT) {
+        return translate_sort(expr);
+    }
+
     // Handle other physical operators with Path
     Path* path = phys_op->get_path();
     if (path != nullptr && root_ != nullptr) {
@@ -170,11 +176,16 @@ Plan* ExprToPlanConverter::translate_expression(OptExpression* expr) {
 }
 
 /*
- * Translate PhysicalScan to SeqScan plan node.
+ * Translate PhysicalScan to scan plan node.
  *
  * We build the target list from path->pathtarget to preserve column pruning
  * from Cascades optimizer. This is different from create_plan() which calls
  * build_physical_tlist() and reads all table columns.
+ *
+ * 根据 Path 类型创建相应的执行计划节点：
+ * - IndexPath → IndexScan
+ * - BitmapHeapPath → BitmapHeapScan
+ * - 其他 Path → SeqScan
  */
 Plan* ExprToPlanConverter::translate_scan(OptExpression* expr) {
     if (expr == nullptr || root_ == nullptr) {
@@ -209,26 +220,16 @@ Plan* ExprToPlanConverter::translate_scan(OptExpression* expr) {
         }
     }
 
-    /* Create SeqScan node */
-    SeqScan* scan_plan = makeNode(SeqScan);
-    Plan* plan = &scan_plan->plan;
+    Plan* plan = nullptr;
 
-    /* Initialize Plan fields like make_seqscan does */
-    plan->targetlist = tlist;
-    plan->qual = NIL;
-    plan->lefttree = NULL;
-    plan->righttree = NULL;
-    plan->isDeltaTable = false;
-
-    /* Initialize SeqScan fields */
-    scan_plan->scanrelid = rel->relid;
-    scan_plan->scanBatchMode = false;
-    scan_plan->isPartTbl = false;
-    scan_plan->itrs = 0;
-    scan_plan->pruningInfo = nullptr;
-    scan_plan->bucketInfo = nullptr;
-    scan_plan->partScanDirection = ForwardScanDirection;
-    scan_plan->tablesample = nullptr;
+    /* 根据 Path 类型创建相应的 Scan 节点 */
+    if (IsA(path, IndexPath)) {
+        plan = translate_index_scan((IndexPath*)path, rel, tlist);
+    } else if (IsA(path, BitmapHeapPath)) {
+        plan = translate_bitmap_scan((BitmapHeapPath*)path, rel, tlist);
+    } else {
+        plan = translate_seq_scan(rel, tlist);
+    }
 
     /* Copy cost estimates from path */
     plan->startup_cost = path->startup_cost;
@@ -237,7 +238,6 @@ Plan* ExprToPlanConverter::translate_scan(OptExpression* expr) {
     plan->plan_width = path->pathtarget ? path->pathtarget->width : 0;
 
     /* Attach restriction clauses from rel->baserestrictinfo */
-    /* These are the WHERE conditions that were pushed down to this scan */
     if (rel->baserestrictinfo != NIL) {
         List* qual_list = NIL;
         ListCell* lc;
@@ -250,7 +250,78 @@ Plan* ExprToPlanConverter::translate_scan(OptExpression* expr) {
         plan->qual = qual_list;
     }
 
-    return (Plan*)scan_plan;
+    return plan;
+}
+
+/*
+ * 初始化 Scan 节点的基本字段
+ * SeqScan is typedef for Scan, so we use Scan* for all scan types
+ */
+void ExprToPlanConverter::init_scan_plan(Scan* scan_plan, RelOptInfo* rel, List* tlist) {
+    Plan* plan = &scan_plan->plan;
+    plan->targetlist = tlist;
+    plan->qual = NIL;
+    plan->lefttree = NULL;
+    plan->righttree = NULL;
+    plan->isDeltaTable = false;
+
+    scan_plan->scanrelid = rel->relid;
+    scan_plan->scanBatchMode = false;
+    scan_plan->isPartTbl = false;
+    scan_plan->itrs = 0;
+    scan_plan->pruningInfo = nullptr;
+    scan_plan->bucketInfo = nullptr;
+    scan_plan->partScanDirection = ForwardScanDirection;
+    scan_plan->tablesample = nullptr;
+}
+
+Plan* ExprToPlanConverter::translate_index_scan(IndexPath* index_path, RelOptInfo* rel, List* tlist) {
+    IndexScan* index_scan = makeNode(IndexScan);
+    Scan* scan = &index_scan->scan;
+
+    init_scan_plan(scan, rel, tlist);
+
+    /* Index-specific fields */
+    index_scan->indexid = index_path->indexinfo->indexoid;
+    index_scan->indexname = (char*)get_rel_name(index_scan->indexid);
+    index_scan->indexqual = index_path->indexquals;
+    index_scan->indexqualorig = get_actual_clauses(index_path->indexquals);
+    index_scan->indexorderby = index_path->indexorderbys;
+    index_scan->indexorderbyorig = get_actual_clauses(index_path->indexorderbys);
+    index_scan->indexorderbyops = nullptr;
+    index_scan->indexorderdir = index_path->indexscandir;
+    index_scan->selectivity = index_path->indexselectivity;
+    index_scan->is_partial = (index_path->indexinfo->indpred != NIL);
+    index_scan->is_ustore = index_path->is_ustore;
+
+    ereport(WARNING, (errmsg("[CASCADES] translate_scan: created IndexScan, indexid=%u, indexqual=%d",
+                             index_scan->indexid, list_length(index_scan->indexqual))));
+
+    return &scan->plan;
+}
+
+Plan* ExprToPlanConverter::translate_bitmap_scan(BitmapHeapPath* bitmap_path, RelOptInfo* rel, List* tlist) {
+    BitmapHeapScan* bitmap_scan = makeNode(BitmapHeapScan);
+    Scan* scan = &bitmap_scan->scan;
+
+    init_scan_plan(scan, rel, tlist);
+
+    /* Bitmap-specific: use the bitmapqual from the path */
+    bitmap_scan->bitmapqualorig = (List*)bitmap_path->bitmapqual;
+
+    ereport(WARNING, (errmsg("[CASCADES] translate_scan: created BitmapHeapScan")));
+
+    return &scan->plan;
+}
+
+Plan* ExprToPlanConverter::translate_seq_scan(RelOptInfo* rel, List* tlist) {
+    SeqScan* seq_scan = makeNode(SeqScan);
+
+    init_scan_plan(seq_scan, rel, tlist);
+
+    ereport(WARNING, (errmsg("[CASCADES] translate_scan: created SeqScan")));
+
+    return &seq_scan->plan;
 }
 
 /*
@@ -552,8 +623,14 @@ Plan* ExprToPlanConverter::translate_sort(OptExpression* expr) {
 
     OptExprOp* op = expr->get_op();
 
-    // If it's a physical sort, use the path directly
-    if (op->is_physical()) {
+    List* sort_clause = nullptr;
+
+    // Handle PhysicalSort - it has sort_clause directly
+    if (op->get_type() == OptExprOpType::PHYSICAL_SORT) {
+        PhysicalSort* physical_sort = static_cast<PhysicalSort*>(op);
+        sort_clause = (List*)physical_sort->get_sort_clause();
+    } else if (op->is_physical()) {
+        // For other physical operators with path, use create_plan
         PhysicalOptExprOp* phys_op = static_cast<PhysicalOptExprOp*>(op);
         Path* path = phys_op->get_path();
         if (path != nullptr && root_ != nullptr) {
@@ -561,9 +638,11 @@ Plan* ExprToPlanConverter::translate_sort(OptExpression* expr) {
         }
     }
 
-    // For logical sort, extract sort keys and create a Sort plan node
+    // For logical sort, extract sort keys
     LogicalSort* logical_sort = dynamic_cast<LogicalSort*>(op);
-    List* sort_clause = logical_sort ? (List*)logical_sort->get_sort_clause() : nullptr;
+    if (sort_clause == nullptr && logical_sort != nullptr) {
+        sort_clause = (List*)logical_sort->get_sort_clause();
+    }
 
     if (sort_clause == nullptr || list_length(sort_clause) == 0) {
         // No sort keys, return child plan

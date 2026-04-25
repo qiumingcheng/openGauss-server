@@ -247,6 +247,10 @@ OptExpression* QueryToExprConverter::translate_scan(PlannerInfo* root, Query* pa
 
     RangeTblEntry* rte = (RangeTblEntry*)list_nth(parse->rtable, rtindex - 1);
 
+    // Debug: print rte-inh (inheritance flag)
+    ereport(WARNING, (errmsg("[CASCADES] translate_scan: rtindex=%d, rtekind=%d, relid=%u, inh=%d",
+                             rtindex, rte->rtekind, rte->relid, rte->inh)));
+
     if (rte->relid != InvalidOid) {
         LogicalScan* scan_op = NEW_EX(LogicalScan, rtindex);
         if (root != nullptr) {

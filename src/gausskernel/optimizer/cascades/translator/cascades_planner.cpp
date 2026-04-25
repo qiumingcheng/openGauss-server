@@ -11,6 +11,7 @@
 #include "optimizer/paths.h"
 #include "optimizer/planmain.h"
 #include "optimizer/planner.h"
+#include "optimizer/prep.h"
 #include "optimizer/pathnode.h"
 #include "parser/parsetree.h"
 #include "utils/guc.h"
@@ -62,82 +63,8 @@ PlannedStmt* cascades_planner(Query* parse, int cursorOptions, ParamListInfo bou
     /* Initialize subquery_planner data */
     root->planner_cxt = CurrentMemoryContext;
 
-    /* Initialize simple_rel_array and simple_rte_array */
-    setup_simple_rel_arrays(root);
-
-    /*
-     * Deconstruct the jointree to distribute WHERE quals to baserestrictinfo lists.
-     * This is the same process used by the standard planner.
-     *
-     * Standard planner flow (planmain.cpp):
-     * 1. setup_simple_rel_arrays() - initialize arrays
-     * 2. add_base_rels_to_query() - create RelOptInfo for all base relations
-     * 3. build_base_rel_tlists() - add targetlist entries
-     * 4. find_placeholders_in_jointree() - find PlaceHolderVars
-     * 5. find_lateral_references() - find lateral references
-     * 6. deconstruct_jointree() - distribute quals to baserestrictinfo
-     *
-     * For Cascades, we only need steps 1, 2, and 6 for basic queries.
-     */
-
-    // Step 2: Create RelOptInfo for all base relations in the jointree
-    Bitmapset* checkDuplicate = NULL;
-    add_base_rels_to_query(root, (Node*)parse->jointree, &checkDuplicate);
-    bms_free(checkDuplicate);
-
-    // Preprocess qual conditions (convert single qual node to List)
-    preprocess_qual_conditions(root, (Node*)parse->jointree);
-
-    // Debug: check f->quals after preprocess
-    if (parse->jointree != nullptr && IsA(parse->jointree, FromExpr)) {
-        FromExpr* f = (FromExpr*)parse->jointree;
-        if (f->quals == nullptr) {
-            ereport(WARNING, (errmsg("[CASCADES] After preprocess: f->quals is NULL")));
-        } else if (IsA(f->quals, List)) {
-            StringInfoData qual_types;
-            initStringInfo(&qual_types);
-            int idx = 0;
-            ListCell* lc;
-            foreach(lc, (List*)f->quals) {
-                Node* qual = (Node*)lfirst(lc);
-                if (idx > 0)
-                    appendStringInfoString(&qual_types, ", ");
-                appendStringInfo(&qual_types, "qual[%d]=%d", idx++, (int)qual->type);
-            }
-            ereport(WARNING, (errmsg("[CASCADES] After preprocess: f->quals is List, length=%d, %s",
-                                 list_length((List*)f->quals), qual_types.data)));
-            pfree(qual_types.data);
-        } else {
-            ereport(WARNING, (errmsg("[CASCADES] After preprocess: f->quals is not List, type=%d",
-                                 (int)((Node*)f->quals)->type)));
-        }
-    }
-
-    // Step 6: Distribute WHERE quals to baserestrictinfo lists
-    // Safety check: ensure f->quals is a List before deconstruct_jointree
-    if (parse->jointree != nullptr && IsA(parse->jointree, FromExpr)) {
-        FromExpr* f = (FromExpr*)parse->jointree;
-        if (f->quals != nullptr && !IsA(f->quals, List)) {
-            ereport(WARNING, (errmsg("[CASCADES] ERROR: f->quals is not a List! type=%d",
-                                 (int)((Node*)f->quals)->type)));
-            f->quals = (Node*)list_make1(f->quals);
-        }
-    }
-
-    Relids non_keypreserved = NULL;
-    deconstruct_jointree(root, &non_keypreserved);
-    bms_free(non_keypreserved);
-
-    /*
-     * Generate implied equalities from equivalence classes.
-     * This is required because mergejoinable equality clauses (like age=30)
-     * are processed by process_equivalence() during deconstruct_jointree,
-     * which stores them in eq_classes and returns early without adding to
-     * baserestrictinfo. This function generates the actual restriction clauses
-     * from the equivalence classes.
-     */
-    generate_base_implied_equalities(root);
-    generate_base_implied_qualities(root);
+    /* Setup optimizer data structures and preprocess query */
+    setup_cascades_optimizer(root, parse);
 
     /* Step 1: Query → OptExpression */
     cascades::QueryToExprConverter query_converter;
@@ -175,4 +102,55 @@ PlannedStmt* cascades_planner(Query* parse, int cursorOptions, ParamListInfo bou
     result->commandType = parse->commandType;
 
     return result;
+}
+
+/*
+ * setup_cascades_optimizer
+ *
+ * Initialize optimizer data structures and preprocess the query.
+ * This is equivalent to the preprocessing done by standard_planner
+ * before query optimization.
+ *
+ * Steps:
+ * 1. setup_simple_rel_arrays() - initialize simple_rel_array and simple_rte_array
+ * 2. expand_inherited_tables() - expand inherited tables (fixes rte->inh issue)
+ * 3. add_base_rels_to_query() - create RelOptInfo for all base relations
+ * 4. preprocess_qual_conditions() - preprocess qual conditions
+ * 5. deconstruct_jointree() - distribute WHERE quals to baserestrictinfo
+ * 6. generate_base_implied_equalities() - generate implied equalities
+ */
+void setup_cascades_optimizer(PlannerInfo* root, Query* parse)
+{
+    /* Initialize simple_rel_array and simple_rte_array */
+    setup_simple_rel_arrays(root);
+
+    /* Expand inherited tables - must be done before add_base_rels_to_query */
+    expand_inherited_tables(root);
+
+    /* Create RelOptInfo for all base relations in the jointree */
+    Bitmapset* checkDuplicate = NULL;
+    add_base_rels_to_query(root, (Node*)parse->jointree, &checkDuplicate);
+    bms_free(checkDuplicate);
+
+    /* Preprocess qual conditions (convert single qual node to List) */
+    preprocess_qual_conditions(root, (Node*)parse->jointree);
+
+    /* Safety check: ensure f->quals is a List before deconstruct_jointree */
+    if (parse->jointree != nullptr && IsA(parse->jointree, FromExpr)) {
+        FromExpr* f = (FromExpr*)parse->jointree;
+        if (f->quals != nullptr && !IsA(f->quals, List)) {
+            ereport(WARNING, (errmsg("[CASCADES] setup_cascades_optimizer: f->quals is not a List! type=%d",
+                                 (int)((Node*)f->quals)->type)));
+            f->quals = (Node*)list_make1(f->quals);
+        }
+    }
+
+    /* Distribute WHERE quals to baserestrictinfo lists */
+    Relids non_keypreserved = NULL;
+    deconstruct_jointree(root, &non_keypreserved);
+    bms_free(non_keypreserved);
+
+    /* Generate implied equalities from equivalence classes */
+    generate_base_implied_equalities(root);
+    generate_base_implied_qualities(root);
 }

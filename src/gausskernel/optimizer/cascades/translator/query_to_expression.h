@@ -48,3 +48,11 @@ private:
 };
 
 }
+
+/*
+ * setup_cascades_optimizer
+ *
+ * Initialize optimizer data structures and preprocess the query for Cascades.
+ * This should be called after creating PlannerInfo but before query conversion.
+ */
+void setup_cascades_optimizer(PlannerInfo* root, Query* parse);

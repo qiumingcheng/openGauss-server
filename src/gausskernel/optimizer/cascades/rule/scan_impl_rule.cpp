@@ -123,6 +123,9 @@ std::vector<OptExpression*> ScanImplRule::transform(
 
     Path* scan_path = create_seqscan_path(root, rel, nullptr, 1);
 
+    ereport(WARNING, (errmsg("[CASCADES] ScanImplRule: scan_path=%p, type=%d, total_cost=%.2f, startup_cost=%.2f",
+                             (void*)scan_path, (int)scan_path->type, scan_path->total_cost, scan_path->startup_cost)));
+
     // Log pathtarget after creating path
     int pathtarget_cols = 0;
     if (scan_path->pathtarget != nullptr && scan_path->pathtarget->exprs != NIL) {
