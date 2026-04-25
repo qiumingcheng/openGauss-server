@@ -87,10 +87,15 @@ void EnforceAndCostTask::execute() {
             GroupExpression* child_best = child_group->get_best_expression(child_required);
 
             if (child_best == nullptr) {
-                ereport(WARNING, (errmsg("[CASCADES] EnforceAndCostTask: child %d not optimized yet, pushing tasks", i)));
-                // Child not yet optimized for this required property
-                // Push tasks to optimize child group first, then re-execute this task
-                // Note: LIFO order - push self first, then child optimize task
+                // Check if child group has any physical expressions
+                const auto& child_phys_exprs = child_group->get_physical_expressions();
+                if (child_phys_exprs.empty()) {
+                    // No physical expressions available, cannot optimize - skip
+                    ereport(WARNING, (errmsg("[CASCADES] EnforceAndCostTask: child %d has no physical expressions, skipping", i)));
+                    all_children_optimized = false;
+                    break;
+                }
+                // Has physical expressions but not yet optimized for this property - push tasks
                 push_task(MakeTask<EnforceAndCostTask>(context_, group_, required_property_));
                 push_task(MakeTask<EnforceAndCostTask>(context_, child_group, child_required));
                 return;
@@ -101,6 +106,15 @@ void EnforceAndCostTask::execute() {
 
             children_best_exprs.push_back(child_best);
             accumulated_child_cost += child_best->get_cost(child_required);
+
+            // Set child_path for PhysicalHashAgg after optimization
+            if (i == 0) {
+                PhysicalHashAgg* hash_agg = dynamic_cast<PhysicalHashAgg*>(expr->get_op());
+                if (hash_agg != nullptr && hash_agg->get_child_path() == nullptr) {
+                    PhysicalOptExprOp* child_op = static_cast<PhysicalOptExprOp*>(child_best->get_op());
+                    hash_agg->set_child_path(child_op->get_path());
+                }
+            }
 
             // Get child's output property
             PhysicalPropertySet child_output = child_best->get_output_property(child_required);
@@ -239,13 +253,15 @@ PhysicalPropertySet EnforceAndCostTask::derive_output_property(
         }
 
         case OptExprOpType::PHYSICAL_HASH_AGG: {
-            // HashAgg produces sorted output on group keys
-            // Extract group keys from the operator and create sort property
             PhysicalHashAgg* hash_agg = static_cast<PhysicalHashAgg*>(op);
             const std::vector<int>& group_keys = hash_agg->get_group_keys();
+            // Global aggregate (no group keys) produces unsorted output
+            if (group_keys.empty()) {
+                return PhysicalPropertySet();
+            }
             OrderSpec spec;
             for (int key : group_keys) {
-                spec.add_ordering(key, true);  // Assume ascending
+                spec.add_ordering(key, true);
             }
             SortProperty sort_prop(spec);
             return PhysicalPropertySet(child_property.get_distribution(), sort_prop);

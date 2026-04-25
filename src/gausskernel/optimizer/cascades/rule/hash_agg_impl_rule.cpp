@@ -10,6 +10,7 @@
 #include "../optimizer/optimizer_context.h"
 #include "optimizer/pathnode.h"
 #include "optimizer/planner.h"
+#include "optimizer/tlist.h"
 #include "catalog/pg_operator.h"
 #include "nodes/makefuncs.h"
 
@@ -29,100 +30,37 @@ std::vector<OptExpression*> HashAggImplRule::transform(
     ereport(WARNING, (errmsg("[CASCADES] HashAggImplRule:transform, input=%s",
                          input->to_string().c_str())));
 
-    // Pattern guarantees: op_type == LOGICAL_AGGREGATE && arity == 1
     LogicalAggregate* agg_op = static_cast<LogicalAggregate*>(input->get_op());
     const std::vector<int>& group_keys = agg_op->get_group_keys();
 
-    // Get child expression
-    OptExpression* child = input->input_at(0);
+    // Only create physical operator - child_path will be set by optimizer
+    // after child group is optimized
+    PhysicalHashAgg* hash_agg = NEW_EX(PhysicalHashAgg, (Path*)nullptr, (Path*)nullptr, group_keys);
 
-    // Get child GroupExpression
-    GroupExpression* child_group_expr = child->get_group_expression();
-    if (child_group_expr == nullptr) {
-        ereport(WARNING, (errmsg("[CASCADES] HashAggImplRule:transform, child_group_expr is null")));
-        return {};
+    // Copy HAVING clause if present
+    if (agg_op->has_having_qual()) {
+        hash_agg->set_having_qual(agg_op->get_having_qual());
+        ereport(WARNING, (errmsg("[CASCADES] HashAggImplRule:transform, copying having_qual")));
     }
 
-    // Get child group
-    Group* child_group = child_group_expr->get_group();
-    if (child_group == nullptr) {
-        ereport(WARNING, (errmsg("[CASCADES] HashAggImplRule:transform, child_group is null")));
-        return {};
-    }
-
-    PhysicalPropertySet required_prop;
-
-    Path* child_path = nullptr;
-
-    GroupExpression* child_best = child_group->get_best_expression(required_prop);
-    if (child_best != nullptr && child_best->get_op()->is_physical()) {
-        child_path = static_cast<PhysicalOptExprOp*>(child_best->get_op())->get_path();
-    }
-
-    if (child_path == nullptr) {
-        auto& phys_exprs = child_group->get_physical_expressions();
-        if (!phys_exprs.empty()) {
-            GroupExpression* first_phys = phys_exprs.front();
-            if (first_phys->get_op()->is_physical()) {
-                child_path = static_cast<PhysicalOptExprOp*>(first_phys->get_op())->get_path();
-            }
-        }
-    }
-
-    if (child_path == nullptr) {
-        ereport(WARNING, (errmsg("[CASCADES] HashAggImplRule:transform, child_path is null")));
-        return {};
-    }
-
-    ereport(WARNING, (errmsg("[CASCADES] HashAggImplRule:transform, child_path found, startup_cost=%.2f",
-                         child_path->startup_cost)));
-
+    // Extract grpOperators from parse->groupClause
     PlannerInfo* root = context->get_root();
-    if (root == nullptr) {
-        ereport(WARNING, (errmsg("[CASCADES] HashAggImplRule:transform, PlannerInfo is null")));
-        return {};
+    if (root != nullptr && root->parse != nullptr && root->parse->groupClause != nullptr) {
+        Oid* grp_ops = extract_grouping_ops(root->parse->groupClause);
+        hash_agg->set_grp_operators(grp_ops);
+        int num_keys = list_length(root->parse->groupClause);
+        ereport(WARNING, (errmsg("[CASCADES] HashAggImplRule:transform, extracted grpOperators, num_keys=%d, first_op=%u",
+                             num_keys, grp_ops[0])));
+    } else {
+        ereport(WARNING, (errmsg("[CASCADES] HashAggImplRule:transform, groupClause is null or empty")));
     }
 
-    RelOptInfo* child_rel = child_path->parent;
+    // Pass target list to physical operator
+    hash_agg->set_target_list(agg_op->get_target_list());
 
-    List* groupClause = NIL;
+    OptExpression* new_expr = OptExpression::create_with_childrens(hash_agg, input->get_inputs());
 
-    if (!group_keys.empty()) {
-        int child_relid = -1;
-        (void)bms_get_singleton_member(child_rel->relids, &child_relid);
-
-        if (child_relid > 0) {
-            ereport(WARNING, (errmsg("[CASCADES] HashAggImplRule:transform, creating groupClause with %d keys",
-                                 (int)group_keys.size())));
-            for (int key_col : group_keys) {
-                SortGroupClause* grpcl = makeNode(SortGroupClause);
-                grpcl->tleSortGroupRef = key_col;
-                grpcl->eqop = INT4EQOID;
-                grpcl->sortop = INT4LTOID;
-                grpcl->nulls_first = false;
-                grpcl->hashable = true;
-
-                groupClause = lappend(groupClause, grpcl);
-            }
-        }
-    }
-
-    // Create HashPath for hash aggregate
-    HashPath* hash_path = makeNode(HashPath);
-    hash_path->jpath.path.parent = child_rel;
-    hash_path->jpath.path.pathtarget = child_path->pathtarget;
-    hash_path->jpath.path.param_info = child_path->param_info;
-    hash_path->jpath.path.rows = child_rel->rows;
-    hash_path->jpath.path.pathkeys = NIL;
-    hash_path->path_hashclauses = NIL;
-    hash_path->num_batches = 1;
-
-    PhysicalHashAgg* hash_agg = NEW_EX(PhysicalHashAgg, (Path*)hash_path, child_path, group_keys);
-
-    // Must preserve the child expression so Memo::insert_transform_result can
-    // recursively insert it and get the correct input group
-    OptExpression* new_expr = OptExpression::create(hash_agg, child);
-    ereport(WARNING, (errmsg("[CASCADES] HashAggImplRule:transform, created hash agg expr")));
+    ereport(WARNING, (errmsg("[CASCADES] HashAggImplRule:transform, created PhysicalHashAgg")));
     return {new_expr};
 }
 

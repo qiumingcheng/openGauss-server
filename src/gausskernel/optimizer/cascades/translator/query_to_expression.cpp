@@ -49,11 +49,60 @@ OptExpression* QueryToExprConverter::translate_select(PlannerInfo* root, Query* 
     // So we don't need to create an additional filter here
     OptExpression* filter_expr = from_expr;
 
+    // 2.5. Handle aggregation - insert LogicalAggregate between scan and project
+    OptExpression* child_expr = filter_expr;
+    if (parse->hasAggs) {
+        LogicalAggregate* agg_op = nullptr;
+        if (parse->groupClause != nullptr && parse->groupClause != NIL) {
+            std::vector<int> group_keys;
+            ListCell* lc;
+            foreach(lc, parse->groupClause) {
+                SortGroupClause* sgc = (SortGroupClause*)lfirst(lc);
+                // Use resno (result number) from target list, not tleSortGroupRef
+                // This is what grpColIdx needs in the Agg node
+                Node* groupexpr = get_sortgroupclause_expr(sgc, parse->targetList);
+                TargetEntry* te = tlist_member(groupexpr, parse->targetList);
+                if (te != nullptr) {
+                    group_keys.push_back(te->resno);
+                    ereport(WARNING, (errmsg("[CASCADES] translate_select: group key resno=%d", te->resno)));
+                } else {
+                    // Fallback to tleSortGroupRef
+                    group_keys.push_back(sgc->tleSortGroupRef);
+                    ereport(WARNING, (errmsg("[CASCADES] translate_select: group key tleSortGroupRef=%d (fallback)",
+                                         sgc->tleSortGroupRef)));
+                }
+            }
+            agg_op = NEW_EX(LogicalAggregate, group_keys);
+            ereport(WARNING, (errmsg("[CASCADES] translate_select: creating LogicalAggregate with %zu group keys",
+                                 group_keys.size())));
+        } else {
+            agg_op = NEW_EX(LogicalAggregate);
+            ereport(WARNING, (errmsg("[CASCADES] translate_select: creating LogicalAggregate (global aggregate)")));
+        }
+        // Set HAVING clause if present
+        if (parse->havingQual != nullptr) {
+            agg_op->set_having_qual(parse->havingQual);
+            ereport(WARNING, (errmsg("[CASCADES] translate_select: setting havingQual")));
+        }
+        // Set target list for aggregate
+        agg_op->set_target_list(parse->targetList);
+        ereport(WARNING, (errmsg("[CASCADES] translate_select: setting targetList length=%d",
+                             list_length(parse->targetList))));
+        child_expr = OptExpression::create(agg_op, filter_expr);
+    }
+
     // 3. Convert SELECT LIST to Project
-    OptExpression* project_expr = translate_target_list(root, parse, filter_expr);
+    // Note: if hasAggs is true, we don't need to create LogicalProject separately
+    // because the aggregation is already handled above
+    OptExpression* project_expr = nullptr;
+    ereport(WARNING, (errmsg("[CASCADES] translate_select: hasAggs=%d, calling translate_target_list=%d",
+                             parse->hasAggs, !parse->hasAggs)));
+    if (!parse->hasAggs) {
+        project_expr = translate_target_list(root, parse, child_expr);
+    }
 
     // 4. Handle ORDER BY
-    OptExpression* result = project_expr ? project_expr : filter_expr;
+    OptExpression* result = project_expr ? project_expr : (parse->hasAggs ? child_expr : filter_expr);
     if (parse->sortClause != nullptr) {
         // Create LogicalSort operator
         LogicalSort* sort_op = NEW_EX(LogicalSort);

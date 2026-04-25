@@ -11,6 +11,7 @@
 #include "nodes/primnodes.h"
 #include "nodes/nodeFuncs.h"
 #include "optimizer/planmain.h"
+#include "optimizer/tlist.h"
 #include "utils/palloc.h"
 #include "utils/lsyscache.h"
 #include <stddef.h>
@@ -147,6 +148,11 @@ Plan* ExprToPlanConverter::translate_expression(OptExpression* expr) {
     // Handle PhysicalFilter - create Result node with qual
     if (phys_op->get_type() == OptExprOpType::PHYSICAL_FILTER) {
         return translate_filter(expr);
+    }
+
+    // Handle PhysicalHashAgg - create Agg node
+    if (phys_op->get_type() == OptExprOpType::PHYSICAL_HASH_AGG) {
+        return translate_hash_agg(expr);
     }
 
     // Handle other physical operators with Path
@@ -365,6 +371,15 @@ Plan* ExprToPlanConverter::translate_project(OptExpression* expr) {
         result_plan->plan.targetlist = child_plan->targetlist;
     }
 
+    // If child is an Agg node, return it directly instead of wrapping in Result.
+    // Result nodes cannot handle Aggref expressions in their targetlist.
+    if (nodeTag(child_plan) == T_Agg) {
+        // Let the Agg's targetlist pass through to the top level
+        Agg* agg = (Agg*)child_plan;
+        agg->plan.targetlist = result_plan->plan.targetlist;
+        return child_plan;
+    }
+
     return (Plan*)result_plan;
 }
 
@@ -432,7 +447,97 @@ Plan* ExprToPlanConverter::translate_nestloop_join(OptExpression* expr) {
 }
 
 Plan* ExprToPlanConverter::translate_hash_agg(OptExpression* expr) {
-    return translate_expression(expr);
+    if (expr->arity() < 1) {
+        return nullptr;
+    }
+
+    Plan* child_plan = translate_expression(expr->input_at(0));
+    if (child_plan == nullptr) {
+        return nullptr;
+    }
+
+    PhysicalHashAgg* hash_agg = dynamic_cast<PhysicalHashAgg*>(expr->get_op());
+    if (hash_agg == nullptr) {
+        return child_plan;
+    }
+
+    const std::vector<int>& group_keys = hash_agg->get_group_keys();
+
+    Agg* agg_plan = makeNode(Agg);
+    agg_plan->plan.lefttree = child_plan;
+
+    // Use convert_var_references to build proper targetlist with Var varno=OUTER_VAR
+    // This converts table column references to reference the child subplan output
+    List* agg_tlist = convert_var_references(hash_agg->get_target_list(), child_plan->targetlist);
+    agg_plan->plan.targetlist = agg_tlist;
+    ereport(WARNING, (errmsg("[CASCADES] translate_hash_agg: built targetlist with convert_var_references, length=%d",
+                         list_length(agg_tlist))));
+
+    // Set HAVING clause if present
+    if (hash_agg->has_having_qual()) {
+        agg_plan->plan.qual = (List*)copyObject(hash_agg->get_having_qual());
+        ereport(WARNING, (errmsg("[CASCADES] translate_hash_agg: setting having qual")));
+    } else {
+        agg_plan->plan.qual = NIL;
+    }
+
+    if (group_keys.empty()) {
+        // Global aggregate (no GROUP BY)
+        agg_plan->aggstrategy = AGG_PLAIN;
+        agg_plan->numCols = 0;
+        agg_plan->grpColIdx = nullptr;
+        agg_plan->grpOperators = nullptr;
+        ereport(WARNING, (errmsg("[CASCADES] translate_hash_agg: global aggregate")));
+    } else {
+        // Grouped aggregate - use hashed aggregation
+        agg_plan->aggstrategy = AGG_HASHED;
+        agg_plan->numCols = (int)group_keys.size();
+        agg_plan->grpColIdx = (AttrNumber*)palloc(agg_plan->numCols * sizeof(AttrNumber));
+        agg_plan->grpOperators = (Oid*)palloc(agg_plan->numCols * sizeof(Oid));
+
+        // Use grpOperators extracted by HashAggImplRule if available
+        Oid* src_ops = hash_agg->get_grp_operators();
+        ereport(WARNING, (errmsg("[CASCADES] translate_hash_agg: numCols=%d, src_ops=%p",
+                             agg_plan->numCols, (void*)src_ops)));
+
+        // Extract varattno from the converted targetlist Var expressions
+        // grpColIdx should be the column position in the CHILD output, not in the output targetlist
+        for (size_t i = 0; i < group_keys.size(); i++) {
+            // Find the TargetEntry in the converted targetlist with matching resno
+            // and extract the varattno from its Var expression
+            AttrNumber target_resno = group_keys[i];
+            AttrNumber child_varattno = InvalidAttrNumber;
+
+            ListCell* lc;
+            foreach(lc, agg_plan->plan.targetlist) {
+                TargetEntry* te = (TargetEntry*)lfirst(lc);
+                if (te->resno == target_resno && IsA(te->expr, Var)) {
+                    Var* v = (Var*)te->expr;
+                    child_varattno = v->varattno;
+                    ereport(WARNING, (errmsg("[CASCADES] translate_hash_agg: key[%zu] target_resno=%d -> child_varattno=%d",
+                                         i, target_resno, child_varattno)));
+                    break;
+                }
+            }
+
+            // Must find a matching Var - group_keys come from targetlist
+            if (child_varattno == InvalidAttrNumber) {
+                ereport(ERROR, (errmsg("[CASCADES] translate_hash_agg: failed to find Var for group key %zu", i)));
+                return nullptr;
+            }
+
+            agg_plan->grpColIdx[i] = child_varattno;
+            agg_plan->grpOperators[i] = (src_ops != nullptr) ? src_ops[i] : InvalidOid;
+            ereport(WARNING, (errmsg("[CASCADES] translate_hash_agg: key[%zu] colIdx=%d, op=%u",
+                                 i, agg_plan->grpColIdx[i], agg_plan->grpOperators[i])));
+        }
+    }
+
+    agg_plan->numGroups = 1;
+    agg_plan->groupingSets = NIL;
+    agg_plan->chain = NIL;
+
+    return (Plan*)agg_plan;
 }
 
 Plan* ExprToPlanConverter::translate_sort(OptExpression* expr) {
