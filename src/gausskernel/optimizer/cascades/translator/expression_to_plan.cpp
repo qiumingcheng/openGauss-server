@@ -550,14 +550,8 @@ Plan* ExprToPlanConverter::translate_limit(OptExpression* expr) {
         // Try PhysicalLimit
         PhysicalLimit* physical_limit = dynamic_cast<PhysicalLimit*>(expr->get_op());
         if (physical_limit != nullptr) {
-            long count = physical_limit->get_limit_count();
-            long offset = physical_limit->get_limit_offset();
-            if (count >= 0) {
-                limit_count = (Node*)makeInteger(count);
-            }
-            if (offset > 0) {
-                limit_offset = (Node*)makeInteger(offset);
-            }
+            limit_count = physical_limit->get_limit_count();
+            limit_offset = physical_limit->get_limit_offset();
         }
     }
 

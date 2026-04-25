@@ -68,7 +68,6 @@ OptExpression* QueryToExprConverter::translate_select(PlannerInfo* root, Query* 
 
     // 5. Handle LIMIT/OFFSET
     if (parse->limitCount != nullptr || parse->limitOffset != nullptr) {
-        // Create LogicalLimit operator
         LogicalLimit* limit_op = NEW_EX(LogicalLimit);
         limit_op->set_limit_count(parse->limitCount);
         limit_op->set_limit_offset(parse->limitOffset);
