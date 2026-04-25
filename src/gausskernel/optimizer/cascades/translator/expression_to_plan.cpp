@@ -214,7 +214,10 @@ Plan* ExprToPlanConverter::translate_scan(OptExpression* expr) {
         ListCell* lc;
         foreach(lc, path->pathtarget->exprs) {
             Var* var = (Var*)lfirst(lc);
-            TargetEntry* tle = makeTargetEntry((Expr*)var, resno, NULL, false);
+            // Keep original var varno, varattno from the path target
+            // The resno in TargetEntry represents position in output
+            Var* new_var = (Var*)copyObject(var);
+            TargetEntry* tle = makeTargetEntry((Expr*)new_var, resno, NULL, false);
             tlist = lappend(tlist, tle);
             resno++;
         }
@@ -359,11 +362,12 @@ static Node* convert_var_references_mutator(Node* node, void* context)
             }
         }
 
-        if (child_tle != NULL) {
+        if (child_tle != NULL && IsA(child_tle->expr, Var)) {
+            Var* child_var = (Var*)child_tle->expr;
             /* Create new Var with varno=OUTER_VAR and varattno=child_tle->resno */
-            /* Executor will fetch from ecxt_outertuple (standard PostgreSQL semantics) */
+            /* Use child's vartypmod to match child's targetlist */
             return (Node*)makeVar(OUTER_VAR, child_tle->resno,
-                                  var->vartype, var->vartypmod, var->varcollid, 0);
+                                  child_var->vartype, child_var->vartypmod, child_var->varcollid, 0);
         }
         /* If not found, return original Var (shouldn't happen) */
         return node;
@@ -418,6 +422,35 @@ Plan* ExprToPlanConverter::translate_project(OptExpression* expr) {
         }
     }
 
+    /*
+     * Build new target list: convert Vars to reference child plan output
+     * Original Vars have varno = RTE index, we need varno = position in child targetlist
+     * This supports expressions like "id+id" by preserving the expression tree
+     */
+    List* new_targetlist = NIL;
+    if (target_list != NIL) {
+        new_targetlist = convert_var_references(target_list, child_plan->targetlist);
+    } else {
+        new_targetlist = child_plan->targetlist;
+    }
+
+    // If child is an Agg node, return it directly instead of wrapping in Result.
+    // Result nodes cannot handle Aggref expressions in their targetlist.
+    if (nodeTag(child_plan) == T_Agg) {
+        // Let the Agg's targetlist pass through to the top level
+        Agg* agg = (Agg*)child_plan;
+        agg->plan.targetlist = new_targetlist;
+        return child_plan;
+    }
+
+    // Check if we can skip the Result layer: if new_targetlist equals child's targetlist,
+    // we don't need an extra Project layer. This matches old optimizer's behavior
+    // where Project is inlined when it doesn't change the output.
+    if (tlist_same_exprs(child_plan->targetlist, new_targetlist)) {
+        // No change in targetlist, return child directly
+        return child_plan;
+    }
+
 #ifdef USE_SPQ
     Result* result_plan = makeNode(Result);
     result_plan->numHashFilterCols = 0;
@@ -430,30 +463,15 @@ Plan* ExprToPlanConverter::translate_project(OptExpression* expr) {
     result_plan->plan.lefttree = child_plan;
     result_plan->plan.qual = NIL;
     result_plan->resconstantqual = nullptr;
-
-    /*
-     * Build new target list: convert Vars to reference child plan output
-     * Original Vars have varno = RTE index, we need varno = position in child targetlist
-     * This supports expressions like "id+id" by preserving the expression tree
-     */
-    if (target_list != NIL) {
-        result_plan->plan.targetlist = convert_var_references(target_list, child_plan->targetlist);
-    } else {
-        result_plan->plan.targetlist = child_plan->targetlist;
-    }
-
-    // If child is an Agg node, return it directly instead of wrapping in Result.
-    // Result nodes cannot handle Aggref expressions in their targetlist.
-    if (nodeTag(child_plan) == T_Agg) {
-        // Let the Agg's targetlist pass through to the top level
-        Agg* agg = (Agg*)child_plan;
-        agg->plan.targetlist = result_plan->plan.targetlist;
-        return child_plan;
-    }
+    result_plan->plan.targetlist = new_targetlist;
 
     return (Plan*)result_plan;
 }
 
+/*
+ * Compare two target lists for equality.
+ * Returns true if they produce the same output columns.
+ */
 /*
  * Translate PhysicalFilter to Result node with qual.
  * PhysicalFilter represents a runtime filter operation in the plan.
