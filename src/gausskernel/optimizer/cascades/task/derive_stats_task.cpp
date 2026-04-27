@@ -10,6 +10,7 @@
 #include "../operator/operators/logical_filter.h"
 #include "../operator/operators/logical_join.h"
 #include "../operator/operators/physical_hash_agg.h"
+#include "../operator/operators/logical_aggregate.h"
 #include "../operator/operators/logical_subquery_scan.h"
 #include "../operator/operators/physical_limit.h"
 #include "../operator/operators/logical_limit.h"
@@ -82,8 +83,7 @@ void DeriveStatsTask::derive_statistics_by_type(
             derive_physical_join_statistics(result_stats, children_stats, op);
             break;
 
-        case OptExprOpType::PHYSICAL_HASH_AGG:
-        case OptExprOpType::PHYSICAL_SORT_AGG:
+        case OptExprOpType::LOGICAL_AGGREGATE:
             derive_aggregation_statistics(result_stats, children_stats, op);
             break;
 
@@ -294,12 +294,36 @@ void DeriveStatsTask::derive_aggregation_statistics(
     // Copy child statistics as base
     result_stats->copy_from(children_stats[0]);
 
-    // Get group keys from the aggregation operator
-    PhysicalHashAgg* agg_op = static_cast<PhysicalHashAgg*>(op);
+    // Get group keys and having_qual from LogicalAggregate
+    LogicalAggregate* agg_op = dynamic_cast<LogicalAggregate*>(op);
+    if (agg_op == nullptr) {
+        result_stats->set_row_count(1.0);
+        return;
+    }
+
     const std::vector<int>& group_keys = agg_op->get_group_keys();
+    Node* having_qual = agg_op->get_having_qual();
+
+    ereport(WARNING, (errmsg("[CASCADES] DeriveStatsTask: Agg: group_keys=%zu, having_qual=%p",
+                         group_keys.size(), (void*)having_qual)));
 
     // Compute aggregation output cardinality using group key NDV
     result_stats->compute_aggregation(group_keys);
+
+    // Apply having_qual selectivity if present
+    if (having_qual != nullptr) {
+        Node* estimated_having = estimate_expression_value(
+            context_->get_optimizer_context()->get_root(), having_qual);
+        if (estimated_having != nullptr && IsA(estimated_having, Const)) {
+            Const* having_const = (Const*)estimated_having;
+            if (having_const->constisnull == false && having_const->constvalue > 0) {
+                double selectivity = 0.1;  // Default selectivity for having
+                result_stats->apply_selectivity(selectivity);
+                ereport(WARNING, (errmsg("[CASCADES] DeriveStatsTask: Agg: after having, rows=%.0f",
+                                    result_stats->row_count())));
+            }
+        }
+    }
 
     // Extension Point 3: Update column stats for group keys
     // After aggregation, only group keys and aggregate columns remain
