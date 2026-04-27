@@ -2,9 +2,9 @@
 #include "rule.h"
 #include "../operator/operators.h"
 #include "../memo/opt_expression.h"
+#include "nodes/relation.h"
 
 namespace cascades {
-
 
 /**
  * ConstantFoldRule - Performs constant folding optimization
@@ -22,12 +22,8 @@ namespace cascades {
  *   x IS NULL (where x=const)-> evaluate based on const value
  *
  * This rule handles:
- * - Arithmetic operations on constants (+, -, *, /, etc.)
- * - String concatenation on constants (||)
- * - Comparison operations on constants (=, <>, <, >, <=, >=)
- * - Boolean operations on constants (AND, OR, NOT)
- * - IS NULL / IS NOT NULL on constant expressions
  * - Elimination of filters with constant true/false conditions
+ * - Uses RestrictInfo.pseudoconstant to identify constant predicates
  */
 class ConstantFoldRule : public Rule {
 public:
@@ -42,7 +38,6 @@ public:
 private:
     /**
      * Check if an operator represents a constant expression
-     * For now, we identify constants by their predicate_id or special markers
      */
     bool is_constant_expression(OptExpression* expr) const;
 
@@ -58,20 +53,15 @@ private:
     OptExpression* fold_project(LogicalProject* project, OptExpression* child) const;
 
     /**
-     * Check if a filter predicate is constant true or false
-     * Returns:  1 = always true, -1 = always false, 0 = not constant
-     */
-    int get_filter_const_value(LogicalFilter* filter) const;
-
-    /**
      * Eliminate a filter that is always true - push up the child
      */
     OptExpression* eliminate_true_filter(OptExpression* filter_expr) const;
-
-    /**
-     * Handle a filter that is always false - return nullptr to indicate empty result
-     */
-    OptExpression* eliminate_false_filter(OptExpression* filter_expr) const;
 };
 
-}
+/**
+ * Get constant type from RestrictInfo
+ * Analyzes the clause expression to determine if it's a constant predicate
+ */
+int get_restrictinfo_const_type(RestrictInfo* restrict_info);
+
+}  // namespace cascades

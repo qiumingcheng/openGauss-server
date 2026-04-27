@@ -74,6 +74,13 @@ OptExpression* QueryToExprConverter::translate_select(PlannerInfo* root, Query* 
         from_expr = translate_from(root, parse, (Node*)parse->jointree);
     }
 
+    // If from_expr is nullptr (e.g., SELECT 1; with no FROM clause),
+    // return nullptr to fallback to old optimizer
+    if (from_expr == nullptr) {
+        ereport(WARNING, (errmsg("[CASCADES] translate_select: no FROM clause, returning nullptr")));
+        return nullptr;
+    }
+
     // 2. WHERE clause handling
     // Predicates from baserestrictinfo are already attached to scans by translate_scan
     // For join quals, they are handled by translate_join
@@ -321,24 +328,9 @@ OptExpression* QueryToExprConverter::translate_scan(PlannerInfo* root, Query* pa
                                      rel->reltarget ? list_length(rel->reltarget->exprs) : 0)));
 
                 // If there are restriction clauses, create a LogicalFilter on top of the scan
-                // This handles multiple predicates from baserestrictinfo
                 if (rel->baserestrictinfo != NIL) {
-                    // Create predicate_ids list from baserestrictinfo
-                    // Each RestrictInfo contains a clause that needs to be applied
-                    // For now, we create a filter with the full baserestrictinfo list
-                    // The predicate_id mechanism will be used for tracking during optimization
-
                     LogicalFilter* filter_op = NEW_EX(LogicalFilter);
                     filter_op->set_qual_list(rel->baserestrictinfo);
-
-                    // Create predicate_ids: for simplicity, use index 0 to indicate "use baserestrictinfo"
-                    // In a full implementation, each clause would have its own predicate_id
-                    List* predicate_ids = nullptr;
-                    int idx = 0;
-                    for (ListCell* cell = list_head(rel->baserestrictinfo); cell != nullptr; cell = lnext(cell)) {
-                        predicate_ids = lappend_int(predicate_ids, idx++);
-                    }
-                    filter_op->set_predicate_ids(predicate_ids);
 
                     OptExpression* scan_expr = OptExpression::create(scan_op);
                     OptExpression* result = OptExpression::create(filter_op, scan_expr);

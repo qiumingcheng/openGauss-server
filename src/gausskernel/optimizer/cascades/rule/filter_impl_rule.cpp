@@ -32,16 +32,15 @@ std::vector<OptExpression*> FilterImplRule::transform(
     LogicalFilter* filter = static_cast<LogicalFilter*>(input->get_op());
     OptExpression* child = input->input_at(0);
 
-    // Get predicate information
-    List* predicate_ids = filter->get_predicate_ids();
-    void* qual_list = filter->get_qual_list();
+    // Get qual_list (List* of RestrictInfo)
+    List* qual_list = filter->get_qual_list();
 
-    // Check if we have predicates
-    bool has_predicates = (qual_list != nullptr && list_length((List*)qual_list) > 0);
+    // Check if we have qualifiers
+    bool has_quals = (qual_list != nullptr && list_length(qual_list) > 0);
 
-    if (!has_predicates) {
-        // No predicates - eliminate filter, return child directly
-        ereport(WARNING, (errmsg("[CASCADES] FilterImplRule: no predicates, eliminate filter")));
+    if (!has_quals) {
+        // No qualifiers - eliminate filter, return child directly
+        ereport(WARNING, (errmsg("[CASCADES] FilterImplRule: no qualifiers, eliminate filter")));
         return {child};
     }
 

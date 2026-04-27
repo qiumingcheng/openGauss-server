@@ -3,17 +3,54 @@
 #include "../operator/operators.h"
 #include "../memo/opt_expression.h"
 #include "../property/logical_property.h"
+#include "nodes/relation.h"
 
 namespace cascades {
 
 /**
- * Special predicate IDs used to mark constant conditions
- * These are used by the OpenGauss optimizer to mark predicates
- * that have been resolved to constant boolean values
+ * Special constant types for filter predicates
  */
-static constexpr int CONSTANT_TRUE_PREDICATE_ID = -1001;   // Always true
-static constexpr int CONSTANT_FALSE_PREDICATE_ID = -1002;  // Always false
-static constexpr int CONSTANT_NULL_PREDICATE_ID = -1003;    // Always null (IS UNKNOWN)
+enum FilterConstantType {
+    FILTER_NOT_CONSTANT = 0,
+    FILTER_CONSTANT_TRUE = 1,
+    FILTER_CONSTANT_FALSE = -1,
+    FILTER_CONSTANT_NULL = -2
+};
+
+/**
+ * Get constant type from RestrictInfo
+ * Analyzes the clause expression to determine if it's a constant predicate
+ */
+int get_restrictinfo_const_type(RestrictInfo* restrict_info) {
+    if (restrict_info == nullptr) {
+        return FILTER_NOT_CONSTANT;
+    }
+
+    // Check pseudoconstant flag - OpenGauss sets this for constant expressions
+    if (restrict_info->pseudoconstant) {
+        // Need to analyze the clause to determine TRUE/FALSE/NULL
+        Expr* clause = restrict_info->clause;
+        if (clause != nullptr && IsA(clause, Const)) {
+            Const* const_expr = (Const*)clause;
+            if (const_expr->constisnull) {
+                return FILTER_CONSTANT_NULL;
+            }
+            if (DatumGetBool(const_expr->constvalue)) {
+                return FILTER_CONSTANT_TRUE;
+            } else {
+                return FILTER_CONSTANT_FALSE;
+            }
+        }
+        // If pseudoconstant but not a simple Const, check if it's a comparison
+        // that evaluates to constant (like 1=1 or 1=0)
+        if (clause != nullptr && IsA(clause, OpExpr)) {
+            // Could add more sophisticated constant evaluation here
+            // For now, treat as NOT_CONSTANT
+        }
+    }
+
+    return FILTER_NOT_CONSTANT;
+}
 
 ConstantFoldRule* ConstantFoldRule::instance() {
     static ConstantFoldRule inst;
@@ -41,12 +78,23 @@ std::vector<OptExpression*> ConstantFoldRule::transform(
     }
 
     LogicalFilter* filter = static_cast<LogicalFilter*>(op);
-    int predicate_id = filter->get_predicate_id();
+    List* qual_list = filter->get_qual_list();
 
-    ereport(WARNING, (errmsg("[CASCADES] ConstantFoldRule:transform, predicate_id=%d", predicate_id)));
+    // Check if filter has any qualifiers
+    if (qual_list == nullptr || list_length(qual_list) == 0) {
+        ereport(WARNING, (errmsg("[CASCADES] ConstantFoldRule:transform, no qualifiers")));
+        result.push_back(input);
+        return result;
+    }
+
+    // Analyze first RestrictInfo for constant type
+    RestrictInfo* restrict_info = (RestrictInfo*)lfirst(list_head(qual_list));
+    int const_type = get_restrictinfo_const_type(restrict_info);
+
+    ereport(WARNING, (errmsg("[CASCADES] ConstantFoldRule:transform, const_type=%d", const_type)));
 
     // Check if this is a constant predicate
-    if (predicate_id == CONSTANT_TRUE_PREDICATE_ID) {
+    if (const_type == FILTER_CONSTANT_TRUE) {
         ereport(WARNING, (errmsg("[CASCADES] ConstantFoldRule:transform, constant TRUE predicate")));
         // Filter with constant true condition - eliminate the filter
         OptExpression* folded = eliminate_true_filter(input);
@@ -54,17 +102,14 @@ std::vector<OptExpression*> ConstantFoldRule::transform(
             result.push_back(folded);
         }
         return result;
-    } else if (predicate_id == CONSTANT_FALSE_PREDICATE_ID) {
+    } else if (const_type == FILTER_CONSTANT_FALSE) {
         ereport(WARNING, (errmsg("[CASCADES] ConstantFoldRule:transform, constant FALSE predicate")));
         // Filter with constant false condition - this branch produces no rows
-        // In OpenGauss, this would be represented as a dummy scan or empty result
-        // For now, we return the false filter which will be optimized later
         result.push_back(input);
         return result;
-    } else if (predicate_id == CONSTANT_NULL_PREDICATE_ID) {
+    } else if (const_type == FILTER_CONSTANT_NULL) {
         ereport(WARNING, (errmsg("[CASCADES] ConstantFoldRule:transform, constant NULL predicate")));
         // IS UNKNOWN (NULL) condition - treat as always false for filtering
-        // A filter on NULL produces no rows since NULL = NULL is not true
         result.push_back(input);
         return result;
     }
@@ -80,7 +125,7 @@ std::vector<OptExpression*> ConstantFoldRule::transform(
             ereport(WARNING, (errmsg("[CASCADES] ConstantFoldRule:transform, folded project")));
             // Replace the child of the filter with the folded projection
             LogicalFilter* new_filter = NEW_EX(LogicalFilter);
-            new_filter->set_predicate_id(predicate_id);
+            new_filter->set_qual_list(qual_list);
             OptExpression* new_expr = OptExpression::create(new_filter, folded_project);
             result.push_back(new_expr);
             return result;
@@ -103,8 +148,6 @@ bool ConstantFoldRule::is_constant_expression(OptExpression* expr) const {
     // A scan with no predicate and constant table (like VALUES clause)
     // could be considered constant, but we handle this at the filter level
     if (op->get_type() == OptExprOpType::LOGICAL_SCAN) {
-        // If scan has no predicate, it might be constant if table is empty
-        // or if it's a VALUES construct - for now we don't fold scans directly
         return false;
     }
 
@@ -127,9 +170,6 @@ bool ConstantFoldRule::is_constant_expression(OptExpression* expr) const {
 }
 
 bool ConstantFoldRule::evaluate_constant(OptExpression* expr, bool* result) const {
-    // This is a simplified constant evaluator
-    // Full implementation would traverse the expression tree and evaluate
-
     if (expr == nullptr || result == nullptr) {
         return false;
     }
@@ -139,13 +179,17 @@ bool ConstantFoldRule::evaluate_constant(OptExpression* expr, bool* result) cons
     // Handle filter predicates
     if (op->get_type() == OptExprOpType::LOGICAL_FILTER) {
         LogicalFilter* filter = static_cast<LogicalFilter*>(op);
-        int const_value = get_filter_const_value(filter);
-        if (const_value == 1) {
-            *result = true;
-            return true;
-        } else if (const_value == -1) {
-            *result = false;
-            return true;
+        List* qual_list = filter->get_qual_list();
+        if (qual_list != nullptr && list_length(qual_list) > 0) {
+            RestrictInfo* restrict_info = (RestrictInfo*)lfirst(list_head(qual_list));
+            int const_type = get_restrictinfo_const_type(restrict_info);
+            if (const_type == FILTER_CONSTANT_TRUE) {
+                *result = true;
+                return true;
+            } else if (const_type == FILTER_CONSTANT_FALSE || const_type == FILTER_CONSTANT_NULL) {
+                *result = false;
+                return true;
+            }
         }
     }
 
@@ -155,42 +199,14 @@ bool ConstantFoldRule::evaluate_constant(OptExpression* expr, bool* result) cons
 OptExpression* ConstantFoldRule::fold_project(
     LogicalProject* project, OptExpression* child) const {
     // Try to evaluate projection if child is constant
-    // This would be more sophisticated in a real implementation
-
     // For now, if the child is a scan with no rows, the projection yields no rows
     OptExprOp* child_op = child->get_op();
     if (child_op->get_type() == OptExprOpType::LOGICAL_SCAN) {
         // Could check if this is a constant/empty scan
-        // For complex constant evaluation, we would need expression tree analysis
     }
 
     // Return nullptr to indicate no folding was possible
     return nullptr;
-}
-
-int ConstantFoldRule::get_filter_const_value(LogicalFilter* filter) const {
-    int predicate_id = filter->get_predicate_id();
-
-    // Check for special constant predicate markers
-    if (predicate_id == CONSTANT_TRUE_PREDICATE_ID) {
-        return 1;  // Always true
-    } else if (predicate_id == CONSTANT_FALSE_PREDICATE_ID) {
-        return -1;  // Always false
-    } else if (predicate_id == CONSTANT_NULL_PREDICATE_ID) {
-        return -1;  // NULL condition acts like false for filtering
-    }
-
-    // For predicates that are not marked as constant,
-    // we could analyze the predicate expression to determine if it's constant.
-    // This would require access to the actual expression tree (Expr*).
-    // In the current simplified implementation, we rely on the predicate_id
-    // being set by earlier constant evaluation passes.
-
-    // Example constant predicate patterns that could be detected:
-    // - predicate_id == 1 and the predicate is "1 = 1"
-    // - predicate_id == 2 and the predicate is "1 = 2"
-
-    return 0;  // Not a constant
 }
 
 OptExpression* ConstantFoldRule::eliminate_true_filter(OptExpression* filter_expr) const {
@@ -198,23 +214,6 @@ OptExpression* ConstantFoldRule::eliminate_true_filter(OptExpression* filter_exp
     // The filter is redundant - just return its child
     OptExpression* child = filter_expr->input_at(0);
     return child;
-}
-
-OptExpression* ConstantFoldRule::eliminate_false_filter(OptExpression* filter_expr) const {
-    // Filter with constant false condition: WHERE 1=0
-    // This filter will never match any rows.
-    // In a full implementation, we would return an empty relation marker.
-    // For now, we keep the filter - downstream processing should handle it.
-
-    // A proper implementation would create a dummy scan that returns no rows:
-    // LogicalScan* empty_scan = new LogicalScan(-1);  // Special marker for empty
-    // return OptExpression::create(empty_scan);
-
-    // Or we could mark the filter as always-false
-    LogicalFilter* false_filter = NEW_EX(LogicalFilter);
-    false_filter->set_predicate_id(CONSTANT_FALSE_PREDICATE_ID);
-    OptExpression* child = filter_expr->input_at(0);
-    return OptExpression::create(false_filter, child);
 }
 
 

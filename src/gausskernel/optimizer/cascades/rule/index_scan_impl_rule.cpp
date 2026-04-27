@@ -105,9 +105,9 @@ std::vector<OptExpression*> IndexScanImplRule::transform(
 
     ereport(WARNING, (errmsg("[CASCADES] IndexScanImplRule:transform, found indexes, creating index paths")));
 
-    // Get predicate if any
-    int predicate_id = scan_op->get_predicate_id();
-    (void)predicate_id;  // unused but kept for future expansion
+    // Get qual_list if any (may contain indexable predicates)
+    List* qual_list = scan_op->get_qual_list();
+    (void)qual_list;  // unused but kept for future expansion
 
     // Generate all possible index paths using OpenGauss's create_index_paths
     // This function creates multiple index scan paths with different access methods

@@ -4,6 +4,7 @@
 #include "../operator/operators/logical_project.h"
 #include "../operator/operators/logical_join.h"
 #include "../memo/opt_expression.h"
+#include "nodes/relation.h"
 
 namespace cascades {
 
@@ -18,6 +19,27 @@ FilterMergeRule::FilterMergeRule()
            Pattern::create(OptExprOpType::LOGICAL_FILTER,
                           Pattern::any())) {}
 
+/**
+ * Check if two RestrictInfo clauses are equivalent
+ * Simple comparison: same clause expression
+ */
+bool are_quals_equivalent(List* qual1, List* qual2) {
+    if (qual1 == qual2) {
+        return true;
+    }
+    if (qual1 == nullptr || qual2 == nullptr) {
+        return false;
+    }
+    if (list_length(qual1) != list_length(qual2)) {
+        return false;
+    }
+    // For simplicity, compare first RestrictInfo
+    // A full implementation would compare all elements
+    RestrictInfo* ri1 = (RestrictInfo*)lfirst(list_head(qual1));
+    RestrictInfo* ri2 = (RestrictInfo*)lfirst(list_head(qual2));
+    return ri1 == ri2;
+}
+
 std::vector<OptExpression*> FilterMergeRule::transform(
     OptExpression* input, OptimizerContext* context) {
     ereport(WARNING, (errmsg("[CASCADES] FilterMergeRule:transform, input=%s",
@@ -27,76 +49,49 @@ std::vector<OptExpression*> FilterMergeRule::transform(
 
     // Pattern: Filter on top of any expression
     LogicalFilter* filter = static_cast<LogicalFilter*>(input->get_op());
+    List* qual_list = filter->get_qual_list();
     OptExpression* child = input->input_at(0);
     OptExprOp* child_op = child->get_op();
 
     std::vector<OptExpression*> result;
 
-    int predicate_id = filter->get_predicate_id();
+    // Check if we have qualifiers to merge
+    bool has_quals = (qual_list != nullptr && list_length(qual_list) > 0);
 
-    ereport(WARNING, (errmsg("[CASCADES] FilterMergeRule:transform, predicate_id=%d, child_op=%d",
-                         predicate_id, (int)child_op->get_type())));
+    ereport(WARNING, (errmsg("[CASCADES] FilterMergeRule:transform, has_quals=%d, child_op=%d",
+                         has_quals ? 1 : 0, (int)child_op->get_type())));
 
     // Case 1: Merge consecutive filters
     // Filter(Filter(child)) -> Filter(child)
     if (child_op->get_type() == OptExprOpType::LOGICAL_FILTER) {
         ereport(WARNING, (errmsg("[CASCADES] FilterMergeRule:transform, merging consecutive filters")));
         LogicalFilter* child_filter = static_cast<LogicalFilter*>(child_op);
-        int child_predicate_id = child_filter->get_predicate_id();
+        List* child_quals = child_filter->get_qual_list();
 
-        // If predicates are equivalent, the child filter is redundant
-        if (predicate_id == child_predicate_id) {
-            ereport(WARNING, (errmsg("[CASCADES] FilterMergeRule:transform, predicates equivalent")));
+        // If qual lists are equivalent, the child filter is redundant
+        if (are_quals_equivalent(qual_list, child_quals)) {
+            ereport(WARNING, (errmsg("[CASCADES] FilterMergeRule:transform, qual lists equivalent")));
             LogicalFilter* merged_filter = NEW_EX(LogicalFilter);
-            merged_filter->set_predicate_id(predicate_id);
+            merged_filter->set_qual_list(qual_list);
 
             OptExpression* grandchild = child->input_at(0);
             OptExpression* merged_expr = OptExpression::create(merged_filter, grandchild);
             result.push_back(merged_expr);
         }
-        // If parent predicate is a subset of child predicate, parent is redundant
-        else if (is_predicate_subset(predicate_id, child_predicate_id)) {
-            ereport(WARNING, (errmsg("[CASCADES] FilterMergeRule:transform, parent predicate is subset")));
-            OptExpression* grandchild = child->input_at(0);
-            LogicalFilter* new_filter = NEW_EX(LogicalFilter);
-            new_filter->set_predicate_id(predicate_id);
-            OptExpression* new_expr = OptExpression::create(new_filter, grandchild);
-            result.push_back(new_expr);
-        }
-        // If child predicate is a subset of parent predicate, child is redundant
-        else if (is_predicate_subset(child_predicate_id, predicate_id)) {
-            ereport(WARNING, (errmsg("[CASCADES] FilterMergeRule:transform, child predicate is subset")));
-            LogicalFilter* new_filter = NEW_EX(LogicalFilter);
-            new_filter->set_predicate_id(predicate_id);
-            OptExpression* new_expr = OptExpression::create(new_filter, child->input_at(0));
-            result.push_back(new_expr);
-        }
-        // Otherwise, both predicates are needed - merge them (AND them together)
+        // Otherwise, merge both qual lists (AND them together)
         else {
-            ereport(WARNING, (errmsg("[CASCADES] FilterMergeRule:transform, merging both predicates")));
+            ereport(WARNING, (errmsg("[CASCADES] FilterMergeRule:transform, merging both qual lists")));
             LogicalFilter* merged_filter = NEW_EX(LogicalFilter);
-            // Use parent predicate ID - both predicates need to be evaluated
-            // A full implementation would combine the qual lists
-            merged_filter->set_predicate_id(predicate_id);
 
-            // Merge qual lists if present
-            void* parent_qual_list = filter->get_qual_list();
-            void* child_qual_list = child_filter->get_qual_list();
-
-            if (parent_qual_list != nullptr && child_qual_list != nullptr) {
-                // Concatenate both qual lists
-                List* merged_quals = (List*)parent_qual_list;
-                List* child_quals = (List*)child_qual_list;
+            // Concatenate qual lists
+            List* merged_quals = qual_list;
+            if (child_quals != nullptr) {
                 ListCell* cell;
                 foreach(cell, child_quals) {
                     merged_quals = lappend(merged_quals, lfirst(cell));
                 }
-                merged_filter->set_qual_list(merged_quals);
-            } else if (parent_qual_list != nullptr) {
-                merged_filter->set_qual_list(parent_qual_list);
-            } else if (child_qual_list != nullptr) {
-                merged_filter->set_qual_list(child_qual_list);
             }
+            merged_filter->set_qual_list(merged_quals);
 
             OptExpression* grandchild = child->input_at(0);
             OptExpression* merged_expr = OptExpression::create(merged_filter, grandchild);
@@ -112,7 +107,7 @@ std::vector<OptExpression*> FilterMergeRule::transform(
 
         // Create a new filter on top of the projection's child
         LogicalFilter* pushed_filter = NEW_EX(LogicalFilter);
-        pushed_filter->set_predicate_id(predicate_id);
+        pushed_filter->set_qual_list(qual_list);
 
         OptExpression* pushed_expr = OptExpression::create(pushed_filter, project_child);
 
@@ -142,10 +137,10 @@ std::vector<OptExpression*> FilterMergeRule::transform(
         if (join_type == JOIN_INNER) {
             // Create filters for both children
             LogicalFilter* left_filter = NEW_EX(LogicalFilter);
-            left_filter->set_predicate_id(predicate_id);
+            left_filter->set_qual_list(qual_list);
 
             LogicalFilter* right_filter = NEW_EX(LogicalFilter);
-            right_filter->set_predicate_id(predicate_id);
+            right_filter->set_qual_list(qual_list);
 
             OptExpression* left_filtered = OptExpression::create(left_filter, left_child);
             OptExpression* right_filtered = OptExpression::create(right_filter, right_child);
@@ -155,7 +150,7 @@ std::vector<OptExpression*> FilterMergeRule::transform(
             result.push_back(new_expr);
         } else if (join_type == JOIN_LEFT) {
             LogicalFilter* right_filter = NEW_EX(LogicalFilter);
-            right_filter->set_predicate_id(predicate_id);
+            right_filter->set_qual_list(qual_list);
 
             OptExpression* right_filtered = OptExpression::create(right_filter, right_child);
 
@@ -163,7 +158,7 @@ std::vector<OptExpression*> FilterMergeRule::transform(
             result.push_back(new_expr);
         } else if (join_type == JOIN_RIGHT) {
             LogicalFilter* left_filter = NEW_EX(LogicalFilter);
-            left_filter->set_predicate_id(predicate_id);
+            left_filter->set_qual_list(qual_list);
 
             OptExpression* left_filtered = OptExpression::create(left_filter, left_child);
 
@@ -186,20 +181,6 @@ std::vector<OptExpression*> FilterMergeRule::transform(
                          (int)result.size())));
 
     return result;
-}
-
-bool FilterMergeRule::are_predicates_equivalent(int pred_id1, int pred_id2) const {
-    // Predicates are considered equivalent if they have the same ID
-    // A full implementation would compare the actual predicate expressions
-    return pred_id1 == pred_id2;
-}
-
-bool FilterMergeRule::is_predicate_subset(int pred_id1, int pred_id2) const {
-    // Predicate1 is a subset of predicate2 if pred_id1 == pred_id2
-    // A full implementation would analyze the actual predicate expressions
-    // to determine if one logically implies the other
-    // For now, only return true for identical predicates
-    return pred_id1 == pred_id2;
 }
 
 

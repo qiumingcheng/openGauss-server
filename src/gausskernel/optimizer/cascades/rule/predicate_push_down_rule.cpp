@@ -6,6 +6,7 @@
 #include "../operator/operators/logical_scan.h"
 #include "../operator/operators/logical_project.h"
 #include "../memo/opt_expression.h"
+#include "nodes/relation.h"
 
 namespace cascades {
 
@@ -33,24 +34,20 @@ std::vector<OptExpression*> PredicatePushDownRule::transform(
 
     std::vector<OptExpression*> result;
 
-    // Get predicate information - support multiple predicates via qual_list and predicate_ids
-    List* predicate_ids = filter->get_predicate_ids();
-    void* qual_list = filter->get_qual_list();
+    // Get predicate information from qual_list
+    List* qual_list = filter->get_qual_list();
 
     // Check if we have any predicates to push
-    bool has_predicate_ids = (predicate_ids != nullptr && list_length(predicate_ids) > 0);
-    bool has_qual_list = (qual_list != nullptr);
+    bool has_quals = (qual_list != nullptr && list_length(qual_list) > 0);
 
-    if (!has_predicate_ids && !has_qual_list) {
-        ereport(WARNING, (errmsg("[CASCADES] PredicatePushDownRule:transform, no predicates to push")));
+    if (!has_quals) {
+        ereport(WARNING, (errmsg("[CASCADES] PredicatePushDownRule:transform, no qualifiers to push")));
         result.push_back(input);
         return result;
     }
 
-    ereport(WARNING, (errmsg("[CASCADES] PredicatePushDownRule:transform, predicate_ids=%d, has_qual_list=%d, child_op=%d",
-                         has_predicate_ids ? list_length(predicate_ids) : 0,
-                         has_qual_list ? 1 : 0,
-                         (int)child_op->get_type())));
+    ereport(WARNING, (errmsg("[CASCADES] PredicatePushDownRule:transform, qual_list=%d, child_op=%d",
+                         list_length(qual_list), (int)child_op->get_type())));
 
     // Case 1: Push filter down through joins
     if (child_op->get_type() == OptExprOpType::LOGICAL_JOIN) {
@@ -63,11 +60,9 @@ std::vector<OptExpression*> PredicatePushDownRule::transform(
         if (join_type == JOIN_INNER) {
             // For inner join, push predicates to both sides
             LogicalFilter* left_filter = NEW_EX(LogicalFilter);
-            left_filter->set_predicate_ids(predicate_ids);
             left_filter->set_qual_list(qual_list);
 
             LogicalFilter* right_filter = NEW_EX(LogicalFilter);
-            right_filter->set_predicate_ids(predicate_ids);
             right_filter->set_qual_list(qual_list);
 
             OptExpression* left_filtered = OptExpression::create(left_filter, left_child);
@@ -76,12 +71,11 @@ std::vector<OptExpression*> PredicatePushDownRule::transform(
             LogicalJoin* new_join = static_cast<LogicalJoin*>(join->clone());
             OptExpression* new_expr = OptExpression::create(new_join, left_filtered, right_filtered);
             result.push_back(new_expr);
-            
+
             ereport(WARNING, (errmsg("[CASCADES] PredicatePushDownRule: pushed to both sides of INNER JOIN")));
         } else if (join_type == JOIN_LEFT) {
             // For left outer join, push to right side only (where match is required)
             LogicalFilter* right_filter = NEW_EX(LogicalFilter);
-            right_filter->set_predicate_ids(predicate_ids);
             right_filter->set_qual_list(qual_list);
 
             OptExpression* right_filtered = OptExpression::create(right_filter, right_child);
@@ -89,12 +83,11 @@ std::vector<OptExpression*> PredicatePushDownRule::transform(
             LogicalJoin* new_join = static_cast<LogicalJoin*>(join->clone());
             OptExpression* new_expr = OptExpression::create(new_join, left_child, right_filtered);
             result.push_back(new_expr);
-            
+
             ereport(WARNING, (errmsg("[CASCADES] PredicatePushDownRule: pushed to right side of LEFT JOIN")));
         } else if (join_type == JOIN_RIGHT) {
             // For right outer join, push to left side only
             LogicalFilter* left_filter = NEW_EX(LogicalFilter);
-            left_filter->set_predicate_ids(predicate_ids);
             left_filter->set_qual_list(qual_list);
 
             OptExpression* left_filtered = OptExpression::create(left_filter, left_child);
@@ -102,7 +95,7 @@ std::vector<OptExpression*> PredicatePushDownRule::transform(
             LogicalJoin* new_join = static_cast<LogicalJoin*>(join->clone());
             OptExpression* new_expr = OptExpression::create(new_join, left_filtered, right_child);
             result.push_back(new_expr);
-            
+
             ereport(WARNING, (errmsg("[CASCADES] PredicatePushDownRule: pushed to left side of RIGHT JOIN")));
         } else {
             // JOIN_FULL - cannot safely push
@@ -110,50 +103,32 @@ std::vector<OptExpression*> PredicatePushDownRule::transform(
             result.push_back(input);
         }
     }
-    // Case 2: Push filter down to scan - main case for multi-predicate pushdown
+    // Case 2: Push filter down to scan
     else if (child_op->get_type() == OptExprOpType::LOGICAL_SCAN) {
         ereport(WARNING, (errmsg("[CASCADES] PredicatePushDownRule:transform, pushing to SCAN")));
         LogicalScan* scan = static_cast<LogicalScan*>(child_op->clone());
 
-        // Get existing predicates from scan
-        List* existing_ids = scan->get_predicate_ids();
-        void* existing_qual_list = scan->get_qual_list();
-        
-        // Merge with existing predicates
-        if (has_predicate_ids) {
-            if (existing_ids != nullptr) {
-                // Append new predicate ids to existing ones
-                List* merged_ids = existing_ids;
-                ListCell* cell;
-                foreach(cell, predicate_ids) {
-                    merged_ids = lappend_int(merged_ids, lfirst_int(cell));
-                }
-                scan->set_predicate_ids(merged_ids);
-            } else {
-                scan->set_predicate_ids(predicate_ids);
+        // Get existing qual_list from scan
+        List* existing_quals = scan->get_qual_list();
+
+        // Merge with existing qualifiers
+        if (existing_quals != nullptr) {
+            // Append new qual list to existing one
+            List* merged_quals = existing_quals;
+            ListCell* cell;
+            foreach(cell, qual_list) {
+                merged_quals = lappend(merged_quals, lfirst(cell));
             }
-        }
-        
-        if (has_qual_list) {
-            if (existing_qual_list != nullptr) {
-                // Append new qual list to existing one
-                List* merged_quals = (List*)existing_qual_list;
-                List* new_quals = (List*)qual_list;
-                ListCell* cell;
-                foreach(cell, new_quals) {
-                    merged_quals = lappend(merged_quals, lfirst(cell));
-                }
-                scan->set_qual_list(merged_quals);
-            } else {
-                scan->set_qual_list(qual_list);
-            }
+            scan->set_qual_list(merged_quals);
+        } else {
+            scan->set_qual_list(qual_list);
         }
 
         // Return scan directly without filter wrapper (filter is now part of scan)
         OptExpression* scan_expr = OptExpression::create(scan);
         result.push_back(scan_expr);
-        
-        ereport(WARNING, (errmsg("[CASCADES] PredicatePushDownRule: pushed multiple predicates to SCAN")));
+
+        ereport(WARNING, (errmsg("[CASCADES] PredicatePushDownRule: pushed qualifiers to SCAN")));
     }
     // Case 3: Push filter through projection
     else if (child_op->get_type() == OptExprOpType::LOGICAL_PROJECT) {
@@ -162,7 +137,6 @@ std::vector<OptExpression*> PredicatePushDownRule::transform(
         OptExpression* project_child = child->input_at(0);
 
         LogicalFilter* pushed_filter = NEW_EX(LogicalFilter);
-        pushed_filter->set_predicate_ids(predicate_ids);
         pushed_filter->set_qual_list(qual_list);
 
         OptExpression* pushed_expr = OptExpression::create(pushed_filter, project_child);
@@ -173,38 +147,33 @@ std::vector<OptExpression*> PredicatePushDownRule::transform(
         OptExpression* result_expr = OptExpression::create(new_project, pushed_expr);
         result.push_back(result_expr);
     }
-    // Case 4: Merge with another filter - combine predicates
+    // Case 4: Merge with another filter - combine qual lists
     else if (child_op->get_type() == OptExprOpType::LOGICAL_FILTER) {
         ereport(WARNING, (errmsg("[CASCADES] PredicatePushDownRule:transform, merging FILTERs")));
         LogicalFilter* child_filter = static_cast<LogicalFilter*>(child_op);
-        
-        // Get child's predicates
-        List* child_predicate_ids = child_filter->get_predicate_ids();
-        void* child_qual_list = child_filter->get_qual_list();
-        
-        // Merge predicate_ids
-        List* merged_ids = predicate_ids;
-        if (child_predicate_ids != nullptr) {
+
+        // Get child's qual_list
+        List* child_quals = child_filter->get_qual_list();
+
+        // Merge qual lists
+        List* merged_quals = qual_list;
+        if (child_quals != nullptr) {
             ListCell* cell;
-            foreach(cell, child_predicate_ids) {
-                merged_ids = lappend_int(merged_ids, lfirst_int(cell));
+            foreach(cell, child_quals) {
+                merged_quals = lappend(merged_quals, lfirst(cell));
             }
         }
-        
-        // For now, keep parent's qual_list (a full implementation would merge both)
-        void* merged_qual_list = qual_list ? qual_list : child_qual_list;
-        
+
         // Create merged filter
         LogicalFilter* merged_filter = NEW_EX(LogicalFilter);
-        merged_filter->set_predicate_ids(merged_ids);
-        merged_filter->set_qual_list(merged_qual_list);
-        
+        merged_filter->set_qual_list(merged_quals);
+
         OptExpression* grandchild = child->input_at(0);
         OptExpression* merged_expr = OptExpression::create(merged_filter, grandchild);
         result.push_back(merged_expr);
-        
-        ereport(WARNING, (errmsg("[CASCADES] PredicatePushDownRule: merged filters, total predicates=%d",
-                             list_length(merged_ids))));
+
+        ereport(WARNING, (errmsg("[CASCADES] PredicatePushDownRule: merged filters, total quals=%d",
+                             list_length(merged_quals))));
     }
     // Case 5: Cannot push through other operators
     else {
