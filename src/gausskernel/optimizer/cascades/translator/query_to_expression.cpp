@@ -15,6 +15,9 @@
 
 namespace cascades {
 
+// Forward declaration
+bool check_subquery_in_fromlist(List* fromlist);
+
 OptExpression* QueryToExprConverter::convert(PlannerInfo* root, Query* parse) {
     if (parse == nullptr) {
         return nullptr;
@@ -25,6 +28,26 @@ OptExpression* QueryToExprConverter::convert(PlannerInfo* root, Query* parse) {
         if (check_sublink_in_node(parse->jointree->quals)) {
             ereport(WARNING, (errmsg("[CASCADES] convert: SubLink found in WHERE, returning nullptr")));
             return nullptr;
+        }
+    }
+
+    /* Check for subqueries in FROM clause (e.g., SELECT * FROM (SELECT ...) t) */
+    if (parse->jointree != nullptr && parse->jointree->fromlist != nullptr) {
+        if (check_subquery_in_fromlist(parse->jointree->fromlist)) {
+            ereport(WARNING, (errmsg("[CASCADES] convert: subquery found in FROM, returning nullptr")));
+            return nullptr;
+        }
+    }
+
+    /* Check if rtable contains subqueries (RTE_SUBQUERY) */
+    if (parse->rtable != nullptr) {
+        ListCell* lc = NULL;
+        foreach (lc, parse->rtable) {
+            RangeTblEntry* rte = (RangeTblEntry*)lfirst(lc);
+            if (rte->rtekind == RTE_SUBQUERY) {
+                ereport(WARNING, (errmsg("[CASCADES] convert: RTE_SUBQUERY found in rtable, returning nullptr")));
+                return nullptr;
+            }
         }
     }
 
@@ -467,6 +490,46 @@ bool check_sublink_in_node(Node* node) {
 
     if (IsA(node, SubPlan)) {
         return true;
+    }
+
+    return false;
+}
+
+/*
+ * check_subquery_in_fromlist - Check if fromlist contains any subqueries
+ *
+ * Used to detect inline views (e.g., SELECT * FROM (SELECT ...) t)
+ */
+bool check_subquery_in_fromlist(List* fromlist) {
+    if (fromlist == nullptr) {
+        return false;
+    }
+
+    ListCell* lc = NULL;
+    foreach (lc, fromlist) {
+        Node* item = (Node*)lfirst(lc);
+        if (item == nullptr) {
+            continue;
+        }
+
+        if (IsA(item, RangeSubselect)) {
+            return true;
+        }
+
+        if (IsA(item, JoinExpr)) {
+            JoinExpr* join = (JoinExpr*)item;
+            if (check_subquery_in_fromlist(list_make1(join->larg)) ||
+                check_subquery_in_fromlist(list_make1(join->rarg))) {
+                return true;
+            }
+        }
+
+        if (IsA(item, FromExpr)) {
+            FromExpr* from = (FromExpr*)item;
+            if (check_subquery_in_fromlist(from->fromlist)) {
+                return true;
+            }
+        }
     }
 
     return false;
