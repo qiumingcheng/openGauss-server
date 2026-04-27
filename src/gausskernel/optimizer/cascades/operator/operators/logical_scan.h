@@ -21,6 +21,8 @@ public:
     std::string to_string() const override;
 
     int get_table_id() const { return table_id_; }
+    Oid get_relid() const { return relid_; }
+    void set_relid(Oid relid) { relid_ = relid; }
 
     // Multiple predicates support (primary API)
     List* get_predicate_ids() const { return predicate_ids_; }
@@ -56,6 +58,7 @@ public:
 
 private:
     int table_id_;
+    Oid relid_ = InvalidOid;         // Table OID for openGauss integration
     List* predicate_ids_ = nullptr;  // Support for multiple predicate IDs
     void* qual_list_ = nullptr;      // List* of qualifier clauses for complex expressions
     RelOptInfo* rel_ = nullptr;      // OpenGauss relation optimization info

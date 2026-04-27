@@ -65,8 +65,9 @@ double StatisticsUtils::get_column_ndv(Oid relid, AttrNumber attnum) {
         return 100.0;
     }
 
-    HeapTuple tuple = SearchSysCache3(STATRELATTINH,
+    HeapTuple tuple = SearchSysCache4(STATRELATTINH,
                                       ObjectIdGetDatum(relid),
+                                      CharGetDatum(STARELKIND_CLASS),
                                       Int16GetDatum(attnum),
                                       BoolGetDatum(false));
 
@@ -92,8 +93,9 @@ double StatisticsUtils::get_column_null_frac(Oid relid, AttrNumber attnum) {
         return 0.1;
     }
 
-    HeapTuple tuple = SearchSysCache3(STATRELATTINH,
+    HeapTuple tuple = SearchSysCache4(STATRELATTINH,
                                       ObjectIdGetDatum(relid),
+                                      CharGetDatum(STARELKIND_CLASS),
                                       Int16GetDatum(attnum),
                                       BoolGetDatum(false));
 
@@ -113,8 +115,9 @@ double StatisticsUtils::get_column_avg_width(Oid relid, AttrNumber attnum) {
         return 32.0;
     }
 
-    HeapTuple tuple = SearchSysCache3(STATRELATTINH,
+    HeapTuple tuple = SearchSysCache4(STATRELATTINH,
                                       ObjectIdGetDatum(relid),
+                                      CharGetDatum(STARELKIND_CLASS),
                                       Int16GetDatum(attnum),
                                       BoolGetDatum(false));
 

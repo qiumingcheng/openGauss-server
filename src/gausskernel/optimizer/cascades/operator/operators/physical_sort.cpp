@@ -10,7 +10,9 @@ PhysicalSort::PhysicalSort(Path* sort_path, Path* child_path)
       child_path_(child_path) {}
 
 OptExprOp* PhysicalSort::clone() const {
-    return NEW_EX(PhysicalSort, path_, child_path_);
+    PhysicalSort* copy = NEW_EX(PhysicalSort, path_, child_path_);
+    copy->sort_clause_ = sort_clause_;
+    return copy;
 }
 
 size_t PhysicalSort::hash() const {

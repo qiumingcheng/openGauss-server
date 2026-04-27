@@ -211,6 +211,7 @@ Plan* ExprToPlanConverter::translate_scan(OptExpression* expr) {
     List* tlist = NIL;
     if (path->pathtarget != nullptr && path->pathtarget->exprs != NIL) {
         int resno = 1;
+        int idx = 0;
         ListCell* lc;
         foreach(lc, path->pathtarget->exprs) {
             Var* var = (Var*)lfirst(lc);
@@ -218,8 +219,26 @@ Plan* ExprToPlanConverter::translate_scan(OptExpression* expr) {
             // The resno in TargetEntry represents position in output
             Var* new_var = (Var*)copyObject(var);
             TargetEntry* tle = makeTargetEntry((Expr*)new_var, resno, NULL, false);
+
+            // Try to get sortgroupref from pathtarget first
+            Index sortgroupref = get_pathtarget_sortgroupref(path->pathtarget, idx);
+
+            // If pathtarget doesn't have sortgroupref, try to find it from root_->parse->targetList
+            if (sortgroupref == 0 && root_ != nullptr && root_->parse != nullptr) {
+                ListCell* tl_cell;
+                foreach(tl_cell, root_->parse->targetList) {
+                    TargetEntry* parse_tle = (TargetEntry*)lfirst(tl_cell);
+                    if (parse_tle->expr != nullptr && equal(parse_tle->expr, (Node*)var)) {
+                        sortgroupref = parse_tle->ressortgroupref;
+                        break;
+                    }
+                }
+            }
+
+            tle->ressortgroupref = sortgroupref;
             tlist = lappend(tlist, tle);
             resno++;
+            idx++;
         }
     }
 
@@ -392,6 +411,7 @@ static List* convert_var_references(List* target_list, List* child_tlist)
                                                tle->resno,
                                                tle->resname,
                                                tle->resjunk);
+        new_tle->ressortgroupref = tle->ressortgroupref;
         new_target_list = lappend(new_target_list, new_tle);
     }
 
@@ -670,10 +690,9 @@ Plan* ExprToPlanConverter::translate_sort(OptExpression* expr) {
     }
 
     OptExprOp* op = expr->get_op();
-
     List* sort_clause = nullptr;
 
-    // Handle PhysicalSort - it has sort_clause directly
+    // Handle PhysicalSort - extract sort_clause directly
     if (op->get_type() == OptExprOpType::PHYSICAL_SORT) {
         PhysicalSort* physical_sort = static_cast<PhysicalSort*>(op);
         sort_clause = (List*)physical_sort->get_sort_clause();
@@ -684,16 +703,15 @@ Plan* ExprToPlanConverter::translate_sort(OptExpression* expr) {
         if (path != nullptr && root_ != nullptr) {
             return create_plan(root_, path);
         }
-    }
-
-    // For logical sort, extract sort keys
-    LogicalSort* logical_sort = dynamic_cast<LogicalSort*>(op);
-    if (sort_clause == nullptr && logical_sort != nullptr) {
-        sort_clause = (List*)logical_sort->get_sort_clause();
+    } else {
+        // For logical sort, extract sort keys
+        LogicalSort* logical_sort = dynamic_cast<LogicalSort*>(op);
+        if (logical_sort != nullptr) {
+            sort_clause = (List*)logical_sort->get_sort_clause();
+        }
     }
 
     if (sort_clause == nullptr || list_length(sort_clause) == 0) {
-        // No sort keys, return child plan
         return child_plan;
     }
 
@@ -716,20 +734,30 @@ Plan* ExprToPlanConverter::translate_sort(OptExpression* expr) {
     foreach(lc, sort_clause) {
         SortGroupClause* sgcl = (SortGroupClause*)lfirst(lc);
 
-        // Get the sort key's varattno from the target list
-        // tleSortGroupRef links to SortGroupClause's tleSortGroupRef
-        if (sgcl->tleSortGroupRef > 0 && (int)sgcl->tleSortGroupRef <= list_length(child_plan->targetlist)) {
-            sort_plan->sortColIdx[col_idx] = sgcl->tleSortGroupRef;
-        } else {
-            // Fallback: use position in target list
-            sort_plan->sortColIdx[col_idx] = col_idx + 1;
+        // Use tleSortGroupRef to find the corresponding targetlist entry
+        // tleSortGroupRef is a reference that matches the targetlist entry's ressortgroupref
+        AttrNumber sort_col_idx = 0;
+        Index ref = sgcl->tleSortGroupRef;
+
+        ListCell* tl_cell;
+        int pos = 1;
+        foreach(tl_cell, child_plan->targetlist) {
+            TargetEntry* te = (TargetEntry*)lfirst(tl_cell);
+            if (te->ressortgroupref == ref) {
+                sort_col_idx = pos;
+                break;
+            }
+            pos++;
         }
+
+        Assert(sort_col_idx > 0);
+        sort_plan->sortColIdx[col_idx] = sort_col_idx;
 
         // Get sort operator OID
         sort_plan->sortOperators[col_idx] = sgcl->sortop;
-        // Collation: use default (InvalidOid) - can be extended to extract from operator
+        // Collation: use default (InvalidOid)
         sort_plan->collations[col_idx] = InvalidOid;
-        // Use nulls_first from SortGroupClause (note: different case convention)
+        // Use nulls_first from SortGroupClause
         sort_plan->nullsFirst[col_idx] = sgcl->nulls_first;
 
         col_idx++;

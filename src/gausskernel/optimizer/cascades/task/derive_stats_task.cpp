@@ -6,13 +6,11 @@
 #include "../statistics/statistics.h"
 #include "../statistics/statistics_utils.h"
 #include "../operator/operators.h"
-#include "../operator/operators/physical_scan.h"
+#include "../operator/operators/logical_scan.h"
 #include "../operator/operators/logical_filter.h"
 #include "../operator/operators/logical_join.h"
-#include "../operator/operators/physical_hash_agg.h"
 #include "../operator/operators/logical_aggregate.h"
 #include "../operator/operators/logical_subquery_scan.h"
-#include "../operator/operators/physical_limit.h"
 #include "../operator/operators/logical_limit.h"
 #include "optimizer/clauses.h"
 #include "nodes/plannodes.h"
@@ -60,7 +58,6 @@ void DeriveStatsTask::derive_statistics_by_type(
 
     switch (op->get_type()) {
         case OptExprOpType::LOGICAL_SCAN:
-        case OptExprOpType::PHYSICAL_SCAN:
         case OptExprOpType::LOGICAL_SUBQUERY_SCAN:
             derive_scan_statistics(result_stats, children_stats, op);
             break;
@@ -77,26 +74,11 @@ void DeriveStatsTask::derive_statistics_by_type(
             derive_join_statistics(result_stats, children_stats, op);
             break;
 
-        case OptExprOpType::PHYSICAL_HASH_JOIN:
-        case OptExprOpType::PHYSICAL_MERGE_JOIN:
-        case OptExprOpType::PHYSICAL_NESTLOOP_JOIN:
-            derive_physical_join_statistics(result_stats, children_stats, op);
-            break;
-
         case OptExprOpType::LOGICAL_AGGREGATE:
             derive_aggregation_statistics(result_stats, children_stats, op);
             break;
 
-        case OptExprOpType::PHYSICAL_SORT:
-            derive_sort_statistics(result_stats, children_stats);
-            break;
-
-        case OptExprOpType::PHYSICAL_EXCHANGE:
-            derive_exchange_statistics(result_stats, children_stats);
-            break;
-
         case OptExprOpType::LOGICAL_LIMIT:
-        case OptExprOpType::PHYSICAL_LIMIT:
             derive_limit_statistics(result_stats, children_stats, op);
             break;
 
@@ -107,7 +89,7 @@ void DeriveStatsTask::derive_statistics_by_type(
 }
 
 // ============================================================================
-// Scan: Extension Point 4 - Table OID from PhysicalScan
+// Scan: Extension Point 4 - Table OID from LogicalScan
 // ============================================================================
 
 void DeriveStatsTask::derive_scan_statistics(
@@ -131,18 +113,16 @@ void DeriveStatsTask::derive_scan_statistics(
         }
     }
 
-    // Try to get table OID from PhysicalScan
-    PhysicalScan* scan_op = dynamic_cast<PhysicalScan*>(op);
-    if (scan_op != nullptr) {
-        Oid relid = scan_op->get_relid();
-        if (OidIsValid(relid)) {
-            // Extension Point 4: Use openGauss pg_class/pg_statistic
-            Statistics* table_stats = StatisticsUtils::build_table_statistics(relid, nullptr);
-            if (table_stats != nullptr) {
-                result_stats->copy_from(table_stats);
-                // table_stats is allocated in MemoryContext, no need to delete
-                return;
-            }
+    // Try to get table OID from LogicalScan
+    LogicalScan* scan_op = static_cast<LogicalScan*>(op);
+    Oid relid = scan_op->get_relid();
+    if (OidIsValid(relid)) {
+        // Extension Point 4: Use openGauss pg_class/pg_statistic
+        Statistics* table_stats = StatisticsUtils::build_table_statistics(relid, nullptr);
+        if (table_stats != nullptr) {
+            result_stats->copy_from(table_stats);
+            // table_stats is allocated in MemoryContext, no need to delete
+            return;
         }
     }
 

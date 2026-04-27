@@ -263,6 +263,7 @@ OptExpression* QueryToExprConverter::translate_scan(PlannerInfo* root, Query* pa
 
     if (rte->relid != InvalidOid) {
         LogicalScan* scan_op = NEW_EX(LogicalScan, rtindex);
+        scan_op->set_relid(rte->relid);  // Store table OID for statistics derivation
         if (root != nullptr) {
             // Find the existing RelOptInfo (already created by add_base_rels_to_query)
             RelOptInfo* rel = find_base_rel(root, rtindex);
