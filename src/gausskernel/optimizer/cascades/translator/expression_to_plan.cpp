@@ -469,10 +469,6 @@ Plan* ExprToPlanConverter::translate_project(OptExpression* expr) {
 }
 
 /*
- * Compare two target lists for equality.
- * Returns true if they produce the same output columns.
- */
-/*
  * Translate PhysicalFilter to Result node with qual.
  * PhysicalFilter represents a runtime filter operation in the plan.
  */
