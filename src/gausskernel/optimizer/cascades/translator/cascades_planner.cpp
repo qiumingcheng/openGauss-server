@@ -30,6 +30,14 @@ PlannedStmt* cascades_planner(Query* parse, int cursorOptions, ParamListInfo bou
                              f->quals ? ((Node*)f->quals)->type : -1)));
     }
 
+    /* Check for SubLink in WHERE clause - subqueries not yet supported, fallback to standard planner */
+    if (parse != nullptr && parse->jointree != nullptr && parse->jointree->quals != nullptr) {
+        if (cascades::check_sublink_in_node(parse->jointree->quals)) {
+            ereport(WARNING, (errmsg("[CASCADES] ENTRY: SubLink found in WHERE, falling back to standard planner")));
+            return standard_planner(parse, cursorOptions, boundParams);
+        }
+    }
+
     PlannedStmt* result = NULL;
     PlannerGlobal* glob = NULL;
     PlannerInfo* root = NULL;
@@ -66,7 +74,13 @@ PlannedStmt* cascades_planner(Query* parse, int cursorOptions, ParamListInfo bou
     /* Setup optimizer data structures and preprocess query */
     setup_cascades_optimizer(root, parse);
 
-    /* Step 1: Query → OptExpression */
+    /* Step 1: Query → OptExpression
+     *
+     * Cascades optimizer currently does not support subqueries - when subquery exists,
+     * query_converter.convert() returns nullptr and we fallback to standard planner.
+     * This is safe because subquery planning requires special handling that Cascades
+     * optimizer hasn't implemented yet (e.g., subquery_planner integration, subplan rel).
+     */
     cascades::QueryToExprConverter query_converter;
     cascades::OptExpression* opt_expr = query_converter.convert(root, parse);
 

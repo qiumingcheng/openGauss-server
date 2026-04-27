@@ -20,6 +20,14 @@ OptExpression* QueryToExprConverter::convert(PlannerInfo* root, Query* parse) {
         return nullptr;
     }
 
+    /* Check for SubLink in WHERE clause - subqueries not yet supported */
+    if (parse->jointree != nullptr && parse->jointree->quals != nullptr) {
+        if (check_sublink_in_node(parse->jointree->quals)) {
+            ereport(WARNING, (errmsg("[CASCADES] convert: SubLink found in WHERE, returning nullptr")));
+            return nullptr;
+        }
+    }
+
     root_ = root;
     parse_ = parse;
 
@@ -317,17 +325,9 @@ OptExpression* QueryToExprConverter::translate_scan(PlannerInfo* root, Query* pa
         OptExpression* result = OptExpression::create(scan_op);
         return result;
     } else if (rte->rtekind == RTE_SUBQUERY) {
-        // Handle subquery RTE
-        // Note: We do NOT expand the subquery here. The subquery will be planned by
-        // SubqueryScanImplRule which calls subquery_planner() to create proper RelOptInfo.
-        if (rte->subquery != nullptr) {
-            // Create LogicalSubqueryScan operator with the subquery
-            // rel_ will be set by SubqueryScanImplRule after subquery_planner() runs
-            LogicalSubqueryScan* subquery_scan = NEW_EX(LogicalSubqueryScan, rtindex, rte->subquery);
-
-            OptExpression* scan_expr = OptExpression::create(subquery_scan);
-            return scan_expr;
-        }
+        /* Temporarily not supported: subqueries cause fallback to standard planner */
+        ereport(WARNING, (errmsg("[CASCADES] translate_scan: subquery not supported, returning nullptr")));
+        return nullptr;
     }
 
     return nullptr;
@@ -421,6 +421,54 @@ void QueryToExprConverter::derive_statistics(OptExpression* expr, RelOptInfo* re
     stats->set_width(rel->reltarget ? rel->reltarget->width : 0);
 
     expr->set_statistics(stats);
+}
+
+/*
+ * check_sublink_in_node - Check if a node tree contains any SubLink
+ *
+ * Used to detect subqueries in WHERE clause (e.g., WHERE age > (SELECT avg(age)...))
+ */
+bool check_sublink_in_node(Node* node) {
+    if (node == nullptr) {
+        return false;
+    }
+
+    if (IsA(node, SubLink)) {
+        return true;
+    }
+
+    if (IsA(node, List)) {
+        List* list = (List*)node;
+        ListCell* lc = NULL;
+        foreach (lc, list) {
+            if (check_sublink_in_node((Node*)lfirst(lc))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /* Recurse into common node types that may contain SubLink */
+    if (IsA(node, BoolExpr)) {
+        BoolExpr* bool_expr = (BoolExpr*)node;
+        return check_sublink_in_node((Node*)bool_expr->args);
+    }
+
+    if (IsA(node, FuncExpr)) {
+        FuncExpr* func = (FuncExpr*)node;
+        return check_sublink_in_node((Node*)func->args);
+    }
+
+    if (IsA(node, OpExpr)) {
+        OpExpr* op = (OpExpr*)node;
+        return check_sublink_in_node((Node*)op->args);
+    }
+
+    if (IsA(node, SubPlan)) {
+        return true;
+    }
+
+    return false;
 }
 
 }  // namespace cascades

@@ -12,6 +12,13 @@ namespace cascades {
 
 class OptExpression;
 
+/*
+ * check_sublink_in_node - Check if a node tree contains any SubLink
+ *
+ * Used to detect subqueries in WHERE clause (e.g., WHERE age > (SELECT avg(age)...))
+ */
+bool check_sublink_in_node(Node* node);
+
 /**
  * QueryToExprConverter - Converts OpenGauss Query parse tree to Cascades OptExpression tree
  *
