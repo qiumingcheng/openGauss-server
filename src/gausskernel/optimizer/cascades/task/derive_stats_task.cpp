@@ -1,5 +1,6 @@
 #include "derive_stats_task.h"
 #include "task_context.h"
+#include "../optimizer/optimizer_context.h"
 #include "../memo/group_expression.h"
 #include "../memo/group.h"
 #include "../statistics/statistics.h"
@@ -10,6 +11,9 @@
 #include "../operator/operators/logical_join.h"
 #include "../operator/operators/physical_hash_agg.h"
 #include "../operator/operators/logical_subquery_scan.h"
+#include "../operator/operators/physical_limit.h"
+#include "../operator/operators/logical_limit.h"
+#include "optimizer/clauses.h"
 #include "nodes/plannodes.h"
 #include <cstdint>
 
@@ -89,6 +93,11 @@ void DeriveStatsTask::derive_statistics_by_type(
 
         case OptExprOpType::PHYSICAL_EXCHANGE:
             derive_exchange_statistics(result_stats, children_stats);
+            break;
+
+        case OptExprOpType::LOGICAL_LIMIT:
+        case OptExprOpType::PHYSICAL_LIMIT:
+            derive_limit_statistics(result_stats, children_stats, op);
             break;
 
         default:
@@ -333,6 +342,70 @@ void DeriveStatsTask::derive_exchange_statistics(
         result_stats->copy_from(children_stats[0]);
     } else {
         result_stats->set_row_count(1000.0);
+    }
+}
+
+// ============================================================================
+// Limit: Apply LIMIT count to child statistics
+// ============================================================================
+
+void DeriveStatsTask::derive_limit_statistics(
+    Statistics* result_stats,
+    const std::vector<Statistics*>& children_stats,
+    OptExprOp* op) {
+
+    if (children_stats.empty() || children_stats[0] == nullptr) {
+        result_stats->set_row_count(1000.0);
+        return;
+    }
+
+    // Copy base statistics from child
+    result_stats->copy_from(children_stats[0]);
+
+    // Get limit count and offset
+    Node* limit_count = nullptr;
+    Node* limit_offset = nullptr;
+
+    // Try LogicalLimit first
+    LogicalLimit* logical_limit = dynamic_cast<LogicalLimit*>(op);
+    if (logical_limit != nullptr) {
+        limit_count = logical_limit->get_limit_count();
+        limit_offset = logical_limit->get_limit_offset();
+    } else {
+        // Try PhysicalLimit
+        PhysicalLimit* physical_limit = dynamic_cast<PhysicalLimit*>(op);
+        if (physical_limit != nullptr) {
+            limit_count = physical_limit->get_limit_count();
+            limit_offset = physical_limit->get_limit_offset();
+        }
+    }
+
+    ereport(WARNING, (errmsg("[CASCADES] DeriveStatsTask: Limit: limit_count=%p, type=%d, IsA(Const)=%d",
+                         (void*)limit_count, limit_count ? (int)nodeTag(limit_count) : -1,
+                         limit_count ? IsA(limit_count, Const) : 0)));
+
+    // Try to estimate the limit value using estimate_expression_value
+    // This handles cases where limit_count is a Param or complex expression
+    Node* estimated_limit = limit_count;
+    if (limit_count != nullptr) {
+        estimated_limit = estimate_expression_value(context_->get_optimizer_context()->get_root(), limit_count);
+    }
+
+    // Apply LIMIT selectivity
+    if (estimated_limit != nullptr && IsA(estimated_limit, Const)) {
+        Const* limit_const = (Const*)estimated_limit;
+        if (limit_const->constisnull == false && limit_const->constvalue > 0) {
+            int64 limit_val = DatumGetInt64(limit_const->constvalue);
+            double child_rows = result_stats->row_count();
+            ereport(WARNING, (errmsg("[CASCADES] DeriveStatsTask: Limit: limit_val=%ld, child_rows=%.0f",
+                                limit_val, child_rows)));
+            if (limit_val < child_rows) {
+                double selectivity = (double)limit_val / child_rows;
+                result_stats->apply_selectivity(selectivity);
+                ereport(WARNING, (errmsg("[CASCADES] DeriveStatsTask: Limit: new_rows=%.0f",
+                                    result_stats->row_count())));
+            }
+        }
     }
 }
 

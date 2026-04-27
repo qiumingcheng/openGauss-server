@@ -132,6 +132,9 @@ void setup_cascades_optimizer(PlannerInfo* root, Query* parse)
     add_base_rels_to_query(root, (Node*)parse->jointree, &checkDuplicate);
     bms_free(checkDuplicate);
 
+    /* Set size estimates (rows and widths) for each base relation */
+    set_base_rel_sizes(root, false);
+
     /* Preprocess qual conditions (convert single qual node to List) */
     preprocess_qual_conditions(root, (Node*)parse->jointree);
 

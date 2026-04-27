@@ -63,6 +63,9 @@ private:
                                 const std::vector<Statistics*>& children_stats);
     void derive_exchange_statistics(Statistics* result_stats,
                                     const std::vector<Statistics*>& children_stats);
+    void derive_limit_statistics(Statistics* result_stats,
+                                 const std::vector<Statistics*>& children_stats,
+                                 OptExprOp* op);
     void derive_default_statistics(Statistics* result_stats,
                                    const std::vector<Statistics*>& children_stats);
 

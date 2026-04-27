@@ -422,17 +422,17 @@ Plan* ExprToPlanConverter::translate_project(OptExpression* expr) {
         }
     }
 
+    // For SELECT * (target_list is NIL), no projection needed, return child directly
+    if (target_list == NIL) {
+        return child_plan;
+    }
+
     /*
      * Build new target list: convert Vars to reference child plan output
      * Original Vars have varno = RTE index, we need varno = position in child targetlist
      * This supports expressions like "id+id" by preserving the expression tree
      */
-    List* new_targetlist = NIL;
-    if (target_list != NIL) {
-        new_targetlist = convert_var_references(target_list, child_plan->targetlist);
-    } else {
-        new_targetlist = child_plan->targetlist;
-    }
+    List* new_targetlist = convert_var_references(target_list, child_plan->targetlist);
 
     // If child is an Agg node, return it directly instead of wrapping in Result.
     // Result nodes cannot handle Aggref expressions in their targetlist.
@@ -446,6 +446,40 @@ Plan* ExprToPlanConverter::translate_project(OptExpression* expr) {
     // Check if we can skip the Result layer: if new_targetlist equals child's targetlist,
     // we don't need an extra Project layer. This matches old optimizer's behavior
     // where Project is inlined when it doesn't change the output.
+    //
+    // For SELECT * case: both targetlists have same length and contain only Var nodes
+    // with matching varattno. The varno may differ (RTE index vs OUTER_VAR) due to
+    // how Var references are translated. We check if they are Var-equivalent.
+    if (list_length(target_list) == list_length(child_plan->targetlist)) {
+        bool all_vars_match = true;
+        ListCell *lc1 = list_head(target_list);
+        ListCell *lc2 = list_head(child_plan->targetlist);
+        for (int i = 0; i < list_length(target_list) && lc1 != NULL && lc2 != NULL; i++) {
+            TargetEntry *tle1 = (TargetEntry *)lfirst(lc1);
+            TargetEntry *tle2 = (TargetEntry *)lfirst(lc2);
+            if (tle1 == NULL || tle2 == NULL || tle1->expr == NULL || tle2->expr == NULL) {
+                all_vars_match = false;
+                break;
+            }
+            if (!IsA(tle1->expr, Var) || !IsA(tle2->expr, Var)) {
+                all_vars_match = false;
+                break;
+            }
+            Var *v1 = (Var *)tle1->expr;
+            Var *v2 = (Var *)tle2->expr;
+            // Compare varattno and vartype (varno may differ due to translation)
+            if (v1->varattno != v2->varattno || v1->vartype != v2->vartype) {
+                all_vars_match = false;
+                break;
+            }
+            lc1 = lnext(lc1);
+            lc2 = lnext(lc2);
+        }
+        if (all_vars_match) {
+            return child_plan;
+        }
+    }
+
     if (tlist_same_exprs(child_plan->targetlist, new_targetlist)) {
         // No change in targetlist, return child directly
         return child_plan;
@@ -758,6 +792,12 @@ Plan* ExprToPlanConverter::translate_limit(OptExpression* expr) {
     limit_plan->plan.targetlist = child_plan->targetlist;
     limit_plan->limitCount = limit_count;
     limit_plan->limitOffset = limit_offset;
+
+    /* Copy cost estimates from child plan */
+    limit_plan->plan.startup_cost = child_plan->startup_cost;
+    limit_plan->plan.total_cost = child_plan->total_cost;
+    limit_plan->plan.plan_rows = child_plan->plan_rows;
+    limit_plan->plan.plan_width = child_plan->plan_width;
 
     return (Plan*)limit_plan;
 }
