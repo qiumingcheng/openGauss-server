@@ -323,8 +323,8 @@ OptExpression* QueryToExprConverter::translate_scan(PlannerInfo* root, Query* pa
                 }
                 scan_op->set_output_columns(all_columns);
 
-                ereport(WARNING, (errmsg("[CASCADES] translate_scan: table_id=%d, output_columns=%d, reltarget=%d",
-                                     rtindex, scan_op->get_output_columns().size(),
+                ereport(WARNING, (errmsg("[CASCADES] translate_scan: table_id=%d, output_columns=%ld, reltarget=%d",
+                                     rtindex, (long)scan_op->get_output_columns().size(),
                                      rel->reltarget ? list_length(rel->reltarget->exprs) : 0)));
 
                 // If there are restriction clauses, create a LogicalFilter on top of the scan

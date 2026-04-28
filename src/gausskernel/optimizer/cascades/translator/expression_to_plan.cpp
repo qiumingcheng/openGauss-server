@@ -237,7 +237,7 @@ Plan* ExprToPlanConverter::translate_scan(OptExpression* expr) {
             Var* new_var = (Var*)copyObject(var);
             TargetEntry* tle = makeTargetEntry((Expr*)new_var, resno, NULL, false);
 
-            // Try to get sortgroupref from pathtarget first
+            // Try to get sortgroupref from path->pathtarget first
             Index sortgroupref = get_pathtarget_sortgroupref(path->pathtarget, idx);
 
             // If pathtarget doesn't have sortgroupref, try to find it from root_->parse->targetList
@@ -766,8 +766,21 @@ Plan* ExprToPlanConverter::translate_sort(OptExpression* expr) {
 
         // Get sort operator OID
         sort_plan->sortOperators[col_idx] = sgcl->sortop;
-        // Collation: use default (InvalidOid)
-        sort_plan->collations[col_idx] = InvalidOid;
+
+        // Get collation directly from expression type using get_typcollation
+        // This avoids issues with collation getting lost through Var transformation
+        Oid collation = InvalidOid;
+        ListCell* tl_cell2;
+        foreach(tl_cell2, child_plan->targetlist) {
+            TargetEntry* te = (TargetEntry*)lfirst(tl_cell2);
+            if (te->ressortgroupref == ref) {
+                Oid expr_type = exprType((Node*)te->expr);
+                collation = get_typcollation(expr_type);
+                break;
+            }
+        }
+        sort_plan->collations[col_idx] = collation;
+
         // Use nulls_first from SortGroupClause
         sort_plan->nullsFirst[col_idx] = sgcl->nulls_first;
 
