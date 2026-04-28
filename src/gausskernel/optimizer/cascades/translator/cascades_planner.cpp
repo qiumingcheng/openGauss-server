@@ -22,6 +22,9 @@
 #include "../property/physical_property_set.h"
 #include "../memo/opt_expression.h"
 
+/* External declaration - defined in planner.cpp */
+extern Node* preprocess_expression(PlannerInfo* root, Node* expr, int kind);
+
 PlannedStmt* cascades_planner(Query* parse, int cursorOptions, ParamListInfo boundParams)
 {
     if (parse != nullptr && parse->jointree != nullptr) {
@@ -151,6 +154,12 @@ void setup_cascades_optimizer(PlannerInfo* root, Query* parse)
 
     /* Preprocess qual conditions (convert single qual node to List) */
     preprocess_qual_conditions(root, (Node*)parse->jointree);
+
+    /* Preprocess HAVING qual like standard optimizer (planner.c:1754) */
+    if (parse->havingQual != nullptr) {
+        parse->havingQual = preprocess_expression(root, parse->havingQual, EXPRKIND_QUAL);
+        ereport(WARNING, (errmsg("[CASCADES] setup_cascades_optimizer: preprocessed havingQual")));
+    }
 
     /* Safety check: ensure f->quals is a List before deconstruct_jointree */
     if (parse->jointree != nullptr && IsA(parse->jointree, FromExpr)) {
