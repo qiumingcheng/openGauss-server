@@ -125,9 +125,8 @@ PhysicalPropertySet RequiredPropertyDeriver::derive_sort_child_property(
     const PhysicalPropertySet& parent_required) {
 
     // Sort operator adds ordering to its child
-    // Child can have any property - the sort will add the required ordering
-    // However, we should preserve the distribution requirement
-    return PhysicalPropertySet(parent_required.get_distribution());
+    // Child can have ANY property - the sort will add the required ordering
+    return PhysicalPropertySet();
 }
 
 PhysicalPropertySet RequiredPropertyDeriver::derive_exchange_child_property(

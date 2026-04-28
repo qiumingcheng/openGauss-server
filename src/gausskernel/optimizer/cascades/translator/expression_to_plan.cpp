@@ -14,6 +14,7 @@
 #include "optimizer/planmain.h"
 #include "optimizer/tlist.h"
 #include "optimizer/restrictinfo.h"
+#include "optimizer/cost.h"
 #include "utils/palloc.h"
 #include "utils/lsyscache.h"
 #include <stddef.h>
@@ -673,9 +674,18 @@ Plan* ExprToPlanConverter::translate_hash_agg(OptExpression* expr) {
         }
     }
 
-    agg_plan->numGroups = 1;
+agg_plan->numGroups = 1;
     agg_plan->groupingSets = NIL;
     agg_plan->chain = NIL;
+
+    // Copy cost from path
+    Path* path = hash_agg->get_path();
+    if (path != nullptr) {
+        agg_plan->plan.startup_cost = path->startup_cost;
+        agg_plan->plan.total_cost = path->total_cost;
+        agg_plan->plan.plan_rows = path->rows;
+        agg_plan->plan.plan_width = path->pathtarget ? (int)path->pathtarget->width : 0;
+    }
 
     return (Plan*)agg_plan;
 }
@@ -764,11 +774,20 @@ Plan* ExprToPlanConverter::translate_sort(OptExpression* expr) {
         col_idx++;
     }
 
-    // Initialize memory info (use default values)
+// Initialize memory info (use default values)
     sort_plan->mem_info.opMem = 0;
     sort_plan->mem_info.minMem = 0;
     sort_plan->mem_info.maxMem = 0;
     sort_plan->mem_info.regressCost = 0;
+
+// Copy cost from path
+    Path* path = static_cast<PhysicalOptExprOp*>(op)->get_path();
+    if (path != nullptr) {
+        sort_plan->plan.startup_cost = path->startup_cost;
+        sort_plan->plan.total_cost = path->total_cost;
+        sort_plan->plan.plan_rows = path->rows;
+        sort_plan->plan.plan_width = path->pathtarget ? (int)path->pathtarget->width : 0;
+    }
 
     return (Plan*)sort_plan;
 }

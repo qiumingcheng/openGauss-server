@@ -253,18 +253,9 @@ PhysicalPropertySet EnforceAndCostTask::derive_output_property(
         }
 
         case OptExprOpType::PHYSICAL_HASH_AGG: {
-            PhysicalHashAgg* hash_agg = static_cast<PhysicalHashAgg*>(op);
-            const std::vector<int>& group_keys = hash_agg->get_group_keys();
-            // Global aggregate (no group keys) produces unsorted output
-            if (group_keys.empty()) {
-                return PhysicalPropertySet();
-            }
-            OrderSpec spec;
-            for (int key : group_keys) {
-                spec.add_ordering(key, true);
-            }
-            SortProperty sort_prop(spec);
-            return PhysicalPropertySet(child_property.get_distribution(), sort_prop);
+            // HashAgg does NOT guarantee sorted output - it uses hashing
+            // Only return sort property if explicitly required
+            return PhysicalPropertySet(child_property.get_distribution());
         }
 
         case OptExprOpType::PHYSICAL_SORT_AGG: {
