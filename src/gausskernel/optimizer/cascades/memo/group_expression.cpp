@@ -124,7 +124,7 @@ bool GroupExpression::operator==(const GroupExpression& other) const {
     if (this == &other) {
         return true;
     }
-    if (op_ != other.op_) {
+    if (!op_->equals(other.op_)) {
         return false;
     }
     if (inputs_.size() != other.inputs_.size()) {

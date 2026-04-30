@@ -18,6 +18,7 @@ public:
     OptExprOp* clone() const override;
     size_t hash() const override;
     std::string to_string() const override;
+    bool equals(const OptExprOp* other) const override;
 
     Path* get_left_path() const { return left_path_; }
     Path* get_right_path() const { return right_path_; }

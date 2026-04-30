@@ -11,6 +11,7 @@ public:
     OptExprOp* clone() const override { return new PhysicalLimit(*this); }
     size_t hash() const override { return 0; }
     std::string to_string() const override { return "PhysicalLimit"; }
+    bool equals(const OptExprOp* other) const override;
 
     Node* get_limit_count() const { return limit_count_; }
     Node* get_limit_offset() const { return limit_offset_; }

@@ -32,4 +32,18 @@ std::string PhysicalHashAgg::to_string() const {
     return result;
 }
 
+bool PhysicalHashAgg::equals(const OptExprOp* other) const {
+    if (other == nullptr || get_type() != other->get_type()) {
+        return false;
+    }
+    const PhysicalHashAgg* other_agg = static_cast<const PhysicalHashAgg*>(other);
+    if (group_keys_ != other_agg->group_keys_) {
+        return false;
+    }
+    if (!equal(having_qual_, other_agg->having_qual_)) {
+        return false;
+    }
+    return true;
+}
+
 }  // namespace cascades

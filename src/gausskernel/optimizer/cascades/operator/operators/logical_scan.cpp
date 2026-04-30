@@ -1,4 +1,5 @@
 #include "logical_scan.h"
+#include "nodes/nodes.h"
 
 namespace cascades {
 
@@ -35,6 +36,23 @@ std::string LogicalScan::to_string() const {
     }
     result += ")";
     return result;
+}
+
+bool LogicalScan::equals(const OptExprOp* other) const {
+    if (other == nullptr || get_type() != other->get_type()) {
+        return false;
+    }
+    const LogicalScan* other_scan = static_cast<const LogicalScan*>(other);
+    if (table_id_ != other_scan->table_id_) {
+        return false;
+    }
+    if (!equal(qual_list_, other_scan->qual_list_)) {
+        return false;
+    }
+    if (!equal(sort_clause_, other_scan->sort_clause_)) {
+        return false;
+    }
+    return true;
 }
 
 }  // namespace cascades

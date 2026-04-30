@@ -65,6 +65,7 @@ public:
     virtual std::string to_string() const = 0;
     virtual size_t hash() const = 0;
     virtual OptExprOp* clone() const = 0;
+    virtual bool equals(const OptExprOp* other) const = 0;
 
 protected:
     OptExprOpType type_;

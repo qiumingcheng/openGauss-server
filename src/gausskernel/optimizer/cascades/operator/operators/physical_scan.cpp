@@ -44,4 +44,15 @@ std::string PhysicalScan::to_string() const {
     return "PhysicalScan";
 }
 
+bool PhysicalScan::equals(const OptExprOp* other) const {
+    if (other == nullptr || get_type() != other->get_type()) {
+        return false;
+    }
+    const PhysicalScan* other_scan = static_cast<const PhysicalScan*>(other);
+    if (relid_ != InvalidOid && other_scan->relid_ != InvalidOid) {
+        return relid_ == other_scan->relid_;
+    }
+    return table_id_ == other_scan->table_id_;
+}
+
 }  // namespace cascades

@@ -32,4 +32,15 @@ std::string PhysicalSubqueryScan::to_string() const {
     return "PhysicalSubqueryScan";
 }
 
+bool PhysicalSubqueryScan::equals(const OptExprOp* other) const {
+    if (other == nullptr || get_type() != other->get_type()) {
+        return false;
+    }
+    const PhysicalSubqueryScan* other_scan = static_cast<const PhysicalSubqueryScan*>(other);
+    if (!equal(subplan_params_, other_scan->subplan_params_)) {
+        return false;
+    }
+    return true;
+}
+
 }  // namespace cascades

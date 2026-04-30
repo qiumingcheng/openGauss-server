@@ -12,6 +12,7 @@ public:
     OptExprOp* clone() const override;
     size_t hash() const override;
     std::string to_string() const override;
+    bool equals(const OptExprOp* other) const override;
 
     Path* get_child_path() const { return child_path_; }
     void set_child_path(Path* p) { child_path_ = p; }

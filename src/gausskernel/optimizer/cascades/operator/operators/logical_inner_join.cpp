@@ -34,4 +34,27 @@ std::string LogicalInnerJoin::to_string() const {
     return "LogicalInnerJoin(keys=" + std::to_string(join_keys_.size()) + ")";
 }
 
+bool LogicalInnerJoin::equals(const OptExprOp* other) const {
+    if (other == nullptr || get_type() != other->get_type()) {
+        return false;
+    }
+    const LogicalInnerJoin* other_join = static_cast<const LogicalInnerJoin*>(other);
+    if (join_keys_ != other_join->join_keys_) {
+        return false;
+    }
+    if (left_join_keys_ != other_join->left_join_keys_) {
+        return false;
+    }
+    if (right_join_keys_ != other_join->right_join_keys_) {
+        return false;
+    }
+    if (join_type_ != other_join->join_type_) {
+        return false;
+    }
+    if (!equal(qual_, other_join->qual_)) {
+        return false;
+    }
+    return true;
+}
+
 }  // namespace cascades

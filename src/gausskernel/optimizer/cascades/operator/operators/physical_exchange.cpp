@@ -23,4 +23,15 @@ std::string PhysicalExchange::to_string() const {
     return "PhysicalExchange(type=" + std::to_string(static_cast<int>(distribution_type_)) + ")";
 }
 
+bool PhysicalExchange::equals(const OptExprOp* other) const {
+    if (other == nullptr || get_type() != other->get_type()) {
+        return false;
+    }
+    const PhysicalExchange* other_exchange = static_cast<const PhysicalExchange*>(other);
+    if (distribution_type_ != other_exchange->distribution_type_) {
+        return false;
+    }
+    return true;
+}
+
 }  // namespace cascades

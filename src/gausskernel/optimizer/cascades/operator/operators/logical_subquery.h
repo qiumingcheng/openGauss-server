@@ -11,6 +11,7 @@ public:
     OptExprOp* clone() const override;
     size_t hash() const override;
     std::string to_string() const override;
+    bool equals(const OptExprOp* other) const override;
 
     int get_subquery_id() const { return subquery_id_; }
     void set_subquery_id(int id) { subquery_id_ = id; }

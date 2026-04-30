@@ -19,6 +19,7 @@ public:
     OptExprOp* clone() const override;
     size_t hash() const override;
     std::string to_string() const override;
+    bool equals(const OptExprOp* other) const override;
 
     int get_table_id() const { return table_id_; }
     Oid get_relid() const { return relid_; }

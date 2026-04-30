@@ -31,4 +31,18 @@ std::string PhysicalMergeJoin::to_string() const {
     return "PhysicalMergeJoin";
 }
 
+bool PhysicalMergeJoin::equals(const OptExprOp* other) const {
+    if (other == nullptr || get_type() != other->get_type()) {
+        return false;
+    }
+    const PhysicalMergeJoin* other_join = static_cast<const PhysicalMergeJoin*>(other);
+    if (build_keys_ != other_join->build_keys_) {
+        return false;
+    }
+    if (probe_keys_ != other_join->probe_keys_) {
+        return false;
+    }
+    return true;
+}
+
 }  // namespace cascades

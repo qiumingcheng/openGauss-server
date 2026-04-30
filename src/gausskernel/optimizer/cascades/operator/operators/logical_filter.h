@@ -17,6 +17,7 @@ public:
     OptExprOp* clone() const override { return new LogicalFilter(*this); }
     size_t hash() const override { return 0; }
     std::string to_string() const override { return "LogicalFilter"; }
+    bool equals(const OptExprOp* other) const override;
 
     // Qual list for expressions (List* of RestrictInfo)
     List* get_qual_list() const { return qual_list_; }

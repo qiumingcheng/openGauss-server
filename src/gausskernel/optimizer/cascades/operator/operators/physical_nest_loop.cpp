@@ -21,4 +21,12 @@ std::string PhysicalNestLoop::to_string() const {
     return "PhysicalNestLoop";
 }
 
+bool PhysicalNestLoop::equals(const OptExprOp* other) const {
+    if (other == nullptr || get_type() != other->get_type()) {
+        return false;
+    }
+    // PhysicalNestLoop has no additional members to compare
+    return true;
+}
+
 }  // namespace cascades

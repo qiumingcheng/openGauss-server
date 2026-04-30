@@ -27,4 +27,15 @@ std::string LogicalProject::to_string() const {
     return "LogicalProject(cols=" + std::to_string(list_length(target_list_)) + ")";
 }
 
+bool LogicalProject::equals(const OptExprOp* other) const {
+    if (other == nullptr || get_type() != other->get_type()) {
+        return false;
+    }
+    const LogicalProject* other_proj = static_cast<const LogicalProject*>(other);
+    if (!equal(target_list_, other_proj->target_list_)) {
+        return false;
+    }
+    return true;
+}
+
 }  // namespace cascades

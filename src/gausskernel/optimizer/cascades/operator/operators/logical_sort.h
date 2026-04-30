@@ -11,6 +11,7 @@ public:
     OptExprOp* clone() const override { return new LogicalSort(*this); }
     size_t hash() const override { return 0; }
     std::string to_string() const override { return "LogicalSort"; }
+    bool equals(const OptExprOp* other) const override;
 
     void* get_sort_clause() const { return sort_clause_; }
     void set_sort_clause(void* clause) { sort_clause_ = clause; }

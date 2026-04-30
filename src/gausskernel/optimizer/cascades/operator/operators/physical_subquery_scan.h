@@ -20,6 +20,7 @@ public:
     OptExprOp* clone() const override;
     size_t hash() const override;
     std::string to_string() const override;
+    bool equals(const OptExprOp* other) const override;
 
     // Path and root for subquery execution
     Path* get_subquery_path() const { return subquery_path_; }

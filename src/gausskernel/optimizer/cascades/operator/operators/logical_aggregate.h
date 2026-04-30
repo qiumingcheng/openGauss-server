@@ -12,6 +12,7 @@ public:
     OptExprOp* clone() const override;
     size_t hash() const override;
     std::string to_string() const override;
+    bool equals(const OptExprOp* other) const override;
 
     const std::vector<int>& get_group_keys() const { return group_keys_; }
     void set_group_keys(const std::vector<int>& keys) { group_keys_ = keys; }

@@ -36,6 +36,7 @@ public:
     }
 
     std::string to_string() const override { return "PhysicalFilter"; }
+    bool equals(const OptExprOp* other) const override;
 
     /**
      * Get the qual list (List* of RestrictInfo)

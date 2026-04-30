@@ -38,4 +38,21 @@ std::string LogicalSubquery::to_string() const {
     return result;
 }
 
+bool LogicalSubquery::equals(const OptExprOp* other) const {
+    if (other == nullptr || get_type() != other->get_type()) {
+        return false;
+    }
+    const LogicalSubquery* other_subquery = static_cast<const LogicalSubquery*>(other);
+    if (subquery_id_ != other_subquery->subquery_id_) {
+        return false;
+    }
+    if (is_correlated_ != other_subquery->is_correlated_) {
+        return false;
+    }
+    if (output_columns_ != other_subquery->output_columns_) {
+        return false;
+    }
+    return true;
+}
+
 }  // namespace cascades

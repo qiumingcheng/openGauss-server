@@ -32,4 +32,18 @@ std::string LogicalSubqueryScan::to_string() const {
     return "LogicalSubqueryScan(rtindex=" + std::to_string(rtindex_) + ")";
 }
 
+bool LogicalSubqueryScan::equals(const OptExprOp* other) const {
+    if (other == nullptr || get_type() != other->get_type()) {
+        return false;
+    }
+    const LogicalSubqueryScan* other_scan = static_cast<const LogicalSubqueryScan*>(other);
+    if (rtindex_ != other_scan->rtindex_) {
+        return false;
+    }
+    if (!equal(subquery_, other_scan->subquery_)) {
+        return false;
+    }
+    return true;
+}
+
 }  // namespace cascades

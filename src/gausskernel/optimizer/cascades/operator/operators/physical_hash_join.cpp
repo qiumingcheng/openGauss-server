@@ -31,4 +31,18 @@ std::string PhysicalHashJoin::to_string() const {
     return "PhysicalHashJoin";
 }
 
+bool PhysicalHashJoin::equals(const OptExprOp* other) const {
+    if (other == nullptr || get_type() != other->get_type()) {
+        return false;
+    }
+    const PhysicalHashJoin* other_join = static_cast<const PhysicalHashJoin*>(other);
+    if (build_keys_ != other_join->build_keys_) {
+        return false;
+    }
+    if (probe_keys_ != other_join->probe_keys_) {
+        return false;
+    }
+    return true;
+}
+
 }  // namespace cascades

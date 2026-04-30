@@ -199,8 +199,8 @@ std::vector<OptExpression*> SortImplRule::transform(
     ereport(WARNING, (errmsg("[CASCADES] SortImplRule: generated PhysicalSort path")));
 
     // Path 2: child tree with sort requirement - if index can provide sorted output
-    // Clone the child tree and set sort requirement on the LogicalScan
-    // IndexScanImplRule will check sort requirement and generate PhysicalScan with matching IndexPath
+    // Clone the child tree and set sort requirement on the LogicalScan.
+    // IndexScanImplRule will check sort requirement and generate PhysicalScan with matching IndexPath.
     if (can_use_index_for_sort(child, sort_clause, context)) {
         OptExpression* alternative_child = clone_expression_tree(child, sort_clause);
         results.push_back(alternative_child);

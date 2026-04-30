@@ -31,4 +31,21 @@ std::string LogicalAggregate::to_string() const {
     return result;
 }
 
+bool LogicalAggregate::equals(const OptExprOp* other) const {
+    if (other == nullptr || get_type() != other->get_type()) {
+        return false;
+    }
+    const LogicalAggregate* other_aggr = static_cast<const LogicalAggregate*>(other);
+    if (group_keys_ != other_aggr->group_keys_) {
+        return false;
+    }
+    if (!equal(having_qual_, other_aggr->having_qual_)) {
+        return false;
+    }
+    if (!equal(target_list_, other_aggr->target_list_)) {
+        return false;
+    }
+    return true;
+}
+
 }  // namespace cascades
