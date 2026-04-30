@@ -11,6 +11,7 @@
 #include "../optimizer/optimizer_context.h"
 #include "../operator/operators/physical_exchange.h"
 #include "../operator/operators/physical_sort.h"
+#include "../operator/operators/physical_scan.h"
 #include "../operator/operators/physical_hash_agg.h"
 #include "../operator/operators/physical_merge_join.h"
 #include "../property/required_property_deriver.h"
@@ -225,16 +226,28 @@ PhysicalPropertySet EnforceAndCostTask::derive_output_property(
 
     switch (op->get_type()) {
         case OptExprOpType::PHYSICAL_SCAN: {
-            // Scan produces ANY property (no sort, no specific distribution)
+            // Scan output property depends on the underlying Path:
+            // - IndexScan with pathkeys: output is sorted
+            // - SeqScan/BitmapScan: output is unsorted
+            PhysicalScan* scan = static_cast<PhysicalScan*>(op);
+            Path* path = scan->get_path();
+            if (path != nullptr && path->pathkeys != NIL) {
+                // IndexScan with ordered pathkeys - output is sorted
+                SortProperty sort_prop = build_sort_property_from_pathkeys(path->pathkeys);
+                return PhysicalPropertySet(DistributionProperty(DistributionType::ANY), sort_prop);
+            }
+            // Otherwise: unsorted output
             return PhysicalPropertySet();
         }
 
         case OptExprOpType::PHYSICAL_SORT: {
-            // Sort ensures output is sorted by the required sort keys
+            // Sort ensures output is sorted by its sort clause
             // Preserve distribution from child
-            if (required_property_.has_sort()) {
-                return PhysicalPropertySet(child_property.get_distribution(),
-                                           required_property_.get_sort());
+            PhysicalSort* sort_op = static_cast<PhysicalSort*>(op);
+            void* sort_clause = sort_op->get_sort_clause();
+            if (sort_clause != nullptr) {
+                SortProperty sort_prop = build_sort_property_from_sort_clause(sort_clause);
+                return PhysicalPropertySet(child_property.get_distribution(), sort_prop);
             }
             return child_property;
         }
@@ -471,6 +484,43 @@ void EnforceAndCostTask::update_cost_upper_bound(double cost) const {
 std::string EnforceAndCostTask::to_string() const {
     return "EnforceAndCostTask for group " + std::to_string(group_->id()) +
            " property=" + required_property_.to_string();
+}
+
+SortProperty EnforceAndCostTask::build_sort_property_from_pathkeys(List* pathkeys) const
+{
+    if (pathkeys == NIL) {
+        return SortProperty();
+    }
+
+    OrderSpec spec;
+    ListCell* lc = nullptr;
+    foreach (lc, pathkeys) {
+        PathKey* pk = static_cast<PathKey*>(lfirst(lc));
+        // Use column_id from equivalence class member (simplified)
+        // In full implementation, would map pk to actual column
+        int column_id = 0;  // placeholder
+        bool ascending = (pk->pk_strategy == BTLessStrategyNumber);
+        spec.add_ordering(column_id, ascending);
+    }
+    return SortProperty(spec);
+}
+
+SortProperty EnforceAndCostTask::build_sort_property_from_sort_clause(void* sort_clause) const
+{
+    if (sort_clause == nullptr) {
+        return SortProperty();
+    }
+
+    List* clauses = static_cast<List*>(sort_clause);
+    OrderSpec spec;
+    ListCell* lc = nullptr;
+    foreach (lc, clauses) {
+        SortGroupClause* sgcl = static_cast<SortGroupClause*>(lfirst(lc));
+        int column_id = sgcl->tleSortGroupRef;  // Use sort group ref as column id
+        bool ascending = (sgcl->sortop == BTLessStrategyNumber);
+        spec.add_ordering(column_id, ascending);
+    }
+    return SortProperty(spec);
 }
 
 }  // namespace cascades

@@ -32,7 +32,6 @@ OptimizerContext::OptimizerContext(PlannerInfo* root, MemoryContext context)
     rule_set_.add_rule(OuterJoinSimplifyRule::instance());
     rule_set_.add_rule(CrossJoinEliminationRule::instance());
     rule_set_.add_rule(DuplicateJoinEliminationRule::instance());
-    // SortEliminationRule removed: Sort elimination logic moved to EnforceAndCostTask
     rule_set_.add_rule(AggregationSimplifyRule::instance());
     rule_set_.add_rule(SubqueryUnnestRule::instance());
 

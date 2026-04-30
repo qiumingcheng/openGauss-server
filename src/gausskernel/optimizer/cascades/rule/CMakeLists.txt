@@ -17,7 +17,6 @@ set(CASCADES_RULES_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/join_commutativity_rule.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/outer_join_simplify_rule.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/predicate_push_down_rule.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/sort_elimination_rule.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/subquery_unnest_rule.cpp
     # Implementation rules
     ${CMAKE_CURRENT_SOURCE_DIR}/filter_impl_rule.cpp

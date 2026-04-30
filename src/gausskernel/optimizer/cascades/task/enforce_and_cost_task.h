@@ -1,7 +1,11 @@
 #pragma once
 #include "optimizer_task.h"
 #include "../property/physical_property_set.h"
+#include "../property/sort_property.h"
 #include <utility>
+
+// Forward declarations
+struct List;
 
 namespace cascades {
 
@@ -119,6 +123,16 @@ private:
      * @param cost The current best cost
      */
     void update_cost_upper_bound(double cost) const;
+
+    /**
+     * Build SortProperty from PathKey list
+     */
+    SortProperty build_sort_property_from_pathkeys(List* pathkeys) const;
+
+    /**
+     * Build SortProperty from SortGroupClause list
+     */
+    SortProperty build_sort_property_from_sort_clause(void* sort_clause) const;
 
 private:
     Group* group_;
