@@ -59,6 +59,7 @@ set(CASCADES_OPERATOR_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/operator/operators/physical_sort.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/operator/operators/physical_limit.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/operator/operators/physical_subquery_scan.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/operator/operators/physical_passthrough.cpp
 )
 
 # Rule sources (transformation + implementation merged in rule/)

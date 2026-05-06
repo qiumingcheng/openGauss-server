@@ -71,6 +71,13 @@ private:
         const PhysicalPropertySet& parent_required);
 
     /**
+     * Derive child required property for PhysicalPassthrough
+     * Child inherits the parent's required property (pass through)
+     */
+    PhysicalPropertySet derive_passthrough_child_property(
+        const PhysicalPropertySet& parent_required);
+
+    /**
      * Derive child required property for PhysicalExchange
      * Child can have any distribution (exchange redistributes)
      */

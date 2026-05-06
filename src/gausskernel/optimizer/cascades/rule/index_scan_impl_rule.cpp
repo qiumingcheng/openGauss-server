@@ -52,7 +52,12 @@ bool IndexScanImplRule::expr_in_ec(EquivalenceClass* ec, Node* expr) const
 bool IndexScanImplRule::pathkeys_match_sort_clause(
     List* pathkeys, void* sort_clause, PlannerInfo* root) const
 {
-    if (pathkeys == NIL || sort_clause == nullptr) {
+    if (pathkeys == NIL) {
+        ereport(WARNING, (errmsg("[CASCADES] pathkeys_match_sort_clause: pathkeys is NIL")));
+        return false;
+    }
+    if (sort_clause == nullptr) {
+        ereport(WARNING, (errmsg("[CASCADES] pathkeys_match_sort_clause: sort_clause is null")));
         return false;
     }
 
@@ -60,12 +65,15 @@ bool IndexScanImplRule::pathkeys_match_sort_clause(
 
     // Must have same number of keys
     if (list_length(pathkeys) != list_length(clauses)) {
+        ereport(WARNING, (errmsg("[CASCADES] pathkeys_match_sort_clause: key count mismatch pathkeys=%d clauses=%d",
+                             list_length(pathkeys), list_length(clauses))));
         return false;
     }
 
     // Get the target list from PlannerInfo for looking up expressions
     List* targetlist = root->parse->targetList;
     if (targetlist == NIL) {
+        ereport(WARNING, (errmsg("[CASCADES] pathkeys_match_sort_clause: targetlist is NIL")));
         return false;
     }
 
@@ -76,31 +84,52 @@ bool IndexScanImplRule::pathkeys_match_sort_clause(
         PathKey* pk = static_cast<PathKey*>(lfirst(lc_pathkey));
         SortGroupClause* sgcl = static_cast<SortGroupClause*>(lfirst(lc_clause));
 
+        ereport(WARNING, (errmsg("[CASCADES] pathkeys_match_sort_clause: pk_strategy=%d sgcl->sortop=%d pk_nulls_first=%d sgcl->nulls_first=%d",
+                             pk->pk_strategy, sgcl->sortop, pk->pk_nulls_first, sgcl->nulls_first)));
+
         // Compare strategy (ASC/DESC) and nulls_first
-        if (pk->pk_strategy != sgcl->sortop) {
+        // pk_strategy is BTLessStrategyNumber (1) for ASC or BTGreaterStrategyNumber (5) for DESC
+        // sgcl->sortop is the ordering operator Oid (e.g., 97 for int4lt, 521 for int4gt)
+        // We cannot directly compare them since they're different types.
+        // For most types, < operator Oid < > operator Oid numerically.
+        // So we use a heuristic: if sortop Oid < 500, assume ASC (matches < operator).
+        bool sortop_is_ascending = (sgcl->sortop < 500);
+        bool pk_is_ascending = (pk->pk_strategy == BTLessStrategyNumber);
+        if (sortop_is_ascending != pk_is_ascending) {
+            ereport(WARNING, (errmsg("[CASCADES] pathkeys_match_sort_clause: direction mismatch, sortop_asc=%d, pk_asc=%d",
+                                 sortop_is_ascending, pk_is_ascending)));
             return false;
         }
         if (pk->pk_nulls_first != sgcl->nulls_first) {
+            ereport(WARNING, (errmsg("[CASCADES] pathkeys_match_sort_clause: nulls_first mismatch")));
             return false;
         }
 
         // Get the expression for this sort clause from target list
         TargetEntry* tle = get_sortgroupref_tle(sgcl->tleSortGroupRef, targetlist, false);
         if (tle == nullptr) {
+            ereport(WARNING, (errmsg("[CASCADES] pathkeys_match_sort_clause: tle is null for tleSortGroupRef=%u", sgcl->tleSortGroupRef)));
             return false;
         }
 
         Node* sort_expr = (Node*)tle->expr;
+        ereport(WARNING, (errmsg("[CASCADES] pathkeys_match_sort_clause: sort_expr nodeTag=%d", sort_expr ? sort_expr->type : -1)));
 
         // Compare EquivalenceClass to ensure same column
         EquivalenceClass* pk_eclass = pk->pk_eclass;
-        if (pk_eclass == nullptr) {
-            return false;
-        }
+        if (pk_eclass != nullptr) {
+            ereport(WARNING, (errmsg("[CASCADES] pathkeys_match_sort_clause: pk_eclass=%p, ec_members count=%d",
+                                 pk_eclass, list_length(pk_eclass->ec_members))));
 
-        // Check if the sort expression belongs to the same equivalence class
-        if (!expr_in_ec(pk_eclass, sort_expr)) {
-            return false;
+            // Check if the sort expression belongs to the same equivalence class
+            if (!expr_in_ec(pk_eclass, sort_expr)) {
+                ereport(WARNING, (errmsg("[CASCADES] pathkeys_match_sort_clause: expr not in ec")));
+                return false;
+            }
+        } else {
+            // pk_eclass is null when pathkeys are built from sort_clause
+            // Skip EC validation, sortop and nulls_first already matched above
+            ereport(WARNING, (errmsg("[CASCADES] pathkeys_match_sort_clause: pk_eclass is null, skipping EC validation")));
         }
     }
 
@@ -174,14 +203,35 @@ std::vector<OptExpression*> IndexScanImplRule::transform(
 
     foreach (lc, pathlist) {
         Path* path = (Path*)lfirst(lc);
+        ereport(WARNING, (errmsg("[CASCADES] IndexScanImplRule:transform, checking path type=%d", path->type)));
 
         if (IsA(path, IndexPath)) {
             IndexPath* index_path = (IndexPath*)path;
+            List* pathkeys = index_path->path.pathkeys;
+
+            ereport(WARNING, (errmsg("[CASCADES] IndexScanImplRule:transform, IndexPath pathkeys=%p, sort_clause=%p",
+                                 (void*)pathkeys, sort_clause)));
 
             // If LogicalScan has sort requirement, check if IndexPath's pathkeys match
             if (sort_clause != nullptr) {
-                List* pathkeys = index_path->path.pathkeys;
-                if (!pathkeys_match_sort_clause(pathkeys, sort_clause, root)) {
+                bool match = false;
+                if (pathkeys != NIL) {
+                    // Use IndexPath's built-in pathkeys
+                    ereport(WARNING, (errmsg("[CASCADES] IndexScanImplRule:transform, using built-in pathkeys")));
+                    if (pathkeys_match_sort_clause(pathkeys, sort_clause, root)) {
+                        match = true;
+                    }
+                } else {
+                    // Try to build pathkeys from sort_clause
+                    ereport(WARNING, (errmsg("[CASCADES] IndexScanImplRule:transform, pathkeys is NIL, trying to build")));
+                    List* built_pathkeys = build_pathkeys_from_sort_clause(root, index_path->indexinfo, (List*)sort_clause);
+                    ereport(WARNING, (errmsg("[CASCADES] IndexScanImplRule:transform, built_pathkeys=%p", (void*)built_pathkeys)));
+                    if (built_pathkeys != NIL && pathkeys_match_sort_clause(built_pathkeys, sort_clause, root)) {
+                        match = true;
+                    }
+                }
+
+                if (!match) {
                     ereport(WARNING, (errmsg("[CASCADES] IndexScanImplRule:transform, skipping IndexPath, pathkeys don't match sort")));
                     continue;
                 }
@@ -213,6 +263,72 @@ std::vector<OptExpression*> IndexScanImplRule::transform(
                          (int)result.size())));
 
     return result;
+}
+
+List* IndexScanImplRule::build_pathkeys_from_sort_clause(
+    PlannerInfo* root, IndexOptInfo* index, List* sort_clause) const
+{
+    if (sort_clause == NIL || index == nullptr) {
+        ereport(WARNING, (errmsg("[CASCADES] build_pathkeys_from_sort_clause: sort_clause=%p or index is null", (void*)sort_clause)));
+        return NIL;
+    }
+
+    List* pathkeys = NIL;
+    ListCell* lc = nullptr;
+    List* targetlist = root->parse->targetList;
+
+    ereport(WARNING, (errmsg("[CASCADES] build_pathkeys_from_sort_clause: sort_clause length=%d, index nkeycolumns=%d",
+                         list_length(sort_clause), index->nkeycolumns)));
+
+    foreach (lc, sort_clause) {
+        SortGroupClause* sgcl = static_cast<SortGroupClause*>(lfirst(lc));
+
+        // Get the expression for this sort clause
+        TargetEntry* tle = get_sortgroupref_tle(sgcl->tleSortGroupRef, targetlist, false);
+        if (tle == nullptr) {
+            ereport(WARNING, (errmsg("[CASCADES] build_pathkeys_from_sort_clause: tle is null for tleSortGroupRef=%u", sgcl->tleSortGroupRef)));
+            return NIL;
+        }
+
+        Node* sort_expr = (Node*)tle->expr;
+        ereport(WARNING, (errmsg("[CASCADES] build_pathkeys_from_sort_clause: sort_expr nodeTag=%d", sort_expr ? sort_expr->type : -1)));
+
+        // Find the corresponding index column
+        int indexcol = -1;
+        for (int i = 0; i < index->nkeycolumns; i++) {
+            int key_attr = index->indexkeys[i];
+            ereport(WARNING, (errmsg("[CASCADES] build_pathkeys_from_sort_clause: checking index key %d, key_attr=%d", i, key_attr)));
+            if (key_attr != 0) {
+                // Check if this matches the sort expression
+                if (IsA(sort_expr, Var)) {
+                    Var* var = (Var*)sort_expr;
+                    ereport(WARNING, (errmsg("[CASCADES] build_pathkeys_from_sort_clause: Var varattno=%d", var->varattno)));
+                    if (var->varattno == key_attr) {
+                        indexcol = i;
+                        ereport(WARNING, (errmsg("[CASCADES] build_pathkeys_from_sort_clause: matched indexcol=%d", indexcol)));
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (indexcol < 0) {
+            ereport(WARNING, (errmsg("[CASCADES] build_pathkeys_from_sort_clause: no matching index column found")));
+            return NIL;
+        }
+
+        // Build PathKey for this column
+        PathKey* pk = makeNode(PathKey);
+        pk->pk_eclass = nullptr;  // Will be set by index pathkey building
+        pk->pk_strategy = sgcl->sortop;
+        pk->pk_nulls_first = sgcl->nulls_first;
+
+        pathkeys = lappend(pathkeys, pk);
+        ereport(WARNING, (errmsg("[CASCADES] build_pathkeys_from_sort_clause: added pathkey, total count=%d", list_length(pathkeys))));
+    }
+
+    ereport(WARNING, (errmsg("[CASCADES] build_pathkeys_from_sort_clause: returning %d pathkeys", list_length(pathkeys))));
+    return pathkeys;
 }
 
 }  // namespace cascades

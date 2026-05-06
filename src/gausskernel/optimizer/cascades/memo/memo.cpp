@@ -417,7 +417,14 @@ void Memo::derive_all_group_logical_property() {
 
 OptExpression* Memo::extract_best_plan(const PhysicalPropertySet& required_property) {
     GroupExpression* best_expr = root_group_->get_best_expression(required_property);
+    ereport(WARNING, (errmsg("[CASCADES] extract_best_plan: required_property=%s", required_property.to_string().c_str())));
+    ereport(WARNING, (errmsg("[CASCADES] extract_best_plan: best_expr=%p", (void*)best_expr)));
     if (best_expr == nullptr) {
+        // Log all best expressions in root_group for debugging
+        ereport(WARNING, (errmsg("[CASCADES] extract_best_plan: no best_expr for required_property, root_group id=%d", root_group_->id())));
+        // Try to find any best expression with empty property
+        GroupExpression* any_best = root_group_->get_best_expression(PhysicalPropertySet());
+        ereport(WARNING, (errmsg("[CASCADES] extract_best_plan: best_expr for empty property=%p", (void*)any_best)));
         return nullptr;
     }
     return build_best_plan(best_expr, required_property);

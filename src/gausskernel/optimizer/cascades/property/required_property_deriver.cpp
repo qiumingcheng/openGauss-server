@@ -44,6 +44,14 @@ std::vector<PhysicalPropertySet> RequiredPropertyDeriver::derive_child_required_
             break;
         }
 
+        case OptExprOpType::PHYSICAL_PASSTHROUGH: {
+            // PassThrough operator passes through the required property to child
+            // It does not modify or enforce any property, just a placeholder
+            // Child must satisfy whatever the parent requires
+            result.push_back(derive_passthrough_child_property(parent_required));
+            break;
+        }
+
         case OptExprOpType::PHYSICAL_EXCHANGE: {
             // Exchange requires child with any distribution (redistributes)
             result.push_back(derive_exchange_child_property(parent_required));
@@ -127,6 +135,14 @@ PhysicalPropertySet RequiredPropertyDeriver::derive_sort_child_property(
     // Sort operator adds ordering to its child
     // Child can have ANY property - the sort will add the required ordering
     return PhysicalPropertySet();
+}
+
+PhysicalPropertySet RequiredPropertyDeriver::derive_passthrough_child_property(
+    const PhysicalPropertySet& parent_required) {
+
+    // PassThrough operator passes through the required property
+    // Child must satisfy whatever the parent requires
+    return parent_required;
 }
 
 PhysicalPropertySet RequiredPropertyDeriver::derive_exchange_child_property(

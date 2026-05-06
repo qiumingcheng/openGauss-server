@@ -67,10 +67,15 @@ void EnforceAndCostTask::execute() {
         for (int i = 0; i < expr->arity(); ++i) {
             Group* child_group = expr->input_at(i);
 
-            // Derive child's required property from parent
-            PhysicalPropertySet child_required = property_deriver
-                .derive_child_required_properties(expr, required_property_)[i];
-
+            // First check if GroupExpression has explicitly set children_required_property_
+            // This is set by SortImplRule for PassThrough operator
+            PhysicalPropertySet child_required;
+            const PhysicalPropertySet* explicit_prop = expr->get_children_required_property();
+            if (explicit_prop != nullptr) {
+                child_required = *explicit_prop;
+            } else {
+                child_required = property_deriver.derive_child_required_properties(expr, required_property_)[i];
+            }
             ereport(WARNING, (errmsg("[CASCADES] EnforceAndCostTask: child %d, group id=%d, child_required=%s",
                                  i, child_group->id(), child_required.to_string().c_str())));
 

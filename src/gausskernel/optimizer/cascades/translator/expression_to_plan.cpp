@@ -178,6 +178,16 @@ Plan* ExprToPlanConverter::translate_expression(OptExpression* expr) {
         return translate_sort(expr);
     }
 
+    // Handle PhysicalPassthrough - no physical node, just pass through child's plan
+    // PassThrough is used by SortImplRule to represent "sort elimination via index"
+    // The child must already produce sorted output, so no additional node needed
+    if (phys_op->get_type() == OptExprOpType::PHYSICAL_PASSTHROUGH) {
+        if (expr->arity() >= 1) {
+            return translate_expression(expr->input_at(0));
+        }
+        return nullptr;
+    }
+
     // Handle other physical operators with Path
     Path* path = phys_op->get_path();
     if (path != nullptr && root_ != nullptr) {

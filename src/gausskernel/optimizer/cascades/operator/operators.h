@@ -21,3 +21,4 @@
 #include "operators/logical_limit.h"
 #include "operators/physical_limit.h"
 #include "operators/logical_sort.h"
+#include "operators/physical_passthrough.h"

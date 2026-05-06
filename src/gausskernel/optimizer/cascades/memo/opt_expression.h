@@ -50,6 +50,9 @@ public:
     double get_cost() const { return cost_; }
     void set_cost(double cost) { cost_ = cost; }
 
+    void* get_sort_requirement() const { return sort_requirement_; }
+    void set_sort_requirement(void* req) { sort_requirement_ = req; }
+
     ColumnRefSet get_child_output_columns(int index) const;
 
     std::string to_string() const;
@@ -63,6 +66,7 @@ private:
     LogicalProperty* property_;
     Statistics* statistics_;
     double cost_;
+    void* sort_requirement_ = nullptr;
 };
 
 }

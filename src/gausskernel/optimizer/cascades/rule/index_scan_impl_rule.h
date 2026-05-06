@@ -23,6 +23,7 @@ private:
     List* get_available_indexes(RelOptInfo* rel) const;
     bool expr_in_ec(EquivalenceClass* ec, Node* expr) const;
     bool pathkeys_match_sort_clause(List* pathkeys, void* sort_clause, PlannerInfo* root) const;
+    List* build_pathkeys_from_sort_clause(PlannerInfo* root, IndexOptInfo* index, List* sort_clause) const;
 };
 
 }  // namespace cascades

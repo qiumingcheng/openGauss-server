@@ -1,6 +1,7 @@
 #include "sort_impl_rule.h"
 #include "../operator/operators.h"
 #include "../operator/operators/physical_sort.h"
+#include "../operator/operators/physical_passthrough.h"
 #include "../memo/opt_expression.h"
 #include "../optimizer/optimizer_context.h"
 #include "optimizer/pathnode.h"
@@ -198,14 +199,18 @@ std::vector<OptExpression*> SortImplRule::transform(
 
     ereport(WARNING, (errmsg("[CASCADES] SortImplRule: generated PhysicalSort path")));
 
-    // Path 2: child tree with sort requirement - if index can provide sorted output
-    // Clone the child tree and set sort requirement on the LogicalScan.
-    // IndexScanImplRule will check sort requirement and generate PhysicalScan with matching IndexPath.
+    // Path 2: PassThrough(child) - eliminate sort by using index
+    // PassThrough is a physical operator that passes through the required property
+    // to its child. If child can produce sorted output (via index), Sort is eliminated.
+    // The children_required_property_ will be set by ApplyRuleTask when PassThrough
+    // is inserted into memo.
     if (can_use_index_for_sort(child, sort_clause, context)) {
-        OptExpression* alternative_child = clone_expression_tree(child, sort_clause);
-        results.push_back(alternative_child);
+        PassThroughOperator* pass = NEW_EX(PassThroughOperator);
+        OptExpression* pass_expr = OptExpression::create(pass, child);
+        pass_expr->set_sort_requirement(sort_clause);
+        results.push_back(pass_expr);
 
-        ereport(WARNING, (errmsg("[CASCADES] SortImplRule: generated alternative path with sort requirement")));
+        ereport(WARNING, (errmsg("[CASCADES] SortImplRule: generated PassThrough path (sort elimination)")));
     }
 
     return results;

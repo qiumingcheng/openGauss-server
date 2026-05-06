@@ -187,14 +187,23 @@ std::string GroupExpression::to_string() const {
 
 std::string GroupExpression::debug_string(const std::string& headline_indent,
                                           const std::string& detail_indent) const {
-    std::string result = detail_indent + op_->to_string() + "\n";
-    std::string child_headline_indent = detail_indent + "->  ";
-    std::string child_detail_indent = detail_indent + "    ";
-
-    for (Group* input : inputs_) {
-        result += input->debug_string(child_headline_indent, child_detail_indent);
+    std::string result = headline_indent + "GroupExpression: " + op_->to_string() + "\n";
+    result += detail_indent + "Inputs: ";
+    for (size_t i = 0; i < inputs_.size(); ++i) {
+        if (i > 0) result += ", ";
+        result += "G" + std::to_string(inputs_[i]->id());
     }
+    result += "\n";
+
+    if (children_required_property_ != nullptr) {
+        result += detail_indent + "Children required property: " + children_required_property_->to_string() + "\n";
+    }
+
     return result;
+}
+
+void GroupExpression::set_children_required_property(const PhysicalPropertySet* property) {
+    children_required_property_ = property;
 }
 
 } // namespace cascades

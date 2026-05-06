@@ -23,4 +23,5 @@ set(CASCADES_OPERATOR_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/operators/physical_filter.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/operators/physical_project.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/operators/logical_sort.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/operators/physical_passthrough.cpp
     PARENT_SCOPE)

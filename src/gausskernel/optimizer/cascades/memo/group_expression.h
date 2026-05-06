@@ -88,7 +88,23 @@ public:
 
     bool is_implement(const PhysicalPropertySet& required_property) const {
         auto it = output_property_map_.find(required_property);
-        return (it != output_property_map_.end());
+        if (it == output_property_map_.end()) {
+            return false;
+        }
+
+        const PhysicalPropertySet& output_prop = it->second;
+
+        // Special case: if required is empty but output is NOT empty,
+        // this expression cannot implement the empty requirement.
+        // Example: PhysicalScan with index produces sorted output (col1 DESC).
+        // Even though is_satisfy(empty) returns true for any output,
+        // an expression that inherently produces ordered output cannot
+        // satisfy "no ordering requirement" without an enforcer.
+        if (required_property.get_sort().is_empty() && !output_prop.get_sort().is_empty()) {
+            return false;
+        }
+
+        return output_prop.is_satisfy(required_property);
     }
 
     /**
@@ -234,6 +250,20 @@ public:
     std::string debug_string(const std::string& headline_indent,
                             const std::string& detail_indent) const;
 
+    /**
+     * Set the required property for child groups.
+     * This is used by SortImplRule to pass the sort requirement through
+     * the PassThrough operator to child groups.
+     * @param property The required property for children (nullptr means use default derivation)
+     */
+    void set_children_required_property(const PhysicalPropertySet* property);
+
+    /**
+     * Get the required property for child groups.
+     * @return The property, or nullptr if not set
+     */
+    const PhysicalPropertySet* get_children_required_property() const { return children_required_property_; }
+
 private:
     Group* group_;                      // Parent group
     OptExprOp* op_;                     // Operator
@@ -257,6 +287,10 @@ private:
 
     // Valid output property groups (for enumeration plan)
     std::set<std::pair<PhysicalPropertySet, std::vector<PhysicalPropertySet>>> valid_output_property_groups_;
+
+    // Explicit child required property (set by SortImplRule for PassThrough)
+    // If set, this property is used for all children instead of derivation
+    const PhysicalPropertySet* children_required_property_ = nullptr;
 };
 
 } // namespace cascades
