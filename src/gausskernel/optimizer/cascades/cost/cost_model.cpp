@@ -53,7 +53,8 @@ CostEstimate CostModel::compute_cost(GroupExpression* group_expr,
         case OptExprOpType::PHYSICAL_NESTLOOP_JOIN:
             cost += compute_nestloop_join_cost(group_expr, stats, children_costs);
             break;
-        case OptExprOpType::PHYSICAL_SCAN:
+        case OptExprOpType::PHYSICAL_SEQ_SCAN:
+        case OptExprOpType::PHYSICAL_INDEX_SCAN:
             cost += compute_scan_cost_impl(stats);
             break;
         case OptExprOpType::PHYSICAL_HASH_AGG:

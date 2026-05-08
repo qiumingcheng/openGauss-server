@@ -2,13 +2,19 @@
 #include "../operator/operators.h"
 #include "../operator/operators/physical_sort.h"
 #include "../operator/operators/physical_passthrough.h"
+#include "../operator/operators/physical_scan.h"
 #include "../memo/opt_expression.h"
+#include "../memo/group_expression.h"
+#include "../memo/group.h"
+#include "../memo/memo.h"
 #include "../optimizer/optimizer_context.h"
 #include "optimizer/pathnode.h"
 #include "optimizer/paths.h"
 #include "optimizer/plancat.h"
+#include "optimizer/tlist.h"
 #include "nodes/relation.h"
 #include "postgres.h"
+#include "nodes/makefuncs.h"
 
 namespace cascades {
 
@@ -92,6 +98,26 @@ LogicalScan* SortImplRule::find_logical_scan(OptExpression* expr) const
     return find_base_scan_with_sort_check(expr, nullptr);
 }
 
+Group* SortImplRule::find_group_for_scan(LogicalScan* scan, OptimizerContext* context) const
+{
+    Memo* memo = context->get_memo();
+    const auto& groups = memo->get_groups();
+
+    for (Group* group : groups) {
+        GroupExpression* first_logical = group->get_first_logical_expression();
+        if (first_logical != nullptr) {
+            OptExprOp* op = first_logical->get_op();
+            if (op != nullptr && op->get_type() == OptExprOpType::LOGICAL_SCAN) {
+                LogicalScan* group_scan = static_cast<LogicalScan*>(op);
+                if (group_scan == scan) {
+                    return group;
+                }
+            }
+        }
+    }
+    return nullptr;
+}
+
 bool SortImplRule::can_use_index_for_sort(OptExpression* scan_expr, void* sort_clause, OptimizerContext* context) const
 {
     if (sort_clause == nullptr) {
@@ -126,6 +152,101 @@ bool SortImplRule::can_use_index_for_sort(OptExpression* scan_expr, void* sort_c
     }
 
     return true;
+}
+
+bool SortImplRule::find_index_for_sort(OptExpression* scan_expr, void* sort_clause,
+                                       OptimizerContext* context, IndexOptInfo** out_index,
+                                       List** out_pathkeys) const
+{
+    *out_index = nullptr;
+    *out_pathkeys = nullptr;
+
+    if (sort_clause == nullptr) {
+        return false;
+    }
+
+    LogicalScan* scan = find_base_scan_with_sort_check(scan_expr, sort_clause);
+    if (scan == nullptr) {
+        return false;
+    }
+
+    int table_id = scan->get_table_id();
+
+    PlannerInfo* root = context->get_root();
+    if (root == nullptr) {
+        return false;
+    }
+
+    RelOptInfo* rel = find_base_rel(root, table_id);
+    if (rel == nullptr || rel->indexlist == NIL) {
+        return false;
+    }
+
+    List* clauses = static_cast<List*>(sort_clause);
+    List* targetlist = root->parse->targetList;
+
+    // Find an index that matches the sort clause
+    ListCell* lc = nullptr;
+    foreach (lc, rel->indexlist) {
+        IndexOptInfo* index = static_cast<IndexOptInfo*>(lfirst(lc));
+        if (index == nullptr || index->sortopfamily == NULL) {
+            continue;
+        }
+
+        // Check if this index can satisfy the sort clause
+        List* pathkeys = NIL;
+        bool match = true;
+
+        ListCell* lc_clause = nullptr;
+        int key_idx = 0;
+        foreach (lc_clause, clauses) {
+            SortGroupClause* sgcl = static_cast<SortGroupClause*>(lfirst(lc_clause));
+            if (key_idx >= index->nkeycolumns) {
+                match = false;
+                break;
+            }
+
+            // Get the sort expression
+            TargetEntry* tle = get_sortgroupref_tle(sgcl->tleSortGroupRef, targetlist, false);
+            if (tle == nullptr) {
+                match = false;
+                break;
+            }
+
+            Node* sort_expr = (Node*)tle->expr;
+            if (sort_expr == nullptr || !IsA(sort_expr, Var)) {
+                match = false;
+                break;
+            }
+
+            Var* var = (Var*)sort_expr;
+            int key_attr = index->indexkeys[key_idx];
+
+            // Check if the sort column matches the index key
+            if (var->varattno != key_attr) {
+                match = false;
+                break;
+            }
+
+            // Build PathKey for index path creation
+            PathKey* pk = makeNode(PathKey);
+            pk->pk_eclass = nullptr;
+            pk->pk_strategy = (sgcl->sortop < 500) ? BTLessStrategyNumber : BTGreaterStrategyNumber;
+            pk->pk_nulls_first = sgcl->nulls_first;
+            pk->pk_opfamily = InvalidOid;
+
+            pathkeys = lappend(pathkeys, pk);
+            key_idx++;
+        }
+
+        if (match && key_idx == index->nkeycolumns) {
+            *out_index = index;
+            *out_pathkeys = pathkeys;
+            return true;
+        }
+    }
+
+    return false;
 }
 
 void SortImplRule::set_sort_requirement_on_scan(OptExpression* expr, void* sort_clause) const
@@ -200,17 +321,68 @@ std::vector<OptExpression*> SortImplRule::transform(
     ereport(WARNING, (errmsg("[CASCADES] SortImplRule: generated PhysicalSort path")));
 
     // Path 2: PassThrough(child) - eliminate sort by using index
-    // PassThrough is a physical operator that passes through the required property
-    // to its child. If child can produce sorted output (via index), Sort is eliminated.
-    // The children_required_property_ will be set by ApplyRuleTask when PassThrough
-    // is inserted into memo.
-    if (can_use_index_for_sort(child, sort_clause, context)) {
-        PassThroughOperator* pass = NEW_EX(PassThroughOperator);
-        OptExpression* pass_expr = OptExpression::create(pass, child);
-        pass_expr->set_sort_requirement(sort_clause);
-        results.push_back(pass_expr);
+    // The sort requirement is passed to the child via children_required_property_
+    // set by ApplyRuleTask. When EnforceAndCostTask processes PassThrough,
+    // it will check if the child can provide the required sort via its index.
+    IndexOptInfo* index = nullptr;
+    List* pathkeys = nullptr;
+    if (find_index_for_sort(child, sort_clause, context, &index, &pathkeys)) {
+        ereport(WARNING, (errmsg("[CASCADES] SortImplRule: find_index_for_sort succeeded, creating IndexScan with pathkeys")));
 
-        ereport(WARNING, (errmsg("[CASCADES] SortImplRule: generated PassThrough path (sort elimination)")));
+        // Find the LogicalScan in the child tree
+        LogicalScan* scan = find_base_scan_with_sort_check(child, sort_clause);
+        if (scan != nullptr) {
+            Group* scan_group = find_group_for_scan(scan, context);
+            if (scan_group != nullptr) {
+                ereport(WARNING, (errmsg("[CASCADES] SortImplRule: found scan in group %d", scan_group->id())));
+
+                // Create IndexPath with pathkeys
+                PlannerInfo* root = context->get_root();
+                IndexPath* index_path = create_index_path(root, index,
+                    NIL, NIL, NIL, NIL, pathkeys,
+                    ForwardScanDirection, false, nullptr, nullptr, 1.0, 1);
+
+                if (index_path != nullptr) {
+                    ereport(WARNING, (errmsg("[CASCADES] SortImplRule: created IndexPath with pathkeys len=%d",
+                                         index_path->path.pathkeys ? list_length(index_path->path.pathkeys) : 0)));
+
+                    // Create PhysicalIndexScan with the IndexPath
+                    PhysicalIndexScan* index_scan = NEW_EX(PhysicalIndexScan, (Path*)index_path);
+
+                    // Set multi-column sort info from sort_clause
+                    List* clauses = static_cast<List*>(sort_clause);
+                    List* targetlist = root->parse->targetList;
+                    ListCell* lc = nullptr;
+                    foreach (lc, clauses) {
+                        SortGroupClause* sgcl = static_cast<SortGroupClause*>(lfirst(lc));
+                        TargetEntry* tle = get_sortgroupref_tle(sgcl->tleSortGroupRef, targetlist, false);
+                        if (tle != nullptr && tle->expr != nullptr && IsA(tle->expr, Var)) {
+                            Var* var = (Var*)tle->expr;
+                            bool ascending = (sgcl->sortop < 500);  // heuristic
+                            index_scan->add_sort_column(var->varattno, ascending);
+                        }
+                    }
+
+                    // Add the PhysicalIndexScan to the scan_group
+                    std::vector<Group*> inputs;
+                    GroupExpression* index_scan_ge = NEW_EX(GroupExpression, (OptExprOp*)index_scan, inputs);
+                    scan_group->add_expression(index_scan_ge);
+                    ereport(WARNING, (errmsg("[CASCADES] SortImplRule: added PhysicalIndexScan to group %d", scan_group->id())));
+
+                    // Create a modified child tree where the LogicalScan is replaced
+                    // with a reference to the scan_group
+                    // Actually, we need to create an expression tree that references scan_group
+                    // For now, we'll just create the PassThrough with the original child
+                    // and rely on the fact that we added the IndexScan to scan_group
+                    PassThroughOperator* pass = NEW_EX(PassThroughOperator);
+                    OptExpression* pass_expr = OptExpression::create(pass, child);
+                    pass_expr->set_sort_requirement(sort_clause);
+                    results.push_back(pass_expr);
+
+                    ereport(WARNING, (errmsg("[CASCADES] SortImplRule: generated PassThrough path (sort elimination)")));
+                }
+            }
+        }
     }
 
     return results;

@@ -238,7 +238,7 @@ std::vector<OptExpression*> IndexScanImplRule::transform(
                 ereport(WARNING, (errmsg("[CASCADES] IndexScanImplRule:transform, found matching IndexPath for sort")));
             }
 
-            PhysicalScan* physical_scan = NEW_EX(PhysicalScan, (Path*)index_path);
+            PhysicalIndexScan* physical_scan = NEW_EX(PhysicalIndexScan, (Path*)index_path);
             OptExpression* new_expr = OptExpression::create(physical_scan);
             result.push_back(new_expr);
         } else if (IsA(path, BitmapHeapPath)) {
@@ -249,7 +249,7 @@ std::vector<OptExpression*> IndexScanImplRule::transform(
             }
 
             BitmapHeapPath* bitmap_path = (BitmapHeapPath*)path;
-            PhysicalScan* physical_scan = NEW_EX(PhysicalScan, (Path*)bitmap_path);
+            PhysicalSeqScan* physical_scan = NEW_EX(PhysicalSeqScan, (Path*)bitmap_path);
             OptExpression* new_expr = OptExpression::create(physical_scan);
             result.push_back(new_expr);
         }

@@ -17,7 +17,7 @@ class OptExprOp;
  * - PhysicalHashJoin: Requires children to be hash distributed on join keys
  * - PhysicalSort: Requires child with any property (sort adds ordering)
  * - PhysicalExchange: Requires child with any distribution (exchange redistributes)
- * - PhysicalScan/PhysicalHashAgg: No special requirements (ANY property)
+ * - PhysicalSeqScan/PhysicalIndexScan/PhysicalHashAgg: No special requirements (ANY property)
  *
  * The derived child required properties are used by EnforceAndCostTask to:
  * 1. Look up or compute the best child plan for that specific requirement

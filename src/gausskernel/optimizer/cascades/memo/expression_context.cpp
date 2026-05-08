@@ -158,11 +158,19 @@ Oid ExpressionContext::get_scan_table_oid() const {
     }
 
     if (op->get_type() == OptExprOpType::LOGICAL_SCAN ||
-        op->get_type() == OptExprOpType::PHYSICAL_SCAN) {
+        op->get_type() == OptExprOpType::PHYSICAL_SEQ_SCAN ||
+        op->get_type() == OptExprOpType::PHYSICAL_INDEX_SCAN) {
 
-        PhysicalScan* scan_op = dynamic_cast<PhysicalScan*>(const_cast<OptExprOp*>(op));
-        if (scan_op != nullptr) {
-            return scan_op->get_relid();
+        if (op->get_type() == OptExprOpType::PHYSICAL_SEQ_SCAN) {
+            PhysicalSeqScan* scan_op = dynamic_cast<PhysicalSeqScan*>(const_cast<OptExprOp*>(op));
+            if (scan_op != nullptr) {
+                return scan_op->get_relid();
+            }
+        } else if (op->get_type() == OptExprOpType::PHYSICAL_INDEX_SCAN) {
+            PhysicalIndexScan* scan_op = dynamic_cast<PhysicalIndexScan*>(const_cast<OptExprOp*>(op));
+            if (scan_op != nullptr) {
+                return scan_op->get_relid();
+            }
         }
     }
     return InvalidOid;

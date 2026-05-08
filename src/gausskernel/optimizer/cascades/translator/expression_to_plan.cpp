@@ -159,7 +159,8 @@ Plan* ExprToPlanConverter::translate_expression(OptExpression* expr) {
     // Handle PhysicalScan specially to preserve column pruning
     // create_plan() uses build_physical_tlist() which reads all table columns,
     // ignoring path->pathtarget. We build the scan node directly here.
-    if (phys_op->get_type() == OptExprOpType::PHYSICAL_SCAN) {
+    if (phys_op->get_type() == OptExprOpType::PHYSICAL_SEQ_SCAN ||
+        phys_op->get_type() == OptExprOpType::PHYSICAL_INDEX_SCAN) {
         return translate_scan(expr);
     }
 
@@ -219,11 +220,12 @@ Plan* ExprToPlanConverter::translate_scan(OptExpression* expr) {
         return nullptr;
     }
 
-    PhysicalScan* scan_op = dynamic_cast<PhysicalScan*>(expr->get_op());
+    PhysicalOptExprOp* scan_op = dynamic_cast<PhysicalOptExprOp*>(expr->get_op());
     if (scan_op == nullptr) {
         return nullptr;
     }
 
+    // Check if it's PhysicalSeqScan or PhysicalIndexScan
     Path* path = scan_op->get_path();
     if (path == nullptr) {
         return nullptr;

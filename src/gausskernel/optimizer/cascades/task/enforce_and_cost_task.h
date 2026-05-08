@@ -125,11 +125,6 @@ private:
     void update_cost_upper_bound(double cost) const;
 
     /**
-     * Build SortProperty from PathKey list
-     */
-    SortProperty build_sort_property_from_pathkeys(List* pathkeys) const;
-
-    /**
      * Build SortProperty from SortGroupClause list
      */
     SortProperty build_sort_property_from_sort_clause(void* sort_clause) const;

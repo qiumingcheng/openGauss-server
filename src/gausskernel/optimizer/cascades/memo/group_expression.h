@@ -88,23 +88,7 @@ public:
 
     bool is_implement(const PhysicalPropertySet& required_property) const {
         auto it = output_property_map_.find(required_property);
-        if (it == output_property_map_.end()) {
-            return false;
-        }
-
-        const PhysicalPropertySet& output_prop = it->second;
-
-        // Special case: if required is empty but output is NOT empty,
-        // this expression cannot implement the empty requirement.
-        // Example: PhysicalScan with index produces sorted output (col1 DESC).
-        // Even though is_satisfy(empty) returns true for any output,
-        // an expression that inherently produces ordered output cannot
-        // satisfy "no ordering requirement" without an enforcer.
-        if (required_property.get_sort().is_empty() && !output_prop.get_sort().is_empty()) {
-            return false;
-        }
-
-        return output_prop.is_satisfy(required_property);
+        return (it != output_property_map_.end());
     }
 
     /**

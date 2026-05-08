@@ -134,7 +134,7 @@ std::vector<OptExpression*> ScanImplRule::transform(
     ereport(WARNING, (errmsg("[CASCADES] ScanImplRule: created Path with pathtarget=%d columns, path=%p", pathtarget_cols, (void*)scan_path)));
 
     // Create physical scan operator using NEW_EX macro
-    PhysicalScan* physical_scan = NEW_EX(PhysicalScan, scan_path);
+    PhysicalSeqScan* physical_scan = NEW_EX(PhysicalSeqScan, scan_path);
     physical_scan->set_relid(rel->relid);
 
     // Note: predicate transfer is now handled by FilterImplRule

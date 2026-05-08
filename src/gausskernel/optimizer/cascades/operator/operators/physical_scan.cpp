@@ -3,29 +3,31 @@
 
 namespace cascades {
 
-PhysicalScan::PhysicalScan()
-    : PhysicalOptExprOp(OptExprOpType::PHYSICAL_SCAN),
+// ============= PhysicalSeqScan =============
+
+PhysicalSeqScan::PhysicalSeqScan()
+    : PhysicalOptExprOp(OptExprOpType::PHYSICAL_SEQ_SCAN),
       relid_(InvalidOid),
       table_id_(-1) {}
 
-PhysicalScan::PhysicalScan(Path* scan_path)
-    : PhysicalOptExprOp(OptExprOpType::PHYSICAL_SCAN, scan_path),
+PhysicalSeqScan::PhysicalSeqScan(Path* scan_path)
+    : PhysicalOptExprOp(OptExprOpType::PHYSICAL_SEQ_SCAN, scan_path),
       relid_(InvalidOid),
       table_id_(-1) {}
 
-PhysicalScan::PhysicalScan(Path* scan_path, Oid relid)
-    : PhysicalOptExprOp(OptExprOpType::PHYSICAL_SCAN, scan_path),
-      relid_(relid),
-      table_id_(-1) {}
+OptExprOpType PhysicalSeqScan::get_type() const {
+    return OptExprOpType::PHYSICAL_SEQ_SCAN;
+}
 
-OptExprOp* PhysicalScan::clone() const {
-    PhysicalScan* cloned = NEW_EX(PhysicalScan);
+OptExprOp* PhysicalSeqScan::clone() const {
+    PhysicalSeqScan* cloned = NEW_EX(PhysicalSeqScan);
     cloned->set_relid(relid_);
     cloned->set_table_id(table_id_);
+    cloned->set_path(path_);
     return cloned;
 }
 
-size_t PhysicalScan::hash() const {
+size_t PhysicalSeqScan::hash() const {
     size_t h = static_cast<size_t>(get_type());
     if (relid_ != InvalidOid) {
         h = h * 31 + static_cast<size_t>(relid_);
@@ -35,20 +37,78 @@ size_t PhysicalScan::hash() const {
     return h;
 }
 
-std::string PhysicalScan::to_string() const {
+std::string PhysicalSeqScan::to_string() const {
     if (relid_ != InvalidOid) {
-        return "PhysicalScan(relid=" + std::to_string(relid_) + ")";
+        return "PhysicalSeqScan(relid=" + std::to_string(relid_) + ")";
     } else if (table_id_ >= 0) {
-        return "PhysicalScan(table_id=" + std::to_string(table_id_) + ")";
+        return "PhysicalSeqScan(table_id=" + std::to_string(table_id_) + ")";
     }
-    return "PhysicalScan";
+    return "PhysicalSeqScan";
 }
 
-bool PhysicalScan::equals(const OptExprOp* other) const {
+bool PhysicalSeqScan::equals(const OptExprOp* other) const {
     if (other == nullptr || get_type() != other->get_type()) {
         return false;
     }
-    const PhysicalScan* other_scan = static_cast<const PhysicalScan*>(other);
+    const PhysicalSeqScan* other_scan = static_cast<const PhysicalSeqScan*>(other);
+    if (relid_ != InvalidOid && other_scan->relid_ != InvalidOid) {
+        return relid_ == other_scan->relid_;
+    }
+    return table_id_ == other_scan->table_id_;
+}
+
+// ============= PhysicalIndexScan =============
+
+PhysicalIndexScan::PhysicalIndexScan()
+    : PhysicalOptExprOp(OptExprOpType::PHYSICAL_INDEX_SCAN),
+      relid_(InvalidOid),
+      table_id_(-1) {}
+
+PhysicalIndexScan::PhysicalIndexScan(Path* index_path)
+    : PhysicalOptExprOp(OptExprOpType::PHYSICAL_INDEX_SCAN, index_path),
+      relid_(InvalidOid),
+      table_id_(-1) {}
+
+OptExprOpType PhysicalIndexScan::get_type() const {
+    return OptExprOpType::PHYSICAL_INDEX_SCAN;
+}
+
+OptExprOp* PhysicalIndexScan::clone() const {
+    PhysicalIndexScan* cloned = NEW_EX(PhysicalIndexScan);
+    cloned->set_relid(relid_);
+    cloned->set_table_id(table_id_);
+    cloned->set_path(path_);
+    // Copy multi-column sort info
+    for (size_t i = 0; i < sort_columns_.size(); i++) {
+        cloned->add_sort_column(sort_columns_[i], sort_ascending_[i]);
+    }
+    return cloned;
+}
+
+size_t PhysicalIndexScan::hash() const {
+    size_t h = static_cast<size_t>(get_type());
+    if (relid_ != InvalidOid) {
+        h = h * 31 + static_cast<size_t>(relid_);
+    } else {
+        h = h * 31 + static_cast<size_t>(table_id_);
+    }
+    return h;
+}
+
+std::string PhysicalIndexScan::to_string() const {
+    if (relid_ != InvalidOid) {
+        return "PhysicalIndexScan(relid=" + std::to_string(relid_) + ")";
+    } else if (table_id_ >= 0) {
+        return "PhysicalIndexScan(table_id=" + std::to_string(table_id_) + ")";
+    }
+    return "PhysicalIndexScan";
+}
+
+bool PhysicalIndexScan::equals(const OptExprOp* other) const {
+    if (other == nullptr || get_type() != other->get_type()) {
+        return false;
+    }
+    const PhysicalIndexScan* other_scan = static_cast<const PhysicalIndexScan*>(other);
     if (relid_ != InvalidOid && other_scan->relid_ != InvalidOid) {
         return relid_ == other_scan->relid_;
     }

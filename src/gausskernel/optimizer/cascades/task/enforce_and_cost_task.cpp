@@ -20,6 +20,11 @@
 
 namespace cascades {
 
+static double get_group_best_cost(Group* group, const PhysicalPropertySet& required_property) {
+    double cost = group->get_cost_lower_bound(required_property);
+    return cost > 0 ? cost : std::numeric_limits<double>::max();
+}
+
 EnforceAndCostTask::EnforceAndCostTask(TaskContext* context, Group* group,
                                        const PhysicalPropertySet& required_property)
     : OptimizerTask(context), group_(group), required_property_(required_property) {}
@@ -31,7 +36,7 @@ void EnforceAndCostTask::execute() {
     CostModel cost_model;
     RequiredPropertyDeriver property_deriver;
 
-    double best_cost = std::numeric_limits<double>::max();
+    double best_cost = get_group_best_cost(group_, required_property_);
     GroupExpression* best_expr = nullptr;
     PhysicalPropertySet best_output_property;
     std::vector<PhysicalPropertySet> best_children_output_properties;  // For plan reconstruction
@@ -57,7 +62,6 @@ void EnforceAndCostTask::execute() {
             continue;
         }
 
-        // Collect children's costs and best expressions
         std::vector<PhysicalPropertySet> children_output_properties;
         std::vector<GroupExpression*> children_best_exprs;
 
@@ -175,7 +179,8 @@ void EnforceAndCostTask::execute() {
         // Upper bound is only set by root group, so this pruning is safe
         if (total_cost >= context_->get_upper_bound_cost()) {
             // This path is too expensive, prune
-            ereport(WARNING, (errmsg("[CASCADES] EnforceAndCostTask: pruned by total_cost >= upper_bound")));
+            ereport(WARNING, (errmsg("[CASCADES] EnforceAndCostTask: pruned by total_cost >= upper_bound[%.2f]", 
+                context_->get_upper_bound_cost())));
             continue;
         }
 
@@ -187,7 +192,8 @@ void EnforceAndCostTask::execute() {
             best_expr = enforced_expr;
             best_output_property = output_property;
             best_children_output_properties = children_output_properties;  // Save for plan reconstruction
-            ereport(WARNING, (errmsg("[CASCADES] EnforceAndCostTask: updated best_expr, cost=%.2f", best_cost)));
+            ereport(WARNING, (errmsg("[CASCADES] EnforceAndCostTask: updated best_expr=%s, cost=%.2f", 
+                best_expr->get_op()->to_string().c_str(), best_cost)));
         }
     }
 
@@ -223,28 +229,42 @@ PhysicalPropertySet EnforceAndCostTask::derive_output_property(
 
     OptExprOp* op = expr->get_op();
 
-    if (op == nullptr || children_properties.empty()) {
+    if (op == nullptr) {
         return required_property_;
+    }
+
+    // For scan operators (arity=0), children_properties will be empty
+    // but we still need to compute output property based on scan type
+    bool is_scan_op = (op->get_type() == OptExprOpType::PHYSICAL_SEQ_SCAN ||
+                       op->get_type() == OptExprOpType::PHYSICAL_INDEX_SCAN);
+
+    if (children_properties.empty() && !is_scan_op) {
+        return required_property_;
+    }
+
+    // For scan operators with no children, compute output based on scan type
+    if (is_scan_op) {
+        if (op->get_type() == OptExprOpType::PHYSICAL_SEQ_SCAN) {
+            // SeqScan always outputs unsorted
+            return PhysicalPropertySet();
+        }
+        // IndexScan output depends on pathkeys
+        PhysicalIndexScan* scan = static_cast<PhysicalIndexScan*>(op);
+        // Use sort info from the operator (set by SortImplRule when creating IndexScan with pathkeys)
+        if (scan->has_sort_info()) {
+            OrderSpec spec;
+            for (int i = 0; i < scan->get_sort_column_count(); i++) {
+                spec.add_ordering(scan->get_sort_column_id(i), scan->get_sort_ascending(i));
+            }
+            SortProperty sort_prop(spec);
+            return PhysicalPropertySet(DistributionProperty(DistributionType::ANY), sort_prop);
+        }
+        return PhysicalPropertySet();
     }
 
     const PhysicalPropertySet& child_property = children_properties[0];
 
     switch (op->get_type()) {
-        case OptExprOpType::PHYSICAL_SCAN: {
-            // Scan output property depends on the underlying Path:
-            // - IndexScan with pathkeys: output is sorted
-            // - SeqScan/BitmapScan: output is unsorted
-            PhysicalScan* scan = static_cast<PhysicalScan*>(op);
-            Path* path = scan->get_path();
-            if (path != nullptr && path->pathkeys != NIL) {
-                // IndexScan with ordered pathkeys - output is sorted
-                SortProperty sort_prop = build_sort_property_from_pathkeys(path->pathkeys);
-                return PhysicalPropertySet(DistributionProperty(DistributionType::ANY), sort_prop);
-            }
-            // Otherwise: unsorted output
-            return PhysicalPropertySet();
-        }
-
         case OptExprOpType::PHYSICAL_SORT: {
             // Sort ensures output is sorted by its sort clause
             // Preserve distribution from child
@@ -491,25 +511,6 @@ std::string EnforceAndCostTask::to_string() const {
            " property=" + required_property_.to_string();
 }
 
-SortProperty EnforceAndCostTask::build_sort_property_from_pathkeys(List* pathkeys) const
-{
-    if (pathkeys == NIL) {
-        return SortProperty();
-    }
-
-    OrderSpec spec;
-    ListCell* lc = nullptr;
-    foreach (lc, pathkeys) {
-        PathKey* pk = static_cast<PathKey*>(lfirst(lc));
-        // Use column_id from equivalence class member (simplified)
-        // In full implementation, would map pk to actual column
-        int column_id = 0;  // placeholder
-        bool ascending = (pk->pk_strategy == BTLessStrategyNumber);
-        spec.add_ordering(column_id, ascending);
-    }
-    return SortProperty(spec);
-}
-
 SortProperty EnforceAndCostTask::build_sort_property_from_sort_clause(void* sort_clause) const
 {
     if (sort_clause == nullptr) {
@@ -521,8 +522,10 @@ SortProperty EnforceAndCostTask::build_sort_property_from_sort_clause(void* sort
     ListCell* lc = nullptr;
     foreach (lc, clauses) {
         SortGroupClause* sgcl = static_cast<SortGroupClause*>(lfirst(lc));
-        int column_id = sgcl->tleSortGroupRef;  // Use sort group ref as column id
-        bool ascending = (sgcl->sortop == BTLessStrategyNumber);
+        // Use tleSortGroupRef as column_id (same as pathkeys construction in SortImplRule)
+        int column_id = sgcl->tleSortGroupRef;
+        // Heuristic: sortop < 500 means ASC (operator Oid for < is typically smaller)
+        bool ascending = (sgcl->sortop < 500);
         spec.add_ordering(column_id, ascending);
     }
     return SortProperty(spec);
