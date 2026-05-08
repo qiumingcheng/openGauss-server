@@ -12,6 +12,11 @@ JoinCommutativityRule* JoinCommutativityRule::instance(){
 JoinCommutativityRule::JoinCommutativityRule()
     : Rule(RuleType::TF_JOIN_COMMUTATIVITY, Pattern::create(OptExprOpType::LOGICAL_JOIN, Pattern::any(), Pattern::any())) {}
 
+bool JoinCommutativityRule::check(OptExpression* input, OptimizerContext* context) const {
+    // Pattern guarantees: op_type == LOGICAL_JOIN && arity == 2
+    return input->arity() == 2;
+}
+
 std::vector<OptExpression*> JoinCommutativityRule::transform(
     OptExpression* input, OptimizerContext* context) {
     ereport(WARNING, (errmsg("[CASCADES] JoinCommutativityRule:transform, input=%s",

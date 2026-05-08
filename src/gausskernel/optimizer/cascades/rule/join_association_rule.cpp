@@ -17,20 +17,21 @@ JoinAssociationRule::JoinAssociationRule()
                           Pattern::create(OptExprOpType::LOGICAL_JOIN, Pattern::any(), Pattern::any()),
                           Pattern::any())) {}
 
+bool JoinAssociationRule::check(GroupExpression* input, OptimizerContext* context) const {    
+    return pattern_->match(input);
+}
+
 std::vector<OptExpression*> JoinAssociationRule::transform(
     OptExpression* input, OptimizerContext* context) {
     ereport(WARNING, (errmsg("[CASCADES] JoinAssociationRule:transform, input=%s",
                          input->to_string().c_str())));
 
-    // Pattern guarantees: op_type == LOGICAL_JOIN && arity == 2
-    // Left child pattern guarantees: left->op_type == LOGICAL_JOIN && left->arity == 2
-    OptExpression* left = input->input_at(0);
-    OptExpression* right = input->input_at(1);
-
     // (L join R) join C  ->  L join (R join C)
     // left = (L join R), right = C
     // L = left->input_at(0), R = left->input_at(1)
     // New structure: L join (R join C)
+    OptExpression* left = input->input_at(0);
+    OptExpression* right = input->input_at(1);
     OptExpression* L = left->input_at(0);
     OptExpression* R = left->input_at(1);
     OptExpression* C = right;

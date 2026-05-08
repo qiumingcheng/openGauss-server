@@ -10,6 +10,7 @@ public:
     JoinAssociationRule();
 
     int promise() const override { return 2; }
+    bool check(GroupExpression* input, OptimizerContext* context) const override;
 
     std::vector<OptExpression*> transform(
         OptExpression* input, OptimizerContext* context) override;

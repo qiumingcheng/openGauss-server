@@ -9,7 +9,9 @@ public:
     static JoinCommutativityRule* instance();
     JoinCommutativityRule();
 
-    int promise() const override { return 2; }  // higher promise = earlier
+    int promise() const override { return 4; }  // higher promise = earlier
+
+    bool check(OptExpression* input, OptimizerContext* context) const override;
 
     std::vector<OptExpression*> transform(
         OptExpression* input, OptimizerContext* context) override;
