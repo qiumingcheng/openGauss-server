@@ -336,11 +336,21 @@ std::vector<OptExpression*> SortImplRule::transform(
             if (scan_group != nullptr) {
                 ereport(WARNING, (errmsg("[CASCADES] SortImplRule: found scan in group %d", scan_group->id())));
 
+                // Determine scan direction from pathkeys
+                // BTLessStrategyNumber = ASC, BTGreaterStrategyNumber = DESC
+                ScanDirection scan_dir = ForwardScanDirection;
+                if (pathkeys != NIL) {
+                    PathKey* first_pk = (PathKey*)linitial(pathkeys);
+                    if (first_pk->pk_strategy == BTGreaterStrategyNumber) {
+                        scan_dir = BackwardScanDirection;
+                    }
+                }
+
                 // Create IndexPath with pathkeys
                 PlannerInfo* root = context->get_root();
                 IndexPath* index_path = create_index_path(root, index,
                     NIL, NIL, NIL, NIL, pathkeys,
-                    ForwardScanDirection, false, nullptr, nullptr, 1.0, 1);
+                    scan_dir, false, nullptr, nullptr, 1.0, 1);
 
                 if (index_path != nullptr) {
                     ereport(WARNING, (errmsg("[CASCADES] SortImplRule: created IndexPath with pathkeys len=%d",
@@ -348,6 +358,8 @@ std::vector<OptExpression*> SortImplRule::transform(
 
                     // Create PhysicalIndexScan with the IndexPath
                     PhysicalIndexScan* index_scan = NEW_EX(PhysicalIndexScan, (Path*)index_path);
+                    index_scan->set_relid(scan->get_relid());
+                    index_scan->set_table_id(scan->get_table_id());
 
                     // Set multi-column sort info from sort_clause
                     List* clauses = static_cast<List*>(sort_clause);
