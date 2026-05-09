@@ -19,6 +19,11 @@ class OptExpression;
  */
 bool check_sublink_in_node(Node* node);
 
+struct JoinKeyPairs {
+    std::vector<int> left_keys;
+    std::vector<int> right_keys;
+};
+
 /**
  * QueryToExprConverter - Converts OpenGauss Query parse tree to Cascades OptExpression tree
  *
@@ -47,6 +52,7 @@ private:
     OptExpression* translate_target_list(PlannerInfo* root, Query* parse, OptExpression* child);
     std::vector<int> extract_join_keys_from_using(Node* usingClause);
     std::vector<int> extract_join_keys_from_quals(Node* quals);
+    JoinKeyPairs extract_join_keys_from_quals_ex(Node* quals, int left_varno, int right_varno);
     void derive_statistics(OptExpression* expr, RelOptInfo* rel);
 
     // Member variables

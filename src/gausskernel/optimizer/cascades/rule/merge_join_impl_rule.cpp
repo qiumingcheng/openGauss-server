@@ -94,8 +94,8 @@ std::vector<OptExpression*> MergeJoinImplRule::transform(
 
     PhysicalMergeJoin* merge_join = NEW_EX(PhysicalMergeJoin,
         (Path*)merge_path, left_path, right_path);
-    merge_join->set_build_keys(join_op->get_join_keys());
-    merge_join->set_probe_keys(join_op->get_join_keys());
+    merge_join->set_build_keys(join_op->get_left_join_keys());
+    merge_join->set_probe_keys(join_op->get_right_join_keys());
 
     OptExpression* new_expr = OptExpression::create(merge_join, left_child, right_child);
     return {new_expr};

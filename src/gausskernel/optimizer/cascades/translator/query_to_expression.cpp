@@ -12,6 +12,7 @@
 #include "nodes/primnodes.h"
 #include "optimizer/tlist.h"
 #include "utils/lsyscache.h"
+#include "optimizer/var.h"
 
 namespace cascades {
 
@@ -182,10 +183,14 @@ OptExpression* QueryToExprConverter::translate_from(PlannerInfo* root, Query* pa
     } else if (IsA(jointree, FromExpr)) {
         FromExpr* from = (FromExpr*)jointree;
         OptExpression* result = nullptr;
+        int last_varno = 0;
 
         if (list_length(from->fromlist) > 0) {
             Node* first_item = (Node*)linitial(from->fromlist);
             result = translate_from_item(root, parse, first_item);
+            if (IsA(first_item, RangeTblRef)) {
+                last_varno = ((RangeTblRef*)first_item)->rtindex;
+            }
         }
 
         ListCell* lc = NULL;
@@ -195,12 +200,30 @@ OptExpression* QueryToExprConverter::translate_from(PlannerInfo* root, Query* pa
             }
             Node* item = (Node*)lfirst(lc);
             OptExpression* item_expr = translate_from_item(root, parse, item);
+            int item_varno = 0;
+            if (IsA(item, RangeTblRef)) {
+                item_varno = ((RangeTblRef*)item)->rtindex;
+            } else {
+                Relids item_relids = pull_varnos(item, 0, false);
+                if (item_relids != nullptr && bms_num_members(item_relids) == 1) {
+                    bms_get_singleton_member(item_relids, &item_varno);
+                }
+                bms_free(item_relids);
+            }
             if (result != nullptr && item_expr != nullptr) {
                 LogicalInnerJoin* join_op = NEW_EX(LogicalInnerJoin);
+                if (last_varno > 0 && item_varno > 0 && from->quals != nullptr) {
+                    JoinKeyPairs keys = extract_join_keys_from_quals_ex(
+                        from->quals, last_varno, item_varno);
+                    if (!keys.left_keys.empty()) {
+                        join_op->set_join_keys(keys.left_keys, keys.right_keys);
+                    }
+                }
                 result = OptExpression::create(join_op, result, item_expr);
             } else {
                 result = item_expr;
             }
+            last_varno = item_varno;
         }
 
         return result;
@@ -262,11 +285,36 @@ OptExpression* QueryToExprConverter::translate_join(PlannerInfo* root, Query* pa
     // Extract join keys
     if (join->usingClause != nullptr) {
         std::vector<int> keys = extract_join_keys_from_using((Node*)join->usingClause);
-        join_op->set_join_keys(keys, keys);
-    } else if (quals != nullptr) {
-        std::vector<int> keys = extract_join_keys_from_quals(quals);
         if (!keys.empty()) {
             join_op->set_join_keys(keys, keys);
+        }
+    } else if (quals != nullptr) {
+        // Find left and right varno to distinguish Vars by side
+        int left_varno = 0;
+        int right_varno = 0;
+        if (IsA(join->larg, RangeTblRef)) {
+            left_varno = ((RangeTblRef*)join->larg)->rtindex;
+        } else {
+            Relids left_relids = pull_varnos(join->larg, 0, false);
+            if (left_relids != nullptr && bms_num_members(left_relids) == 1) {
+                bms_get_singleton_member(left_relids, &left_varno);
+            }
+            bms_free(left_relids);
+        }
+        if (IsA(join->rarg, RangeTblRef)) {
+            right_varno = ((RangeTblRef*)join->rarg)->rtindex;
+        } else {
+            Relids right_relids = pull_varnos(join->rarg, 0, false);
+            if (right_relids != nullptr && bms_num_members(right_relids) == 1) {
+                bms_get_singleton_member(right_relids, &right_varno);
+            }
+            bms_free(right_relids);
+        }
+        if (left_varno > 0 && right_varno > 0) {
+            JoinKeyPairs keys = extract_join_keys_from_quals_ex(quals, left_varno, right_varno);
+            if (!keys.left_keys.empty()) {
+                join_op->set_join_keys(keys.left_keys, keys.right_keys);
+            }
         }
     }
 
@@ -425,6 +473,67 @@ std::vector<int> QueryToExprConverter::extract_join_keys_from_quals(Node* quals)
     }
 
     return keys;
+}
+
+JoinKeyPairs QueryToExprConverter::extract_join_keys_from_quals_ex(
+    Node* quals, int left_varno, int right_varno)
+{
+    JoinKeyPairs result;
+    if (quals == nullptr) {
+        return result;
+    }
+
+    auto process_eq_expr = [&](Node* expr) {
+        if (!IsA(expr, OpExpr)) {
+            return;
+        }
+        OpExpr* op = (OpExpr*)expr;
+        if (list_length(op->args) != 2) {
+            return;
+        }
+        Node* arg1 = (Node*)linitial(op->args);
+        Node* arg2 = (Node*)lsecond(op->args);
+
+        Var* left_var = nullptr;
+        Var* right_var = nullptr;
+
+        // Classify each Var by its varno
+        if (IsA(arg1, Var) && ((Var*)arg1)->varno == (Index)left_varno) {
+            left_var = (Var*)arg1;
+        }
+        if (IsA(arg2, Var) && ((Var*)arg2)->varno == (Index)right_varno) {
+            right_var = (Var*)arg2;
+        }
+        // Handle swapped order: right = left
+        if (left_var == nullptr && IsA(arg1, Var) && ((Var*)arg1)->varno == (Index)right_varno) {
+            right_var = (Var*)arg1;
+        }
+        if (right_var == nullptr && IsA(arg2, Var) && ((Var*)arg2)->varno == (Index)left_varno) {
+            left_var = (Var*)arg2;
+        }
+
+        if (left_var != nullptr && right_var != nullptr) {
+            result.left_keys.push_back(left_var->varattno);
+            result.right_keys.push_back(right_var->varattno);
+        }
+    };
+
+    // Recurse into List or BoolExpr (AND tree)
+    if (IsA(quals, List)) {
+        ListCell* lc = NULL;
+        foreach(lc, (List*)quals) {
+            process_eq_expr((Node*)lfirst(lc));
+        }
+    } else if (IsA(quals, BoolExpr)) {
+        ListCell* lc = NULL;
+        foreach(lc, ((BoolExpr*)quals)->args) {
+            process_eq_expr((Node*)lfirst(lc));
+        }
+    } else if (IsA(quals, OpExpr)) {
+        process_eq_expr(quals);
+    }
+
+    return result;
 }
 
 void QueryToExprConverter::derive_statistics(OptExpression* expr, RelOptInfo* rel) {

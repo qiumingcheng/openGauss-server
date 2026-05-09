@@ -87,7 +87,7 @@ std::vector<OptExpression*> OuterJoinSimplifyRule::transform(
         if (can_reduce_left_join(predicate_id, true)) {
             ereport(WARNING, (errmsg("[CASCADES] OuterJoinSimplifyRule:transform, reducing LEFT JOIN to INNER JOIN")));
             LogicalInnerJoin* new_join = NEW_EX(LogicalInnerJoin);
-            new_join->set_join_keys(join->get_join_keys());
+            new_join->set_join_keys(join->get_left_join_keys(), join->get_right_join_keys());
             new_join->set_join_type(JOIN_INNER);
 
             OptExpression* new_expr = OptExpression::create(new_join, left, right);
@@ -99,7 +99,7 @@ std::vector<OptExpression*> OuterJoinSimplifyRule::transform(
         ereport(WARNING, (errmsg("[CASCADES] OuterJoinSimplifyRule:transform, flipping RIGHT JOIN to LEFT JOIN")));
         // Flip RIGHT JOIN to LEFT JOIN: (A RIGHT JOIN B) -> (B LEFT JOIN A)
         LogicalInnerJoin* flipped_join = NEW_EX(LogicalInnerJoin);
-        flipped_join->set_join_keys(join->get_join_keys());
+        flipped_join->set_join_keys(join->get_left_join_keys(), join->get_right_join_keys());
         flipped_join->set_join_type(JOIN_LEFT);
 
         OptExpression* new_expr = OptExpression::create(flipped_join, right, left);

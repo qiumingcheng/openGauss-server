@@ -11,11 +11,11 @@ LogicalInnerJoin::LogicalInnerJoin(OptExpression* left, OptExpression* right)
 
 LogicalInnerJoin::LogicalInnerJoin(const std::vector<int>& join_keys)
     : LogicalJoin(OptExprOpType::LOGICAL_JOIN) {
-    join_keys_ = join_keys;
+    left_join_keys_ = join_keys;
 }
 
 OptExprOp* LogicalInnerJoin::clone() const {
-    LogicalInnerJoin* cloned = NEW_EX(LogicalInnerJoin, join_keys_);
+    LogicalInnerJoin* cloned = NEW_EX(LogicalInnerJoin, left_join_keys_);
     cloned->set_join_type(join_type_);
     cloned->set_join_keys(left_join_keys_, right_join_keys_);
     cloned->set_qual(qual_);
@@ -24,14 +24,14 @@ OptExprOp* LogicalInnerJoin::clone() const {
 
 size_t LogicalInnerJoin::hash() const {
     size_t h = static_cast<size_t>(get_type());
-    for (int key : join_keys_) {
+    for (int key : left_join_keys_) {
         h = h * 31 + key;
     }
     return h;
 }
 
 std::string LogicalInnerJoin::to_string() const {
-    return "LogicalInnerJoin(keys=" + std::to_string(join_keys_.size()) + ")";
+    return "LogicalInnerJoin(keys=" + std::to_string(left_join_keys_.size()) + ")";
 }
 
 bool LogicalInnerJoin::equals(const OptExprOp* other) const {
@@ -39,9 +39,6 @@ bool LogicalInnerJoin::equals(const OptExprOp* other) const {
         return false;
     }
     const LogicalInnerJoin* other_join = static_cast<const LogicalInnerJoin*>(other);
-    if (join_keys_ != other_join->join_keys_) {
-        return false;
-    }
     if (left_join_keys_ != other_join->left_join_keys_) {
         return false;
     }

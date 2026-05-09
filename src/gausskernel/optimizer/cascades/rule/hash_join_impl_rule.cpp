@@ -1,3 +1,4 @@
+#include <algorithm>
 #include "nodes/parsenodes.h"
 #include "../base/memory_utils.h"
 #include "join_helper.h"
@@ -115,17 +116,18 @@ std::vector<OptExpression*> HashJoinImplRule::transform(
     // Create hashclauses from join keys
     List* hashclauses = NIL;
 
-    const std::vector<int>& join_keys = join_op->get_join_keys();
-    if (!join_keys.empty()) {
+    const std::vector<int>& left_keys = join_op->get_left_join_keys();
+    const std::vector<int>& right_keys = join_op->get_right_join_keys();
+    if (!left_keys.empty() && !right_keys.empty()) {
         int left_relid = -1;
         int right_relid = -1;
         (void)bms_get_singleton_member(left_rel->relids, &left_relid);
         (void)bms_get_singleton_member(right_rel->relids, &right_relid);
 
         if (left_relid > 0 && right_relid > 0) {
-            for (int key_col : join_keys) {
-                Var* left_var = makeVar((Index)left_relid, (AttrNumber)key_col, InvalidOid, -1, InvalidOid, 0);
-                Var* right_var = makeVar((Index)right_relid, (AttrNumber)key_col, InvalidOid, -1, InvalidOid, 0);
+            for (size_t i = 0; i < std::min(left_keys.size(), right_keys.size()); i++) {
+                Var* left_var = makeVar((Index)left_relid, (AttrNumber)left_keys[i], InvalidOid, -1, InvalidOid, 0);
+                Var* right_var = makeVar((Index)right_relid, (AttrNumber)right_keys[i], InvalidOid, -1, InvalidOid, 0);
 
                 OpExpr* eq_clause = (OpExpr*)make_opclause(
                     INT4EQOID, BOOLOID, false,
@@ -160,8 +162,8 @@ std::vector<OptExpression*> HashJoinImplRule::transform(
 
     PhysicalHashJoin* hash_join = NEW_EX(PhysicalHashJoin,
         (Path*)hash_path, left_path, right_path);
-    hash_join->set_build_keys(join_op->get_join_keys());
-    hash_join->set_probe_keys(join_op->get_join_keys());
+    hash_join->set_build_keys(left_keys);
+    hash_join->set_probe_keys(right_keys);
 
     OptExpression* new_expr = OptExpression::create(hash_join, left_child, right_child);
     return {new_expr};

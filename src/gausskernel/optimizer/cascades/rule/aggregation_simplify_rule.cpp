@@ -265,7 +265,7 @@ std::vector<OptExpression*> AggregationSimplifyRule::transform(
                 LogicalJoin* orig_join =
                     static_cast<LogicalJoin*>(child->get_op());
                 LogicalInnerJoin* new_join = NEW_EX(LogicalInnerJoin);
-                new_join->set_join_keys(orig_join->get_join_keys());
+                new_join->set_join_keys(orig_join->get_left_join_keys(), orig_join->get_right_join_keys());
                 new_join->set_join_type(orig_join->get_join_type());
 
                 OptExpression* new_join_expr = OptExpression::create(

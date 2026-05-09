@@ -98,12 +98,6 @@ bool ExpressionContext::get_join_keys(std::vector<int>& left_keys, std::vector<i
         if (join_op != nullptr) {
             left_keys = join_op->get_left_join_keys();
             right_keys = join_op->get_right_join_keys();
-
-            // Fallback to symmetric join keys if left/right not set
-            if (left_keys.empty() && right_keys.empty()) {
-                left_keys = join_op->get_join_keys();
-                right_keys = join_op->get_join_keys();
-            }
             return !left_keys.empty() && !right_keys.empty();
         }
     }
