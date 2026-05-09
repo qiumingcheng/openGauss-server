@@ -1,5 +1,6 @@
 #include "nodes/parsenodes.h"
 #include "../base/memory_utils.h"
+#include "join_helper.h"
 #include "hash_join_impl_rule.h"
 #include "../operator/operators.h"
 #include "../memo/opt_expression.h"
@@ -7,6 +8,7 @@
 #include "../memo/group_expression.h"
 #include "../optimizer/optimizer_context.h"
 #include "optimizer/pathnode.h"
+#include "optimizer/cost.h"
 #include "nodes/relation.h"
 #include "nodes/makefuncs.h"
 #include "optimizer/restrictinfo.h"
@@ -101,8 +103,14 @@ std::vector<OptExpression*> HashJoinImplRule::transform(
     // Build joinrelids from left and right relids
     Relids joinrelids = bms_union(left_rel->relids, right_rel->relids);
 
+    SpecialJoinInfo sjinfo;
+    init_sjinfo_for_join(&sjinfo, left_rel, right_rel, join_op->get_join_type());
+
+    JoinPathExtraData extra;
+    init_extra_for_join(&extra, &sjinfo);
+
     // Build joinrel from left and right using OpenGauss function
-    RelOptInfo* joinrel = build_join_rel(root, joinrelids, left_rel, right_rel, nullptr, nullptr);
+    RelOptInfo* joinrel = build_join_rel(root, joinrelids, left_rel, right_rel, &sjinfo, nullptr);
 
     // Create hashclauses from join keys
     List* hashclauses = NIL;
@@ -140,9 +148,14 @@ std::vector<OptExpression*> HashJoinImplRule::transform(
         }
     }
 
+    JoinCostWorkspace cost_workspace;
+    init_cost_workspace(&cost_workspace);
+    initial_cost_hashjoin(root, &cost_workspace, join_op->get_join_type(),
+        hashclauses, left_path, right_path, &extra, 1);
+
     HashPath* hash_path = create_hashjoin_path(
         root, joinrel, join_op->get_join_type(),
-        nullptr, nullptr, left_path, right_path,
+        &cost_workspace, &extra, left_path, right_path,
         NIL, nullptr, hashclauses, 1);
 
     PhysicalHashJoin* hash_join = NEW_EX(PhysicalHashJoin,

@@ -1,4 +1,5 @@
 #include "../base/memory_utils.h"
+#include "join_helper.h"
 #include "nest_loop_impl_rule.h"
 #include "../operator/operators.h"
 #include "../memo/opt_expression.h"
@@ -7,6 +8,7 @@
 #include "../optimizer/optimizer_context.h"
 #include "nodes/parsenodes.h"
 #include "optimizer/pathnode.h"
+#include "optimizer/cost.h"
 #include "nodes/relation.h"
 
 namespace cascades {
@@ -71,11 +73,23 @@ std::vector<OptExpression*> NestLoopImplRule::transform(
     RelOptInfo* right_rel = right_path->parent;
 
     Relids joinrelids = bms_union(left_rel->relids, right_rel->relids);
-    RelOptInfo* joinrel = build_join_rel(root, joinrelids, left_rel, right_rel, nullptr, nullptr);
+
+    SpecialJoinInfo sjinfo;
+    init_sjinfo_for_join(&sjinfo, left_rel, right_rel, join_op->get_join_type());
+
+    JoinPathExtraData extra;
+    init_extra_for_join(&extra, &sjinfo);
+
+    JoinCostWorkspace cost_workspace;
+    init_cost_workspace(&cost_workspace);
+    initial_cost_nestloop(root, &cost_workspace, join_op->get_join_type(),
+        left_path, right_path, &extra, 1);
+
+    RelOptInfo* joinrel = build_join_rel(root, joinrelids, left_rel, right_rel, &sjinfo, nullptr);
 
     NestPath* nestloop_path = create_nestloop_path(
         root, joinrel, join_op->get_join_type(),
-        nullptr, nullptr, left_path, right_path,
+        &cost_workspace, &extra, left_path, right_path,
         NIL, nullptr, nullptr, 1);
 
     PhysicalNestLoop* nestloop_join = NEW_EX(PhysicalNestLoop,

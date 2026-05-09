@@ -59,6 +59,7 @@ static OptExpression* build_opt_expression(GroupExpression* group_expr) {
     }
 
     OptExpression* result = OptExpression::create_with_childrens(op, children);
+    result->attach_group_expression(group_expr);
 
     // Copy logical property from group
     Group* group = group_expr->get_group();
@@ -122,6 +123,7 @@ void ApplyRuleTask::execute() {
                          (int)results.size())));
 
     // Insert transformed expressions into memo
+    bool ge_impl = false;
     Memo* memo = optimizer_context->get_memo();
     for (OptExpression* result : results) {
         // Use insert_transform_result which handles group expression creation
@@ -155,11 +157,14 @@ void ApplyRuleTask::execute() {
             // For logical expressions, push OptimizeExpressionTask
             push_task(MakeTask<OptimizeExpressionTask>(context_, new_group_expr, is_explore_));
         } else {
-            push_task(MakeTask<EnforceAndCostTask>(context_, new_group_expr->get_group(),
-                                                       context_->get_required_property()));
+            ge_impl = true;
         }
     }
 
+    if(ge_impl) {
+        push_task(MakeTask<EnforceAndCostTask>(context_, expression_->get_group(),
+                                                            context_->get_required_property()));
+    }
     // Mark rule as explored/applied
     if (is_transformation_rule(rule_->type())) {
         expression_->set_rule_explored(rule_->type());
