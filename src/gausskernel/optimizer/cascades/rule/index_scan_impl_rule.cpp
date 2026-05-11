@@ -150,6 +150,7 @@ std::vector<OptExpression*> IndexScanImplRule::transform(
                          input->to_string().c_str())));
 
     std::vector<OptExpression*> result;
+    PhysicalIndexScan* physical_scan = nullptr;
 
     LogicalScan* scan_op = static_cast<LogicalScan*>(input->get_op());
     int table_id = scan_op->get_table_id();
@@ -188,8 +189,6 @@ std::vector<OptExpression*> IndexScanImplRule::transform(
         return {};
     }
 
-    ereport(WARNING, (errmsg("[CASCADES] IndexScanImplRule:transform, found indexes, creating index paths")));
-
     List* qual_list = scan_op->get_qual_list();
     (void)qual_list;
 
@@ -198,34 +197,39 @@ std::vector<OptExpression*> IndexScanImplRule::transform(
     List* pathlist = rel->pathlist;
     ListCell* lc = nullptr;
 
-    ereport(WARNING, (errmsg("[CASCADES] IndexScanImplRule:transform, pathlist length=%d, sort_required=%d",
+    ereport(WARNING, (errmsg("[CASCADES] IndexScanImplRule:transform, creating index paths, pathlist length=%d, sort_required=%d",
                          list_length(pathlist), sort_clause != nullptr)));
 
     foreach (lc, pathlist) {
+        physical_scan = nullptr;
         Path* path = (Path*)lfirst(lc);
-        ereport(WARNING, (errmsg("[CASCADES] IndexScanImplRule:transform, checking path type=%d", path->type)));
-
         if (IsA(path, IndexPath)) {
             IndexPath* index_path = (IndexPath*)path;
             List* pathkeys = index_path->path.pathkeys;
 
-            ereport(WARNING, (errmsg("[CASCADES] IndexScanImplRule:transform, IndexPath pathkeys=%p, sort_clause=%p",
-                                 (void*)pathkeys, sort_clause)));
+            // Skip parameterized index paths - they require outer correlation
+            // conditions that only exist in a join context. These paths have
+            // artificially low cost because they assume the correlation filter.
+            // Parameterized index scans are handled directly by NestLoopImplRule
+            // which accesses RelOptInfo paths with proper join context.
+            if (path->param_info != nullptr) {
+                continue;
+            }
+
+            ereport(WARNING, (errmsg("[CASCADES] IndexScanImplRule:transform, IndexPath path type=%d, pathkeys=%p, sort_clause=%p",
+                                 path->type, (void*)pathkeys, sort_clause)));
 
             // If LogicalScan has sort requirement, check if IndexPath's pathkeys match
             if (sort_clause != nullptr) {
                 bool match = false;
                 if (pathkeys != NIL) {
                     // Use IndexPath's built-in pathkeys
-                    ereport(WARNING, (errmsg("[CASCADES] IndexScanImplRule:transform, using built-in pathkeys")));
                     if (pathkeys_match_sort_clause(pathkeys, sort_clause, root)) {
                         match = true;
                     }
                 } else {
                     // Try to build pathkeys from sort_clause
-                    ereport(WARNING, (errmsg("[CASCADES] IndexScanImplRule:transform, pathkeys is NIL, trying to build")));
                     List* built_pathkeys = build_pathkeys_from_sort_clause(root, index_path->indexinfo, (List*)sort_clause);
-                    ereport(WARNING, (errmsg("[CASCADES] IndexScanImplRule:transform, built_pathkeys=%p", (void*)built_pathkeys)));
                     if (built_pathkeys != NIL && pathkeys_match_sort_clause(built_pathkeys, sort_clause, root)) {
                         match = true;
                     }
@@ -237,11 +241,13 @@ std::vector<OptExpression*> IndexScanImplRule::transform(
                 }
                 ereport(WARNING, (errmsg("[CASCADES] IndexScanImplRule:transform, found matching IndexPath for sort")));
             }
-
-            PhysicalIndexScan* physical_scan = NEW_EX(PhysicalIndexScan, (Path*)index_path);
-            OptExpression* new_expr = OptExpression::create(physical_scan);
-            result.push_back(new_expr);
+            physical_scan = NEW_EX(PhysicalIndexScan, (Path*)index_path);
         } else if (IsA(path, BitmapHeapPath)) {
+            // Skip parameterized bitmap paths for the same reason as IndexPath
+            if (path->param_info != nullptr) {
+                continue;
+            }
+
             // Bitmap scan - cannot provide sorted output, skip if sort is required
             if (sort_clause != nullptr) {
                 ereport(WARNING, (errmsg("[CASCADES] IndexScanImplRule:transform, skipping BitmapPath, cannot satisfy sort")));
@@ -249,7 +255,12 @@ std::vector<OptExpression*> IndexScanImplRule::transform(
             }
 
             BitmapHeapPath* bitmap_path = (BitmapHeapPath*)path;
-            PhysicalSeqScan* physical_scan = NEW_EX(PhysicalSeqScan, (Path*)bitmap_path);
+            physical_scan = NEW_EX(PhysicalIndexScan, (Path*)bitmap_path);
+        }
+
+        if(physical_scan) {
+            physical_scan->set_relid(scan_op->get_relid());
+            physical_scan->set_table_id(scan_op->get_table_id());
             OptExpression* new_expr = OptExpression::create(physical_scan);
             result.push_back(new_expr);
         }
