@@ -203,18 +203,10 @@ std::vector<OptExpression*> IndexScanImplRule::transform(
     foreach (lc, pathlist) {
         physical_scan = nullptr;
         Path* path = (Path*)lfirst(lc);
+        
         if (IsA(path, IndexPath)) {
             IndexPath* index_path = (IndexPath*)path;
             List* pathkeys = index_path->path.pathkeys;
-
-            // Skip parameterized index paths - they require outer correlation
-            // conditions that only exist in a join context. These paths have
-            // artificially low cost because they assume the correlation filter.
-            // Parameterized index scans are handled directly by NestLoopImplRule
-            // which accesses RelOptInfo paths with proper join context.
-            if (path->param_info != nullptr) {
-                continue;
-            }
 
             ereport(WARNING, (errmsg("[CASCADES] IndexScanImplRule:transform, IndexPath path type=%d, pathkeys=%p, sort_clause=%p",
                                  path->type, (void*)pathkeys, sort_clause)));
@@ -243,10 +235,7 @@ std::vector<OptExpression*> IndexScanImplRule::transform(
             }
             physical_scan = NEW_EX(PhysicalIndexScan, (Path*)index_path);
         } else if (IsA(path, BitmapHeapPath)) {
-            // Skip parameterized bitmap paths for the same reason as IndexPath
-            if (path->param_info != nullptr) {
-                continue;
-            }
+            BitmapHeapPath* bitmap_path = (BitmapHeapPath*)path;
 
             // Bitmap scan - cannot provide sorted output, skip if sort is required
             if (sort_clause != nullptr) {
@@ -254,7 +243,6 @@ std::vector<OptExpression*> IndexScanImplRule::transform(
                 continue;
             }
 
-            BitmapHeapPath* bitmap_path = (BitmapHeapPath*)path;
             physical_scan = NEW_EX(PhysicalIndexScan, (Path*)bitmap_path);
         }
 

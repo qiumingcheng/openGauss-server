@@ -18,11 +18,13 @@ void PhysicalPropertySet::set_sort(const SortProperty& sort) {
 
 bool PhysicalPropertySet::is_satisfy(const PhysicalPropertySet& required) const {
     return distribution_.is_satisfy(required.distribution_) &&
-           sort_.is_satisfy(required.sort_);
+           sort_.is_satisfy(required.sort_) && 
+           parameterized_scan_req_ == required.parameterized_scan_req_;
 }
 
 bool PhysicalPropertySet::operator==(const PhysicalPropertySet& other) const {
-    return distribution_ == other.distribution_ && sort_ == other.sort_;
+    return distribution_ == other.distribution_ && sort_ == other.sort_ &&
+           parameterized_scan_req_ == other.parameterized_scan_req_;
 }
 
 size_t PhysicalPropertySet::hash() const {
@@ -30,11 +32,15 @@ size_t PhysicalPropertySet::hash() const {
     if (!sort_.is_empty()) {
         h = h * 37 + sort_.hash();
     }
+    if (parameterized_scan_req_) {
+        h = h * 37 + 1;
+    }
     return h;
 }
 
 std::string PhysicalPropertySet::to_string() const {
-    return "PhysicalPropertySet(" + distribution_.to_string() + ", " + sort_.to_string() + ")";
+    return "PhysicalPropertySet(" + distribution_.to_string() + ", " + sort_.to_string() +
+           (parameterized_scan_req_ ? ", param_scan" : "") + ")";
 }
 
 

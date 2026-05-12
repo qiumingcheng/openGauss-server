@@ -20,6 +20,9 @@ public:
     void set_sort(const SortProperty& sort);
     bool has_sort() const { return !sort_.is_empty(); }
 
+    bool is_parameterized_scan_req() const { return parameterized_scan_req_; }
+    void set_parameterized_scan_req(bool req) { parameterized_scan_req_ = req; }
+
     bool is_satisfy(const PhysicalPropertySet& required) const;
     bool operator==(const PhysicalPropertySet& other) const;
     bool operator!=(const PhysicalPropertySet& other) const { return !(*this == other); }
@@ -30,6 +33,7 @@ public:
 private:
     DistributionProperty distribution_;
     SortProperty sort_;
+    bool parameterized_scan_req_ = false;
 };
 
 struct PhysicalPropertySetHash {

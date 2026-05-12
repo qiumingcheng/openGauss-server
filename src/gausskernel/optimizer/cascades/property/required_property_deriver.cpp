@@ -58,6 +58,19 @@ std::vector<PhysicalPropertySet> RequiredPropertyDeriver::derive_child_required_
             break;
         }
 
+        case OptExprOpType::PHYSICAL_NESTLOOP_JOIN: {
+            // Nested loop: left child (outer) gets ANY property
+            // right child (inner) needs parameterized scan for index access
+            for (int i = 0; i < parent_expr->arity(); ++i) {
+                PhysicalPropertySet child_prop = derive_default_child_property(parent_required);
+                if (i == 1) {
+                    child_prop.set_parameterized_scan_req(true);
+                }
+                result.push_back(child_prop);
+            }
+            break;
+        }
+
         default: {
             // Default: child inherits parent's required property
             for (int i = 0; i < parent_expr->arity(); ++i) {

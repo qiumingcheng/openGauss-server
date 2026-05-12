@@ -259,6 +259,12 @@ PhysicalPropertySet EnforceAndCostTask::derive_output_property(
             SortProperty sort_prop(spec);
             return PhysicalPropertySet(DistributionProperty(DistributionType::ANY), sort_prop);
         }
+
+        if(scan->get_path()->param_info != nullptr){
+            PhysicalPropertySet prop;
+            prop.set_parameterized_scan_req(true);
+            return prop;
+        }
         return PhysicalPropertySet();
     }
 
@@ -349,6 +355,13 @@ std::pair<GroupExpression*, double> EnforceAndCostTask::add_enforcers(
     PhysicalPropertySet& output_property,
     const PhysicalPropertySet& required_property,
     double current_cost) const {
+
+    // Parameterized scan requirement cannot be enforced with enforcer nodes.
+    // If required but not provided by the current expression, return huge cost to reject.
+    if (required_property.is_parameterized_scan_req() != output_property.is_parameterized_scan_req()) {
+        ereport(WARNING, (errmsg("[CASCADES] EnforceAndCostTask: add_enforcers cannot satisfy param_scan_req, rejecting with huge cost")));
+        return {expr, context_->get_upper_bound_cost()};
+    }
 
     // Check what enforcement is needed
     bool needs_sort = required_property.has_sort() &&
