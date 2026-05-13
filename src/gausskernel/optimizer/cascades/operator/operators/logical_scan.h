@@ -38,7 +38,6 @@ public:
     void set_output_columns(const ColumnRefSet& cols) { output_columns_ = cols; }
 
     // Sort requirement for index scan optimization
-    // If set, indicates the scan output must be sorted by these clauses
     void* get_sort_clause() const { return sort_clause_; }
     void set_sort_clause(void* clause) { sort_clause_ = clause; }
     bool has_sort_requirement() const { return sort_clause_ != nullptr; }

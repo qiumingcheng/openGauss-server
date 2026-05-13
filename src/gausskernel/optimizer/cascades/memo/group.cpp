@@ -1,4 +1,5 @@
 #include "group.h"
+#include "../operator/operators/physical_scan.h"
 #include <algorithm>
 
 namespace cascades {

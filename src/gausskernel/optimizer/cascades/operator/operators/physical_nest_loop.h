@@ -16,6 +16,7 @@ public:
 
     Path* get_left_path() const { return left_path_; }
     Path* get_right_path() const { return right_path_; }
+    void set_right_path(Path* path) { right_path_ = path; }
 
 private:
     Path* left_path_ = nullptr;

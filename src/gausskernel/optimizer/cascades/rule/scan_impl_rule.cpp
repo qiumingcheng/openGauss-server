@@ -25,11 +25,11 @@ ScanImplRule::ScanImplRule()
 
 std::vector<OptExpression*> ScanImplRule::transform(
     OptExpression* input, OptimizerContext* context) {
-    ereport(WARNING, (errmsg("[CASCADES] ScanImplRule:transform, input=%s",
-                         input->to_string().c_str())));
-
     // Pattern guarantees: op_type == LOGICAL_SCAN && arity == 0
     LogicalScan* scan_op = static_cast<LogicalScan*>(input->get_op());
+
+    ereport(WARNING, (errmsg("[CASCADES] ScanImplRule:transform, input=%s",
+                         input->to_string().c_str())));
     int table_id = scan_op->get_table_id();
 
     // Note: predicate_id is no longer used directly from LogicalScan
@@ -66,13 +66,6 @@ std::vector<OptExpression*> ScanImplRule::transform(
     ColumnRefSet output_cols = scan_op->get_output_columns();
     ereport(WARNING, (errmsg("[CASCADES] ScanImplRule: LogicalScan output_columns.size=%d", output_cols.size())));
 
-    // Log reltarget before creating path
-    int reltarget_cols = 0;
-    if (rel->reltarget != nullptr && rel->reltarget->exprs != NIL) {
-        reltarget_cols = list_length(rel->reltarget->exprs);
-    }
-    ereport(WARNING, (errmsg("[CASCADES] ScanImplRule: reltarget has %d columns before create_seqscan_path", reltarget_cols)));
-
     // Set reltarget from output_columns if available (for column pruning)
     // This ensures the path's pathtarget reflects the actual columns needed
     if (output_cols.size() > 0) {
@@ -95,7 +88,6 @@ std::vector<OptExpression*> ScanImplRule::transform(
                 Var* var = makeVar(table_id, col, atttype, -1, InvalidOid, 0);
                 rel->reltarget->exprs = lappend(rel->reltarget->exprs, var);
                 rel->reltarget->width += get_typlen(atttype);
-                ereport(WARNING, (errmsg("[CASCADES] ScanImplRule: adding column %d to reltarget", col)));
             }
         }
     }
@@ -135,7 +127,8 @@ std::vector<OptExpression*> ScanImplRule::transform(
 
     // Create physical scan operator using NEW_EX macro
     PhysicalSeqScan* physical_scan = NEW_EX(PhysicalSeqScan, scan_path);
-    physical_scan->set_relid(rel->relid);
+    physical_scan->set_relid(scan_op->get_relid());
+    physical_scan->set_table_id(scan_op->get_table_id());
 
     // Note: predicate transfer is now handled by FilterImplRule
     // which adds predicate_ids from LogicalFilter to PhysicalScan

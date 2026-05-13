@@ -132,7 +132,7 @@ static NestLoop* create_nestloop_plan(PlannerInfo* root, NestPath* best_path, Pl
 static MergeJoin* create_mergejoin_plan(PlannerInfo* root, MergePath* best_path, Plan* outer_plan, Plan* inner_plan);
 static HashJoin* create_hashjoin_plan(PlannerInfo* root, HashPath* best_path, Plan* outer_plan, Plan* inner_plan);
 static AsofJoin* create_asofjoin_plan(PlannerInfo* root, AsofPath* best_path, Plan* outer_plan, Plan* inner_plan);
-static Node* replace_nestloop_params(PlannerInfo* root, Node* expr);
+Node* replace_nestloop_params(PlannerInfo* root, Node* expr);
 static Node* replace_nestloop_params_mutator(Node* node, PlannerInfo* root);
 static void process_subquery_nestloop_params(PlannerInfo *root, List *subplan_params);
 static List* fix_indexqual_references(PlannerInfo* root, IndexPath* index_path, Bitmapset** prefixkeys);
@@ -5711,7 +5711,7 @@ static HashJoin* create_hashjoin_plan(PlannerInfo* root, HashPath* best_path, Pl
  * root->curOuterRels are replaced by Params, and entries are added to
  * root->curOuterParams if not already present.
  */
-static Node* replace_nestloop_params(PlannerInfo* root, Node* expr)
+Node* replace_nestloop_params(PlannerInfo* root, Node* expr)
 {
     /* No setup needed for tree walk, so away we go */
     return replace_nestloop_params_mutator(expr, root);

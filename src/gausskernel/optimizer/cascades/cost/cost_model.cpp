@@ -102,12 +102,14 @@ CostEstimate CostModel::compute_merge_join_cost(const GroupExpression* expr, Sta
 
 CostEstimate CostModel::compute_nestloop_join_cost(const GroupExpression* expr, Statistics* stats,
                                                    const std::vector<CostEstimate*>& children) {
-    // Nested loop join cost = outer_rows * inner_rows (cartesian product)
+    // Join overhead: outer_rows * inner_cost
+    // (outer_cost and inner_cost are already included in children_costs, added by compute_cost)
     double cost = 0;
-    if (stats != nullptr && children.size() >= 2) {
-        double outer_rows = children[0] != nullptr ? children[0]->cpu_cost() : 1;
-        double inner_rows = children[1] != nullptr ? children[1]->cpu_cost() : 1;
-        cost = outer_rows + outer_rows * inner_rows * DEFAULT_CPU_TUPLE_COST;
+    if (children.size() >= 2) {
+        double inner_cost = children[1] != nullptr ? children[1]->cpu_cost() : 0;
+        double outer_rows = stats != nullptr ? stats->row_count() : 1;
+        if (outer_rows < 1) outer_rows = 1;
+        cost = outer_rows * inner_cost;
     }
     return CostEstimate(cost, 0, 0);
 }

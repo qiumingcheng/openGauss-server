@@ -1,6 +1,7 @@
 #include "pattern.h"
 #include "../memo/opt_expression.h"
 #include "../memo/group_expression.h"
+#include "../memo/group.h"
 
 namespace cascades {
 Pattern::Pattern(Type type, OptExprOpType op_type)
@@ -60,6 +61,27 @@ bool Pattern::match(OptExpression* expression) const {
         }
         for (size_t i = 0; i < children_.size(); ++i) {
             if (!children_[i]->match(expression->input_at(i))) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+bool Pattern::match(GroupExpression* expression) const {
+    if (type_ == Type::LEAF) {
+        return true;  // matches anything
+    }
+    if (expression->get_op()->get_type() != op_type_) {
+        return false;
+    }
+    if (type_ == Type::SINGLE || type_ == Type::MULTI) {
+        if (expression->arity() != static_cast<int>(children_.size())) {
+            return false;
+        }
+        for (size_t i = 0; i < children_.size(); ++i) {
+            Group* child = expression->input_at(i);
+            if (!children_[i]->match(child->get_first_logical_expression())) {
                 return false;
             }
         }

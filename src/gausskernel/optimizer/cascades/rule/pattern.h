@@ -49,6 +49,7 @@ public:
     static Pattern* any();
 
     bool match(OptExpression* expression) const;
+    bool match(GroupExpression* expression) const;
 
     /**
      * Match only the root operator without checking children

@@ -70,6 +70,17 @@ static OptExpression* build_opt_expression(GroupExpression* group_expr) {
     return result;
 }
 
+static void set_children_required_property(GroupExpression* new_group_expr, OptExpression* result) {
+    // If result has sort_requirement (set by SortImplRule for PassThrough),
+    // convert it to PhysicalPropertySet and set on GroupExpression
+    if (result->get_sort_requirement() != nullptr) {
+        PhysicalPropertySet sort_prop = build_physical_property_set_from_sort_clause(result->get_sort_requirement());
+        new_group_expr->set_children_required_property(NEW_EX(PhysicalPropertySet, DistributionProperty(),
+                                                 SortProperty(sort_prop.get_sort())));
+        ereport(WARNING, (errmsg("[CASCADES] ApplyRuleTask: set children_required_property from sort_requirement")));
+    }
+}
+
 ApplyRuleTask::ApplyRuleTask(TaskContext* context, GroupExpression* expr, Rule* rule, bool is_explore)
     : OptimizerTask(context), expression_(expr), rule_(rule), is_explore_(is_explore) {}
 
@@ -140,15 +151,7 @@ void ApplyRuleTask::execute() {
         new_group_expr->merge_applied_rules(expression_->get_applied_rules());
         new_group_expr->add_applied_rule(rule_->type());
 
-        // If result has sort_requirement (set by SortImplRule for PassThrough),
-        // convert it to PhysicalPropertySet and set on GroupExpression
-        if (result->get_sort_requirement() != nullptr) {
-            PhysicalPropertySet sort_prop = build_physical_property_set_from_sort_clause(result->get_sort_requirement());
-            new_group_expr->set_children_required_property(
-                NEW_EX(PhysicalPropertySet, DistributionProperty(DistributionType::ANY), sort_prop.get_sort()));
-            ereport(WARNING, (errmsg("[CASCADES] ApplyRuleTask: set children_required_property from sort_requirement")));
-        }
-
+        set_children_required_property(new_group_expr, result);
         ereport(WARNING, (errmsg("[CASCADES] ApplyRuleTask: inserted new expr, is_logical=%d, group id=%d",
                              new_group_expr->get_op()->is_logical() ? 1 : 0, new_group_expr->get_group()->id())));
 

@@ -6,12 +6,13 @@ enum class RuleType {
     // Transformation rules (TF_*)
     TF_JOIN_COMMUTATIVITY,
     TF_JOIN_ASSOCIATIVITY,
-    TF_PREDICATE_PUSH_DOWN,
-    TF_FILTER_MERGE,
-    TF_COLUMN_PRUNE,
     TF_OUTER_JOIN_SIMPLIFY,
     TF_CROSS_JOIN_ELIMINATE,
     TF_DUPLICATE_JOIN_ELIMINATION,
+
+    TF_PREDICATE_PUSH_DOWN,
+    TF_FILTER_MERGE,
+    TF_COLUMN_PRUNE,
     TF_SORT_ELIMINATION,
     TF_AGGREGATION_SIMPLIFY,
     TF_SUBQUERY_UNNEST,
@@ -45,7 +46,7 @@ inline bool is_transformation_rule(RuleType type) {
  * Check if a rule type is an implementation rule
  */
 inline bool is_implementation_rule(RuleType type) {
-    return type >= RuleType::IMP_HASH_JOIN &&
+    return type >= RuleType::IMP_FILTER &&
            type <= RuleType::IMP_SUBQUERY_SCAN;
 }
 

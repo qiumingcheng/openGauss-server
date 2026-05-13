@@ -28,18 +28,15 @@ OptimizerContext::OptimizerContext(PlannerInfo* root, MemoryContext context)
     // Initialize transformation rules
     rule_set_.add_rule(JoinCommutativityRule::instance());
     rule_set_.add_rule(JoinAssociationRule::instance());
-    rule_set_.add_rule(PredicatePushDownRule::instance());
-    rule_set_.add_rule(OuterJoinSimplifyRule::instance());
-    rule_set_.add_rule(CrossJoinEliminationRule::instance());
-    rule_set_.add_rule(DuplicateJoinEliminationRule::instance());
+    // rule_set_.add_rule(OuterJoinSimplifyRule::instance());
+    // rule_set_.add_rule(CrossJoinEliminationRule::instance());
+    // rule_set_.add_rule(DuplicateJoinEliminationRule::instance());
+    rule_set_.add_rule(PredicatePushDownRule::instance()); 
     rule_set_.add_rule(AggregationSimplifyRule::instance());
     rule_set_.add_rule(SubqueryUnnestRule::instance());
 
     // Initialize implementation rules
     rule_set_.add_rule(FilterImplRule::instance());
-    rule_set_.add_rule(HashJoinImplRule::instance());
-    rule_set_.add_rule(MergeJoinImplRule::instance());
-    rule_set_.add_rule(NestLoopImplRule::instance());
     rule_set_.add_rule(HashAggImplRule::instance());
     rule_set_.add_rule(ProjectImplRule::instance());
     rule_set_.add_rule(SortImplRule::instance());
@@ -47,6 +44,10 @@ OptimizerContext::OptimizerContext(PlannerInfo* root, MemoryContext context)
     rule_set_.add_rule(IndexScanImplRule::instance());
     rule_set_.add_rule(LimitImplRule::instance());
     rule_set_.add_rule(SubqueryScanImplRule::instance());
+
+    // rule_set_.add_rule(HashJoinImplRule::instance());
+    // rule_set_.add_rule(MergeJoinImplRule::instance());
+    rule_set_.add_rule(NestLoopImplRule::instance()); 
 }
 
 

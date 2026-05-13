@@ -65,6 +65,7 @@ extern Plan* optimize_minmax_aggregates(
  */
 extern void set_plan_rows(Plan* plan, double globalRows, double multiple = 1.0);
 extern Plan* create_plan(PlannerInfo* root, Path* best_path);
+extern Node* replace_nestloop_params(PlannerInfo* root, Node* expr);
 extern void disuse_physical_tlist(PlannerInfo *root, Plan* plan, Path* path);
 extern void copy_plan_costsize(Plan* dest, Plan* src);
 extern SubqueryScan* make_subqueryscan(List* qptlist, List* qpqual, Index scanrelid, Plan* subplan);

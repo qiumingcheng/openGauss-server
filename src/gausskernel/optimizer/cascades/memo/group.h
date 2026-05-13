@@ -8,6 +8,7 @@
 #include <unordered_map>
 #include <set>
 #include <string>
+#include <limits>
 
 namespace cascades {
 
@@ -234,6 +235,10 @@ private:
     std::unordered_map<PhysicalPropertySet,
                        std::pair<double, GroupExpression*>,
                        PhysicalPropertySetHash> lowest_cost_expressions_;
+
+    // Best parameterized scan expression (for PhysicalNestLoop inner table)
+    GroupExpression* best_parameterized_scan_ = nullptr;
+    double best_parameterized_scan_cost_ = std::numeric_limits<double>::max();
 
     // Cost lower bounds for pruning: required property -> lower bound
     std::unordered_map<PhysicalPropertySet, double, PhysicalPropertySetHash> cost_lower_bounds_;

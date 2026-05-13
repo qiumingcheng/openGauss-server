@@ -116,6 +116,14 @@ bool PhysicalIndexScan::equals(const OptExprOp* other) const {
     } else {
         IndexPath* idx1 = (IndexPath*)path_;
         IndexPath* idx2 = (IndexPath*)other_scan->path_;
+        // Different parameterization states are NOT equivalent:
+        // a parameterized index scan and a non-parameterized index scan
+        // on the same index serve different purposes in join optimization.
+        bool param1 = (path_->param_info != nullptr);
+        bool param2 = (other_scan->path_->param_info != nullptr);
+        if (param1 != param2) {
+            return false;
+        }
         return (idx1->indexinfo->indexoid == idx2->indexinfo->indexoid);
     }
 }
