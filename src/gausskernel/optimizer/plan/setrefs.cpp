@@ -2196,10 +2196,13 @@ static Node* fix_join_expr_mutator(Node* node, fix_join_expr_context* context)
         }
 
         /* No referent found for Var */
+        ereport(WARNING, (errmsg("[CASCADES] fix_join_expr_mutator: Var not found: varno=%u, varattno=%d",
+                         var->varno, var->varattno)));
         ereport(ERROR,
             (errmodule(MOD_OPT),
                 errcode(ERRCODE_OPTIMIZER_INCONSISTENT_STATE),
-                (errmsg("variable not found in subplan target lists"))));
+                (errmsg("variable not found in subplan target lists: varno=%u varattno=%d",
+                    var->varno, var->varattno))));
     }
     if (IsA(node, PlaceHolderVar)) {
         PlaceHolderVar* phv = (PlaceHolderVar*)node;
@@ -2283,11 +2286,15 @@ static Node* fix_upper_expr_mutator(Node* node, fix_upper_expr_context* context)
         Var* var = (Var*)node;
 
         newvar = search_indexed_tlist_for_var(var, context->subplan_itlist, context->newvarno, context->rtoffset);
-        if (newvar == NULL)
+        if (newvar == NULL) {
+            ereport(WARNING, (errmsg("[CASCADES] fix_upper_expr_mutator: Var not found: varno=%u, varattno=%d, newvarno=%u, rtoffset=%d",
+                             var->varno, var->varattno, context->newvarno, context->rtoffset)));
             ereport(ERROR,
                 (errmodule(MOD_OPT),
                     errcode(ERRCODE_NULL_VALUE_NOT_ALLOWED),
-                    (errmsg("variable not found in subplan target list"))));
+                    (errmsg("variable not found in subplan target list: varno=%u varattno=%d",
+                        var->varno, var->varattno))));
+        }
         return (Node*)newvar;
     }
     if (IsA(node, PlaceHolderVar)) {

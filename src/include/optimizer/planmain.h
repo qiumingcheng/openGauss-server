@@ -66,6 +66,8 @@ extern Plan* optimize_minmax_aggregates(
 extern void set_plan_rows(Plan* plan, double globalRows, double multiple = 1.0);
 extern Plan* create_plan(PlannerInfo* root, Path* best_path);
 extern Node* replace_nestloop_params(PlannerInfo* root, Node* expr);
+extern List* fix_indexqual_references(PlannerInfo* root, IndexPath* index_path, Bitmapset** prefixkeys);
+extern List* fix_indexorderby_references(PlannerInfo* root, IndexPath* index_path);
 extern void disuse_physical_tlist(PlannerInfo *root, Plan* plan, Path* path);
 extern void copy_plan_costsize(Plan* dest, Plan* src);
 extern SubqueryScan* make_subqueryscan(List* qptlist, List* qpqual, Index scanrelid, Plan* subplan);
@@ -170,6 +172,7 @@ extern RestrictInfo* build_implied_join_equality(
 
 extern bool useInformationalConstraint(PlannerInfo* root, List* qualClause, Relids relids);
 extern List *build_plan_tlist(PlannerInfo *root, PathTarget *pathtarget);
+extern List* build_path_tlist(PlannerInfo* root, Path* path);
 
 /*
  * prototypes for plan/analyzejoins.c

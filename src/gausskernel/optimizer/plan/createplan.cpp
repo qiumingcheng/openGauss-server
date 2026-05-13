@@ -84,7 +84,7 @@
 #define EQUALJOINVARRATIO ((2.0) / (3.0))
 
 static Plan* create_plan_recurse(PlannerInfo* root, Path* best_path);
-static List* build_path_tlist(PlannerInfo* root, Path* path);
+List* build_path_tlist(PlannerInfo* root, Path* path);
 static Plan* create_scan_plan(PlannerInfo* root, Path* best_path);
 static List* build_relation_tlist(RelOptInfo* rel);
 static bool use_physical_tlist(PlannerInfo* root, RelOptInfo* rel);
@@ -135,8 +135,8 @@ static AsofJoin* create_asofjoin_plan(PlannerInfo* root, AsofPath* best_path, Pl
 Node* replace_nestloop_params(PlannerInfo* root, Node* expr);
 static Node* replace_nestloop_params_mutator(Node* node, PlannerInfo* root);
 static void process_subquery_nestloop_params(PlannerInfo *root, List *subplan_params);
-static List* fix_indexqual_references(PlannerInfo* root, IndexPath* index_path, Bitmapset** prefixkeys);
-static List* fix_indexorderby_references(PlannerInfo* root, IndexPath* index_path);
+extern List* fix_indexqual_references(PlannerInfo* root, IndexPath* index_path, Bitmapset** prefixkeys);
+extern List* fix_indexorderby_references(PlannerInfo* root, IndexPath* index_path);
 static Node* fix_indexqual_operand(Node* node, IndexOptInfo* index, int indexcol, Bitmapset** prefixkeys);
 static List* get_switched_clauses(List* clauses, Relids outerrelids);
 static List* order_qual_clauses(PlannerInfo* root, List* clauses);
@@ -1131,8 +1131,7 @@ static List* build_relation_tlist(RelOptInfo* rel)
  * This is almost just make_tlist_from_pathtarget(), but we also have to
  * deal with replacing nestloop params.
  */
-static List *
-build_path_tlist(PlannerInfo *root, Path *path)
+List* build_path_tlist(PlannerInfo *root, Path *path)
 {
     List *tlist = NIL;
     Index *sortgrouprefs = path->pathtarget->sortgrouprefs;
@@ -5928,7 +5927,7 @@ process_subquery_nestloop_params(PlannerInfo *root, List *subplan_params)
  * with the original; this is needed in case there is a subplan in it (we need
  * two separate copies of the subplan tree, or things will go awry).
  */
-static List* fix_indexqual_references(PlannerInfo* root, IndexPath* index_path, Bitmapset** prefixkeys)
+List* fix_indexqual_references(PlannerInfo* root, IndexPath* index_path, Bitmapset** prefixkeys)
 {
     IndexOptInfo* index = index_path->indexinfo;
     List* fixed_indexquals = NIL;
@@ -6047,7 +6046,7 @@ static List* fix_indexqual_references(PlannerInfo* root, IndexPath* index_path, 
  * bother to support any cases except simple OpExprs, since nothing else
  * is allowed for ordering operators.
  */
-static List* fix_indexorderby_references(PlannerInfo* root, IndexPath* index_path)
+List* fix_indexorderby_references(PlannerInfo* root, IndexPath* index_path)
 {
     IndexOptInfo* index = index_path->indexinfo;
     List* fixed_indexorderbys = NIL;

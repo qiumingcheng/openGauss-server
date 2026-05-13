@@ -7,6 +7,7 @@
 #include "nodes/relation.h"
 #include "nodes/plannodes.h"
 #include "nodes/value.h"
+#include "lib/stringinfo.h"
 #include "parser/parsetree.h"
 #include "nodes/parsenodes.h"
 #include "nodes/primnodes.h"
@@ -67,19 +68,12 @@ PlannedStmt* ExprToPlanConverter::convert(OptExpression* expr) {
     assign_plan_node_ids(plan, &next_id);
 
     /*
-     * Fix Var references in the plan tree.
-     * This is called once after the entire plan tree is built.
-     * It converts table column Var references (varno=RTE, varattno=col) to
-     * reference child plan outputs (varno=OUTER_VAR, varattno=resno).
-     *
-     * The algorithm:
-     * 1. Build a mapping from table column numbers to child output positions for each node
-     * 2. Walk the plan tree, converting Var references to OUTER_VAR using the mappings
-     * 3. Update column references like grpColIdx, sortColIdx to use output positions
+     * NOTE: We do NOT call fix_var_references here.
+     * The caller should call set_plan_references() after getting the plan,
+     * which properly handles Var reference conversion, RTE offset adjustment,
+     * and opfuncid computation. This matches the old optimizer's approach:
+     *   create_plan() → set_plan_references()
      */
-    if (root_ != nullptr) {
-        fix_var_references(plan, root_);
-    }
 
     PlannedStmt* result = makeNode(PlannedStmt);
     result->commandType = CMD_SELECT;
@@ -105,7 +99,7 @@ PlannedStmt* ExprToPlanConverter::convert(OptExpression* expr) {
     result->rowMarks = NIL;
     result->relationOids = NIL;
     result->invalItems = NIL;
-    result->nParamExec = 0;
+    result->nParamExec = (root_ != nullptr && root_->glob != nullptr) ? root_->glob->nParamExec : 0;
     result->noanalyze_rellist = NIL;
     result->hasIgnore = false;
     result->num_nodes = 0;
@@ -277,7 +271,6 @@ Plan* ExprToPlanConverter::translate_scan(OptExpression* expr) {
     }
 
     Plan* plan = nullptr;
-
     /* 根据 Path 类型创建相应的 Scan 节点 */
     if (IsA(path, IndexPath)) {
         plan = translate_index_scan((IndexPath*)path, rel, tlist);
@@ -337,12 +330,14 @@ Plan* ExprToPlanConverter::translate_index_scan(IndexPath* index_path, RelOptInf
 
     init_scan_plan(scan, rel, tlist);
 
-    /* Index-specific fields */
+    /* Index-specific fields - use fix_indexqual_references to convert RestrictInfo
+     * to plain expressions, handle outer Var replacement, and index Var substitution
+     */
     index_scan->indexid = index_path->indexinfo->indexoid;
     index_scan->indexname = (char*)get_rel_name(index_scan->indexid);
-    index_scan->indexqual = index_path->indexquals;
+    index_scan->indexqual = fix_indexqual_references(root_, index_path, nullptr);
     index_scan->indexqualorig = get_actual_clauses(index_path->indexquals);
-    index_scan->indexorderby = index_path->indexorderbys;
+    index_scan->indexorderby = fix_indexorderby_references(root_, index_path);
     index_scan->indexorderbyorig = get_actual_clauses(index_path->indexorderbys);
     index_scan->indexorderbyops = nullptr;
     index_scan->indexorderdir = index_path->indexscandir;
@@ -504,8 +499,8 @@ Plan* ExprToPlanConverter::translate_project(OptExpression* expr) {
             }
             Var *v1 = (Var *)tle1->expr;
             Var *v2 = (Var *)tle2->expr;
-            // Compare varattno and vartype (original table column numbers)
-            if (v1->varattno != v2->varattno || v1->vartype != v2->vartype) {
+            // Compare varno/varattno/vartype (original table column numbers)
+            if (v1->varattno != v2->varattno || v1->vartype != v2->vartype || v1->varno != v2->varno) {
                 all_vars_match = false;
                 break;
             }
@@ -522,8 +517,57 @@ Plan* ExprToPlanConverter::translate_project(OptExpression* expr) {
         return child_plan;
     }
 
-    // Need to create Result node with the targetlist
-    // Keep original varattno - conversion happens in fix_var_references()
+    /*
+     * If child is a Join and project needs columns from both sides,
+     * directly use project's tlist for the join instead of creating Result on top.
+     * set_join_references will properly convert both outer Vars (→OUTER_VAR)
+     * and inner Vars (→INNER_VAR).
+     * Creating a Result/BaseResult on top causes fix_upper_expr to fail because
+     * it only looks in the child's tlist (which has only outer columns).
+     */
+    if (nodeTag(child_plan) == T_NestLoop ||
+        nodeTag(child_plan) == T_MergeJoin ||
+        nodeTag(child_plan) == T_HashJoin) {
+        /* Check if project tlist includes columns from both join sides */
+        bool has_inner_var = false;
+        ListCell* lc;
+        foreach(lc, target_list) {
+            TargetEntry* tle = (TargetEntry*)lfirst(lc);
+            if (IsA(tle->expr, Var)) {
+                Var* v = (Var*)tle->expr;
+                /* Check if this Var exists in child_plan->lefttree's targetlist */
+                bool found_in_outer = false;
+                ListCell* lc2;
+                foreach(lc2, child_plan->lefttree ? child_plan->lefttree->targetlist : NIL) {
+                    TargetEntry* outer_tle = (TargetEntry*)lfirst(lc2);
+                    if (IsA(outer_tle->expr, Var)) {
+                        Var* ov = (Var*)outer_tle->expr;
+                        if (ov->varno == v->varno && ov->varattno == v->varattno) {
+                            found_in_outer = true;
+                            break;
+                        }
+                    }
+                }
+                if (!found_in_outer) {
+                    has_inner_var = true;
+                }
+            }
+        }
+
+        if (has_inner_var) {
+            /* Project needs inner columns - set join's tlist to project's tlist */
+            List* join_tlist = (List*)copyObject(target_list);
+            int resno = 1;
+            foreach(lc, join_tlist) {
+                TargetEntry* tle = (TargetEntry*)lfirst(lc);
+                tle->resno = resno++;
+            }
+            child_plan->targetlist = join_tlist;
+            ereport(WARNING, (errmsg("[CASCADES] translate_project: using project tlist for Join")));
+            return child_plan;
+        }
+    }
+
     List* new_targetlist = (List*)copyObject(target_list);
 
     // If child is an Agg node, update its targetlist
@@ -615,29 +659,13 @@ Plan* ExprToPlanConverter::translate_nestloop_join(OptExpression* expr) {
         return translate_expression(expr);
     }
 
-    // If path is set, use the standard create_plan path
-    Path* path = nestloop->get_path();
-    if (path != nullptr && root_ != nullptr) {
-        return create_plan(root_, path);
-    }
-
-    // path=nullptr: build NestPath from children and create plan
-    // This happens when NestLoopImplRule creates placeholder path
-    // and the actual paths are selected by cascades optimization
+    ereport(WARNING, (errmsg("[CASCADES] translate_nestloop_join: created nestloop plan")));
     if (expr->arity() < 2) {
         ereport(WARNING, (errmsg("[CASCADES] translate_nestloop_join: insufficient children")));
         return nullptr;
     }
 
-    // Translate children to get their plans and paths
-    Plan* left_plan = translate_expression(expr->input_at(0));
-    Plan* right_plan = translate_expression(expr->input_at(1));
-    if (left_plan == nullptr || right_plan == nullptr) {
-        ereport(WARNING, (errmsg("[CASCADES] translate_nestloop_join: child plan is null")));
-        return nullptr;
-    }
-
-    // Get paths from child operators
+    // Get paths from child operators (before translation, paths are already set)
     PhysicalOptExprOp* left_op = static_cast<PhysicalOptExprOp*>(expr->input_at(0)->get_op());
     PhysicalOptExprOp* right_op = static_cast<PhysicalOptExprOp*>(expr->input_at(1)->get_op());
     Path* left_path = left_op->get_path();
@@ -649,7 +677,7 @@ Plan* ExprToPlanConverter::translate_nestloop_join(OptExpression* expr) {
 
     JoinType jointype = JOIN_INNER;
 
-    // Translate left child (outer) first
+    // Translate outer child first (no curOuterRels needed - it's the outer side)
     Plan* outer_plan = translate_expression(expr->input_at(0));
     if (outer_plan == nullptr) {
         ereport(WARNING, (errmsg("[CASCADES] translate_nestloop_join: outer plan is null")));
@@ -666,7 +694,7 @@ Plan* ExprToPlanConverter::translate_nestloop_join(OptExpression* expr) {
     root_->curOuterParams = NIL;
     root_->plan_params = NIL;
 
-    // Translate right child (inner) with curOuterRels set
+    // Translate inner child with curOuterRels set
     Plan* inner_plan = translate_expression(expr->input_at(1));
 
     // Restore curOuterRels; save curOuterParams as nestParams
@@ -687,7 +715,39 @@ Plan* ExprToPlanConverter::translate_nestloop_join(OptExpression* expr) {
     JoinPath* np = &nest_path_node;
     np->path.pathtype = T_NestLoop;
     np->path.parent = left_path->parent;
-    np->path.pathtarget = left_path->pathtarget;
+    /*
+     * Build the join's pathtarget by combining expressions from both outer
+     * and inner pathtargets, matching the old optimizer which sets
+     * pathnode->path.pathtarget = joinrel->reltarget (containing both sides).
+     * The outer side comes first, then any unique expressions from the inner side.
+     */
+    PathTarget* join_pathtarget = create_empty_pathtarget();
+    join_pathtarget->exprs = (List*)copyObject(left_path->pathtarget->exprs);
+    join_pathtarget->cost.startup = 0;
+    join_pathtarget->cost.per_tuple = 0;
+    join_pathtarget->width = left_path->pathtarget->width + right_path->pathtarget->width;
+    join_pathtarget->sortgrouprefs = nullptr;
+
+    /* Add inner side expressions that are not already in the outer side */
+    {
+        ListCell* lc;
+        foreach(lc, right_path->pathtarget->exprs) {
+            Node* inner_expr = (Node*)lfirst(lc);
+            bool found = false;
+            ListCell* lc2;
+            foreach(lc2, join_pathtarget->exprs) {
+                if (equal(inner_expr, (Node*)lfirst(lc2))) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                join_pathtarget->exprs = lappend(join_pathtarget->exprs, copyObject(inner_expr));
+            }
+        }
+    }
+
+    np->path.pathtarget = join_pathtarget;
     np->path.pathkeys = NIL;
     np->path.param_info = right_path->param_info;
     np->path.rows = 0;
@@ -706,8 +766,11 @@ Plan* ExprToPlanConverter::translate_nestloop_join(OptExpression* expr) {
     initial_cost_nestloop(root_, &workspace, jointype,
         left_path, right_path, nullptr, 1);
 
-    // Build result tlist from outer pathtarget
-    List* tlist = build_plan_tlist(root_, left_path->pathtarget);
+    /*
+     * Build result tlist from the join pathtarget, matching old optimizer:
+     *   List* tlist = build_path_tlist(root, &best_path->path);
+     */
+    List* tlist = build_path_tlist(root_, &np->path);
 
     // Create NestLoop node (matching old optimizer make_nestloop)
     NestLoop* join_plan = makeNode(NestLoop);
@@ -725,7 +788,7 @@ Plan* ExprToPlanConverter::translate_nestloop_join(OptExpression* expr) {
     plan->startup_cost = workspace.startup_cost;
     plan->total_cost = workspace.total_cost;
     plan->plan_rows = np->path.rows > 0 ? np->path.rows : 1;
-    plan->plan_width = left_path->pathtarget ? left_path->pathtarget->width : 0;
+    plan->plan_width = np->path.pathtarget ? np->path.pathtarget->width : 0;
 
     return plan;
 }
@@ -1067,44 +1130,12 @@ void ExprToPlanConverter::fix_var_references(Plan* plan, PlannerInfo* root)
 
     // Build mapping for this node based on its type
     switch (nodeTag(plan)) {
+        case T_IndexScan:
         case T_SeqScan:
         case T_BitmapHeapScan:
             // Scan nodes produce table columns as-is (varattno = table column number)
-            // No conversion needed for targetlist - leaf nodes
+            // indexqual/indexorderby already processed by fix_indexqual_references
             break;
-
-        case T_IndexScan: {
-            // Process index-specific fields: indexqual, indexqualorig, indexorderby, indexorderbyorig
-            // The old optimizer does this in set_plan_references via fix_scan_list.
-            // We need to copy these trees so the executor gets independent copies
-            // (especially RestrictInfo nodes in indexqual).
-            IndexScan* index_scan = (IndexScan*)plan;
-            if (index_scan->indexqual != NIL) {
-                index_scan->indexqual = (List*)expression_tree_mutator(
-                    (Node*)index_scan->indexqual,
-                    (Node* (*)(Node*, void*))expression_tree_mutator,
-                    (void*)nullptr);
-            }
-            if (index_scan->indexqualorig != NIL) {
-                index_scan->indexqualorig = (List*)expression_tree_mutator(
-                    (Node*)index_scan->indexqualorig,
-                    (Node* (*)(Node*, void*))expression_tree_mutator,
-                    (void*)nullptr);
-            }
-            if (index_scan->indexorderby != NIL) {
-                index_scan->indexorderby = (List*)expression_tree_mutator(
-                    (Node*)index_scan->indexorderby,
-                    (Node* (*)(Node*, void*))expression_tree_mutator,
-                    (void*)nullptr);
-            }
-            if (index_scan->indexorderbyorig != NIL) {
-                index_scan->indexorderbyorig = (List*)expression_tree_mutator(
-                    (Node*)index_scan->indexorderbyorig,
-                    (Node* (*)(Node*, void*))expression_tree_mutator,
-                    (void*)nullptr);
-            }
-            break;
-        }
 
         case T_Agg: {
             // Agg nodes: grpColIdx references child output, targetlist output references Agg output

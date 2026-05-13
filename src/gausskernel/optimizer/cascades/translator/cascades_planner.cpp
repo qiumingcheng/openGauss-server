@@ -51,7 +51,7 @@ PlannedStmt* cascades_planner(Query* parse, int cursorOptions, ParamListInfo bou
     glob->subplans = NIL;
     glob->subroots = NIL;
     glob->rewindPlanIDs = NULL;
-    glob->finalrtable = parse->rtable;
+    glob->finalrtable = NIL;
     glob->finalrowmarks = NIL;
     glob->resultRelations = NIL;
     glob->relationOids = NIL;
@@ -114,6 +114,13 @@ PlannedStmt* cascades_planner(Query* parse, int cursorOptions, ParamListInfo bou
         ereport(WARNING, (errmsg("Cascades optimizer: plan conversion failed, falling back to standard planner")));
         return standard_planner(parse, cursorOptions, boundParams);
     }
+
+    /* Step 4: Fix plan references - Var conversion, RTE offset, opfuncid (matches old optimizer) */
+    result->planTree = set_plan_references(root, result->planTree);
+
+    /* Update rtable/invalItems after set_plan_references has populated them */
+    result->rtable = root->glob->finalrtable;
+    result->invalItems = root->glob->invalItems;
 
     result->utilityStmt = parse->utilityStmt;
     result->commandType = parse->commandType;

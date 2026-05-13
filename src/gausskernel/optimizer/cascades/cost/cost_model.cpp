@@ -110,6 +110,11 @@ CostEstimate CostModel::compute_nestloop_join_cost(const GroupExpression* expr, 
         double outer_rows = stats != nullptr ? stats->row_count() : 1;
         if (outer_rows < 1) outer_rows = 1;
         cost = outer_rows * inner_cost;
+    } else if (stats != nullptr) {
+        // Fallback when children_costs is not provided: use stats-based estimate
+        double rows = stats->row_count();
+        if (rows < 1) rows = 1;
+        cost = rows * DEFAULT_CPU_TUPLE_COST;
     }
     return CostEstimate(cost, 0, 0);
 }
