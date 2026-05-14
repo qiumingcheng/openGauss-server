@@ -350,6 +350,7 @@ PhysicalPropertySet EnforceAndCostTask::derive_output_property(
     }
 }
 
+const double NESTLOOP_JOIN_MAX_COST = 10000000000.0;
 std::pair<GroupExpression*, double> EnforceAndCostTask::add_enforcers(
     GroupExpression* expr,
     PhysicalPropertySet& output_property,
@@ -360,7 +361,7 @@ std::pair<GroupExpression*, double> EnforceAndCostTask::add_enforcers(
     // If required but not provided by the current expression, return huge cost to reject.
     if (required_property.is_parameterized_scan_req() != output_property.is_parameterized_scan_req()) {
         ereport(WARNING, (errmsg("[CASCADES] EnforceAndCostTask: add_enforcers cannot satisfy param_scan_req, rejecting with huge cost")));
-        return {expr, context_->get_upper_bound_cost()};
+        return {expr, NESTLOOP_JOIN_MAX_COST};
     }
 
     // Check what enforcement is needed

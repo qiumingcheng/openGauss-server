@@ -8,9 +8,27 @@
 
 namespace cascades {
 
+static std::vector<CostEstimate*> deal_children_costs(GroupExpression* group_expr,
+                                const PhysicalPropertySet& required_property,
+                                const std::vector<CostEstimate*>& children_costs) {
+        
+    if(!children_costs.empty()) {
+        return std::vector<CostEstimate*>(children_costs);
+    }
+
+    std::vector<CostEstimate*> ret;
+    for(int i=0; i<group_expr->arity(); i++) {
+        Group* children = group_expr->input_at(i);
+        GroupExpression* ge = children->get_best_expression(required_property);
+        double cost = ge ? ge->get_cost(required_property) : 0.0;
+        ret.push_back(NEW_EX(CostEstimate, cost, 0, 0));
+    }
+    return ret;
+}
+
 CostEstimate CostModel::compute_cost(GroupExpression* group_expr,
                                       const PhysicalPropertySet& required_property,
-                                      const std::vector<CostEstimate*>& children_costs) {
+                                      const std::vector<CostEstimate*>& in_costs) {
     CostEstimate cost;
 
     OptExprOp* op = group_expr->get_op();
@@ -30,17 +48,7 @@ CostEstimate CostModel::compute_cost(GroupExpression* group_expr,
 
     // Fallback: use cascades own cost estimation
     Statistics* stats = group_expr->get_group()->get_statistics();
-
-    // Add children's costs
-    for (auto* child_cost : children_costs) {
-        cost += *child_cost;
-    }
-
-    // Compute operator-specific cost based on type
-    if (op->is_logical()) {
-        // Logical operators have no execution cost
-        return cost;
-    }
+    std::vector<CostEstimate*> children_costs = deal_children_costs(group_expr, required_property, in_costs);
 
     // Physical operators have execution cost
     switch (op->get_type()) {
@@ -102,20 +110,37 @@ CostEstimate CostModel::compute_merge_join_cost(const GroupExpression* expr, Sta
 
 CostEstimate CostModel::compute_nestloop_join_cost(const GroupExpression* expr, Statistics* stats,
                                                    const std::vector<CostEstimate*>& children) {
-    // Join overhead: outer_rows * inner_cost
-    // (outer_cost and inner_cost are already included in children_costs, added by compute_cost)
-    double cost = 0;
-    if (children.size() >= 2) {
-        double inner_cost = children[1] != nullptr ? children[1]->cpu_cost() : 0;
-        double outer_rows = stats != nullptr ? stats->row_count() : 1;
-        if (outer_rows < 1) outer_rows = 1;
-        cost = outer_rows * inner_cost;
-    } else if (stats != nullptr) {
-        // Fallback when children_costs is not provided: use stats-based estimate
-        double rows = stats->row_count();
-        if (rows < 1) rows = 1;
-        cost = rows * DEFAULT_CPU_TUPLE_COST;
+    /*
+     * NestLoop join cost = outer_rows * inner_cost
+     * where inner_cost is the cost to scan/process inner relation once per outer row.
+     *
+     * Get row counts directly from child groups' statistics.
+     */
+    const auto& inputs = expr->get_inputs();
+    double outer_rows = 1.0;
+    double inner_rows = 1.0;
+
+    // Get outer group (left child, index 0) row count
+    if (inputs.size() >= 1 && inputs[0] != nullptr) {
+        Statistics* outer_stats = inputs[0]->get_statistics();
+        if (outer_stats != nullptr) {
+            outer_rows = outer_stats->row_count();
+            if (outer_rows < 1) outer_rows = 1;
+        }
     }
+
+    // Get inner group (right child, index 1) row count
+    Statistics* inner_stats = inputs[1]->get_statistics();
+    if (inner_stats != nullptr) {
+        inner_rows = inner_stats->row_count();
+        if (inner_rows < 1) inner_rows = 1;
+    }
+
+    
+    // Inner cost = cost to process one inner row (CPU per tuple)
+    double inner_cost = children[1]->cpu_cost() / inner_rows;
+    // NestLoop: for each outer row, scan inner once
+    double cost = outer_rows * inner_cost;
     return CostEstimate(cost, 0, 0);
 }
 
