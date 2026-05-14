@@ -1,6 +1,7 @@
 #include "../base/memory_utils.h"
 #include "hash_join_impl_rule.h"
 #include "../operator/operators.h"
+#include "../operator/operators/logical_join.h"
 #include "../memo/opt_expression.h"
 #include "../optimizer/optimizer_context.h"
 #include "postgres.h"
@@ -23,8 +24,15 @@ std::vector<OptExpression*> HashJoinImplRule::transform(
 
     ereport(WARNING, (errmsg("[CASCADES] HashJoinImplRule:transform, creating PhysicalHashJoin")));
 
-    // Create PhysicalHashJoin(left_child, right_child) - paths set later in translate_hash_join
+    // Copy join conditions from LogicalJoin to PhysicalHashJoin
+    LogicalJoin* logical_join = dynamic_cast<LogicalJoin*>(input->get_op());
     PhysicalHashJoin* hash_join = NEW_EX(PhysicalHashJoin, nullptr, nullptr, nullptr);
+    if (logical_join != nullptr) {
+        hash_join->set_build_keys(logical_join->get_left_join_keys());
+        hash_join->set_probe_keys(logical_join->get_right_join_keys());
+        hash_join->set_qual(logical_join->get_qual());
+        hash_join->set_join_type(logical_join->get_join_type());
+    }
     OptExpression* new_expr = OptExpression::create(hash_join, left_child, right_child);
 
     return {new_expr};

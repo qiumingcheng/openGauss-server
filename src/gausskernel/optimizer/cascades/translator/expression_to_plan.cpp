@@ -16,6 +16,7 @@
 #include "optimizer/tlist.h"
 #include "optimizer/restrictinfo.h"
 #include "optimizer/cost.h"
+#include "optimizer/clauses.h"
 #include "utils/palloc.h"
 #include "utils/lsyscache.h"
 #include <stddef.h>
@@ -68,7 +69,7 @@ PlannedStmt* ExprToPlanConverter::convert(OptExpression* expr) {
     assign_plan_node_ids(plan, &next_id);
 
     /*
-     * NOTE: We do NOT call fix_var_references here.
+     * NOTE: Var reference conversion is NOT done here.
      * The caller should call set_plan_references() after getting the plan,
      * which properly handles Var reference conversion, RTE offset adjustment,
      * and opfuncid computation. This matches the old optimizer's approach:
@@ -367,8 +368,44 @@ Plan* ExprToPlanConverter::translate_bitmap_scan(BitmapHeapPath* bitmap_path, Re
 
     init_scan_plan(scan, rel, tlist);
 
-    /* Bitmap-specific: use the bitmapqual from the path */
-    bitmap_scan->bitmapqualorig = (List*)bitmap_path->bitmapqual;
+    /* Extract bitmapqualorig from bitmap_path->bitmapqual (which is a Path*, not a List*).
+     * bitmapqual can be IndexPath, BitmapAndPath, or BitmapOrPath.
+     * For a simple IndexPath, extract actual clauses and create BitmapIndexScan child. */
+    Path* bitmapqual = bitmap_path->bitmapqual;
+    if (bitmapqual != nullptr && IsA(bitmapqual, IndexPath)) {
+        IndexPath* ipath = (IndexPath*)bitmapqual;
+
+        /* Build BitmapIndexScan as child node (matching old optimizer: create_bitmap_subplan) */
+        BitmapIndexScan* bitmap_index_scan = makeNode(BitmapIndexScan);
+        Plan* bindex_plan = &bitmap_index_scan->scan.plan;
+        bindex_plan->targetlist = NIL;
+        bindex_plan->qual = NIL;
+        bindex_plan->lefttree = nullptr;
+        bindex_plan->righttree = nullptr;
+        bindex_plan->startup_cost = 0.0;
+        bindex_plan->total_cost = ipath->indextotalcost;
+        bindex_plan->plan_rows = clamp_row_est(ipath->indexselectivity * ipath->path.parent->tuples);
+        bindex_plan->plan_width = 0;
+        bitmap_index_scan->scan.scanrelid = ipath->indexinfo->rel->relid;
+        bitmap_index_scan->indexid = ipath->indexinfo->indexoid;
+        bitmap_index_scan->indexqual = fix_indexqual_references(root_, ipath, nullptr);
+        bitmap_index_scan->indexqualorig = get_actual_clauses(ipath->indexquals);
+        bitmap_index_scan->selectivity = ipath->indexselectivity;
+        bitmap_index_scan->is_partial = (ipath->indexinfo->indpred != NIL);
+        bitmap_index_scan->is_ustore = ipath->is_ustore;
+        bitmap_index_scan->scan.bucketInfo = bitmapqual->parent->bucketInfo;
+        bitmap_index_scan->scan.isPartTbl = false;
+        bitmap_index_scan->scan.itrs = 0;
+        bitmap_index_scan->scan.pruningInfo = nullptr;
+
+        scan->plan.lefttree = bindex_plan;
+
+        bitmap_scan->bitmapqualorig = get_actual_clauses(ipath->indexclauses);
+    } else {
+        /* For nested bitmap quals (BitmapAndPath/BitmapOrPath), we fall back to NIL
+         * since Cascades does not generate complex bitmap plans yet. */
+        bitmap_scan->bitmapqualorig = NIL;
+    }
 
     ereport(WARNING, (errmsg("[CASCADES] translate_scan: created BitmapHeapScan")));
 
@@ -383,78 +420,6 @@ Plan* ExprToPlanConverter::translate_seq_scan(RelOptInfo* rel, List* tlist) {
     ereport(WARNING, (errmsg("[CASCADES] translate_scan: created SeqScan")));
 
     return &seq_scan->plan;
-}
-
-/*
- * Convert Vars in expression to reference child plan output.
- * Original Vars have varno = RTE index (e.g., 1), we keep varno=1.
- * varattno is changed to position in child targetlist.
- * Executor will fetch tuple from ecxt_scantuple which should point to child's output slot.
- */
-typedef struct {
-    List* child_tlist;  /* child plan's targetlist */
-} ConvertVarContext;
-
-static Node* convert_var_references_mutator(Node* node, void* context)
-{
-    ConvertVarContext* ctx = (ConvertVarContext*)context;
-    List* child_tlist = ctx->child_tlist;
-
-    if (node == NULL)
-        return NULL;
-
-    if (IsA(node, Var)) {
-        Var* var = (Var*)node;
-
-        /* Find corresponding TargetEntry in child targetlist by varattno */
-        TargetEntry* child_tle = NULL;
-        ListCell* lc;
-        foreach(lc, child_tlist) {
-            TargetEntry* ctle = (TargetEntry*)lfirst(lc);
-            if (IsA(ctle->expr, Var)) {
-                Var* cvar = (Var*)ctle->expr;
-                if (cvar->varattno == var->varattno) {
-                    child_tle = ctle;
-                    break;
-                }
-            }
-        }
-
-        if (child_tle != NULL && IsA(child_tle->expr, Var)) {
-            Var* child_var = (Var*)child_tle->expr;
-            /* Create new Var with varno=OUTER_VAR and varattno=child_tle->resno */
-            /* Use child's vartypmod to match child's targetlist */
-            return (Node*)makeVar(OUTER_VAR, child_tle->resno,
-                                  child_var->vartype, child_var->vartypmod, child_var->varcollid, 0);
-        }
-        /* If not found, return original Var (shouldn't happen) */
-        return node;
-    }
-
-    /* Recurse into expression tree */
-    return expression_tree_mutator(node, convert_var_references_mutator, context);
-}
-
-static List* convert_var_references(List* target_list, List* child_tlist)
-{
-    List* new_target_list = NIL;
-    ListCell* lc;
-    ConvertVarContext context;
-
-    context.child_tlist = child_tlist;
-
-    foreach(lc, target_list) {
-        TargetEntry* tle = (TargetEntry*)lfirst(lc);
-        Node* new_expr = convert_var_references_mutator((Node*)tle->expr, &context);
-        TargetEntry* new_tle = makeTargetEntry((Expr*)new_expr,
-                                               tle->resno,
-                                               tle->resname,
-                                               tle->resjunk);
-        new_tle->ressortgroupref = tle->ressortgroupref;
-        new_target_list = lappend(new_target_list, new_tle);
-    }
-
-    return new_target_list;
 }
 
 Plan* ExprToPlanConverter::translate_project(OptExpression* expr) {
@@ -489,7 +454,7 @@ Plan* ExprToPlanConverter::translate_project(OptExpression* expr) {
     /*
      * Project elimination check: compare original target_list with child's targetlist
      * We keep the original varattno values (table column numbers) here.
-     * The Var -> OUTER_VAR conversion will be done in fix_var_references().
+     * The Var -> OUTER_VAR conversion will be done in set_plan_references().
      */
     bool can_eliminate = false;
     if (list_length(target_list) == list_length(child_plan->targetlist)) {
@@ -572,6 +537,8 @@ Plan* ExprToPlanConverter::translate_project(OptExpression* expr) {
                 TargetEntry* tle = (TargetEntry*)lfirst(lc);
                 tle->resno = resno++;
             }
+            ereport(WARNING, (errmsg("[CASCADES] translate_project: set join tlist to %d items (has_inner_var=true)",
+                 list_length(join_tlist))));
             child_plan->targetlist = join_tlist;
             ereport(WARNING, (errmsg("[CASCADES] translate_project: using project tlist for Join")));
             return child_plan;
@@ -662,6 +629,8 @@ Plan* ExprToPlanConverter::translate_hash_join(OptExpression* expr) {
     }
 
     ereport(WARNING, (errmsg("[CASCADES] translate_hash_join: created hashjoin plan")));
+    ereport(WARNING, (errmsg("[CASCADES] translate_hash_join: qual nodeTag=%d",
+         hashjoin->get_qual() == nullptr ? 0 : (int)nodeTag(hashjoin->get_qual()))));
     if (expr->arity() < 2) {
         ereport(WARNING, (errmsg("[CASCADES] translate_hash_join: insufficient children")));
         return nullptr;
@@ -690,7 +659,7 @@ Plan* ExprToPlanConverter::translate_hash_join(OptExpression* expr) {
         return nullptr;
     }
 
-    JoinType jointype = JOIN_INNER;
+    JoinType jointype = hashjoin->get_join_type();
 
     // Build HashPath for cost/size computation
     JoinPath hash_path_node;
@@ -745,17 +714,83 @@ Plan* ExprToPlanConverter::translate_hash_join(OptExpression* expr) {
     // Build tlist
     List* tlist = build_path_tlist(root_, &hp->path);
 
+    // Build hashclauses from join qual (matching old optimizer: get_actual_clauses)
+    List* hashclauses = NIL;
+    Node* qual = hashjoin->get_qual();
+    if (qual != nullptr) {
+        if (IsA(qual, List)) {
+            ListCell* lc3;
+            foreach(lc3, (List*)qual) {
+                hashclauses = lappend(hashclauses, copyObject(lfirst(lc3)));
+            }
+        } else if (IsA(qual, OpExpr)) {
+            hashclauses = list_make1(copyObject(qual));
+        } else if (IsA(qual, BoolExpr)) {
+            BoolExpr* boolExpr = (BoolExpr*)qual;
+            if (boolExpr->boolop == AND_EXPR) {
+                ListCell* lc3;
+                foreach(lc3, boolExpr->args) {
+                    hashclauses = lappend(hashclauses, copyObject(lfirst(lc3)));
+                }
+            } else {
+                hashclauses = list_make1(copyObject(qual));
+            }
+        }
+    }
+    ereport(WARNING, (errmsg("[CASCADES] translate_hash_join: hashclauses=%d items",
+         list_length(hashclauses))));
+
+    // Ensure OUTER var is on the left side of each hashclause OpExpr
+    // (matching old optimizer: get_switched_clauses)
+    // ExecInitHashJoin reads linitial(args) as OUTER hashkey and lsecond(args) as INNER hashkey.
+    {
+        Relids outerrelids = left_path->parent->relids;
+        ListCell* lc3;
+        foreach(lc3, hashclauses) {
+            OpExpr* hclause = (OpExpr*)lfirst(lc3);
+            if (IsA(hclause, OpExpr) && list_length(hclause->args) == 2) {
+                Node* left_arg = (Node*)linitial(hclause->args);
+                Node* right_arg = (Node*)lsecond(hclause->args);
+                bool left_is_outer = false;
+                if (IsA(left_arg, Var)) {
+                    left_is_outer = bms_is_member(((Var*)left_arg)->varno, outerrelids);
+                }
+                if (!left_is_outer && IsA(right_arg, Var)) {
+                    // RIGHT side is outer → need to swap args (commute)
+                    OpExpr* temp = (OpExpr*)copyObject(hclause);
+                    CommuteOpExpr(temp);
+                    lfirst(lc3) = temp;
+                }
+            }
+        }
+    }
+
+    // Create Hash child node wrapping inner plan (matching old optimizer: make_hash)
+    Hash* hash_plan = makeNode(Hash);
+    copy_plan_costsize(&hash_plan->plan, right_plan);
+    hash_plan->plan.startup_cost = hash_plan->plan.total_cost;
+    hash_plan->plan.targetlist = right_plan->targetlist;
+    hash_plan->plan.qual = NIL;
+    hash_plan->plan.lefttree = right_plan;
+    hash_plan->plan.righttree = NULL;
+    hash_plan->plan.hasUniqueResults = right_plan->hasUniqueResults;
+    hash_plan->skewTable = InvalidOid;
+    hash_plan->skewColumn = InvalidAttrNumber;
+    hash_plan->skewInherit = false;
+    hash_plan->skewColType = InvalidOid;
+    hash_plan->skewColTypmod = -1;
+
     // Create HashJoin plan node
     HashJoin* join_plan = makeNode(HashJoin);
     Plan* plan = &join_plan->join.plan;
     plan->targetlist = tlist;
     plan->qual = NIL;
     plan->lefttree = left_plan;
-    plan->righttree = right_plan;
+    plan->righttree = (Plan*)hash_plan;
     join_plan->join.joinqual = NIL;
     join_plan->join.jointype = jointype;
     join_plan->join.inner_unique = false;
-    join_plan->hashclauses = NIL;
+    join_plan->hashclauses = hashclauses;
 
     // Copy cost and size
     plan->startup_cost = workspace.startup_cost;
@@ -1037,8 +1072,11 @@ Plan* ExprToPlanConverter::translate_hash_agg(OptExpression* expr) {
     Agg* agg_plan = makeNode(Agg);
     agg_plan->plan.lefttree = child_plan;
 
-    // Use convert_var_references to build proper targetlist with Var varno=OUTER_VAR
-    List* agg_tlist = convert_var_references(hash_agg->get_target_list(), child_plan->targetlist);
+    // Do NOT call convert_var_references here. Let set_plan_references()
+    // (specifically set_upper_references) handle Var conversion, matching the
+    // old optimizer where create_agg_plan builds the Agg targetlist with
+    // original table Vars and set_plan_references converts them to OUTER_VAR later.
+    List* agg_tlist = (List*)copyObject(hash_agg->get_target_list());
     agg_plan->plan.targetlist = agg_tlist;
 
     // Set HAVING clause - parse->havingQual is already preprocessed into List* format
@@ -1067,28 +1105,35 @@ Plan* ExprToPlanConverter::translate_hash_agg(OptExpression* expr) {
         ereport(WARNING, (errmsg("[CASCADES] translate_hash_agg: numCols=%d, src_ops=%p",
                              agg_plan->numCols, (void*)src_ops)));
 
-        // Extract varattno from the converted targetlist Var expressions
-        // grpColIdx should be the column position in the CHILD output
+        // grpColIdx[i] should be the resno in the child plan's targetlist.
+        // Match group key expressions against child_plan->targetlist using
+        // tlist_member (matching old optimizer's locate_grouping_columns).
         for (size_t i = 0; i < group_keys.size(); i++) {
             AttrNumber target_resno = group_keys[i];
-            AttrNumber child_varattno = InvalidAttrNumber;
+            TargetEntry* group_tle = nullptr;
 
             ListCell* lc;
-            foreach(lc, agg_plan->plan.targetlist) {
+            foreach(lc, agg_tlist) {
                 TargetEntry* te = (TargetEntry*)lfirst(lc);
-                if (te->resno == target_resno && IsA(te->expr, Var)) {
-                    Var* v = (Var*)te->expr;
-                    child_varattno = v->varattno;
+                if (te->resno == target_resno) {
+                    group_tle = te;
                     break;
                 }
             }
 
-            if (child_varattno == InvalidAttrNumber) {
-                ereport(ERROR, (errmsg("[CASCADES] translate_hash_agg: failed to find Var for group key %zu", i)));
+            if (group_tle == nullptr) {
+                ereport(ERROR, (errmsg("[CASCADES] translate_hash_agg: failed to find target entry for group key %zu", i)));
                 return nullptr;
             }
 
-            agg_plan->grpColIdx[i] = child_varattno;
+            // Find this group key expression in child_plan->targetlist
+            TargetEntry* child_tle = tlist_member((Node*)group_tle->expr, child_plan->targetlist);
+            if (child_tle == nullptr) {
+                ereport(ERROR, (errmsg("[CASCADES] translate_hash_agg: failed to find group key %zu in child plan targetlist", i)));
+                return nullptr;
+            }
+
+            agg_plan->grpColIdx[i] = child_tle->resno;
             agg_plan->grpOperators[i] = (src_ops != nullptr) ? src_ops[i] : InvalidOid;
             ereport(WARNING, (errmsg("[CASCADES] translate_hash_agg: key[%zu] colIdx=%d, op=%u",
                                  i, agg_plan->grpColIdx[i], agg_plan->grpOperators[i])));
@@ -1323,277 +1368,6 @@ Plan* ExprToPlanConverter::translate_subquery_scan(OptExpression* expr) {
     }
 
     return (Plan*)scan_node;
-}
-
-/*
- * fix_var_references
- *
- * Convert table column Var references to reference child plan outputs.
- * This is called once after the entire plan tree is built.
- *
- * Algorithm:
- * 1. Build output column mappings for each node (table col -> output position)
- * 2. Walk the plan tree, converting Vars to OUTER_VAR using the mappings
- * 3. Update column references (grpColIdx, sortColIdx, etc.) to use output positions
- */
-void ExprToPlanConverter::fix_var_references(Plan* plan, PlannerInfo* root)
-{
-    if (plan == nullptr) {
-        return;
-    }
-
-    ereport(WARNING, (errmsg("[CASCADES] fix_var_references: plan type=%d", (int)nodeTag(plan))));
-
-    // Process child nodes first (bottom-up)
-    if (plan->lefttree != nullptr) {
-        fix_var_references(plan->lefttree, root);
-    }
-    if (plan->righttree != nullptr) {
-        fix_var_references(plan->righttree, root);
-    }
-
-    // Build mapping for this node based on its type
-    switch (nodeTag(plan)) {
-        case T_IndexScan:
-        case T_SeqScan:
-        case T_BitmapHeapScan:
-            // Scan nodes produce table columns as-is (varattno = table column number)
-            // indexqual/indexorderby already processed by fix_indexqual_references
-            break;
-
-        case T_Agg: {
-            // Agg nodes: grpColIdx references child output, targetlist output references Agg output
-            Agg* agg = (Agg*)plan;
-            fix_agg_var_references(agg, root);
-            break;
-        }
-
-        case T_Sort: {
-            // Sort nodes: sortColIdx references child output
-            Sort* sort = (Sort*)plan;
-            fix_sort_var_references(sort, root);
-            break;
-        }
-
-        case T_BaseResult:
-        case T_Result: {
-            // Result/Project nodes: targetlist references child output
-            Plan* p = (Plan*)plan;
-            fix_result_var_references(p, root);
-            break;
-        }
-
-        case T_NestLoop: {
-            // NestLoop: convert nestParams paramval->varno to OUTER_VAR
-            // Matches old optimizer set_join_references which calls
-            // fix_upper_expr on nlp->paramval
-            NestLoop* nl = (NestLoop*)plan;
-            Plan* outer_plan = plan->lefttree;
-            if (outer_plan != nullptr && nl->nestParams != NIL) {
-                ListCell* lc;
-                foreach(lc, nl->nestParams) {
-                    NestLoopParam* nlp = (NestLoopParam*)lfirst(lc);
-                    if (IsA(nlp->paramval, Var)) {
-                        Var* var = (Var*)nlp->paramval;
-                        // Find this var in outer plan's targetlist and map to output position
-                        ListCell* tle_cell;
-                        foreach(tle_cell, outer_plan->targetlist) {
-                            TargetEntry* tle = (TargetEntry*)lfirst(tle_cell);
-                            if (IsA(tle->expr, Var)) {
-                                Var* tle_var = (Var*)tle->expr;
-                                if (tle_var->varattno == var->varattno) {
-                                    var->varno = OUTER_VAR;
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            // Also handle generic targetlist/qual conversion
-            fix_generic_var_references(plan, root);
-            break;
-        }
-
-        default:
-            // For other node types, process targetlist and qual
-            fix_generic_var_references(plan, root);
-            break;
-    }
-}
-
-/*
- * Forward declarations for static helpers defined later
- */
-static Node* fix_var_mutator(Node* node, List* child_tlist);
-static Node* convert_expr_vars(Node* node, List* child_tlist, Index newvarno);
-
-void ExprToPlanConverter::fix_agg_var_references(Agg* agg, PlannerInfo* root)
-{
-    ereport(WARNING, (errmsg("[CASCADES] ignore fix_agg_var_references: numCols=%d", agg->numCols)));
-}
-
-void ExprToPlanConverter::fix_sort_var_references(Sort* sort, PlannerInfo* root)
-{
-    Plan* child = sort->plan.lefttree;
-    if (child == nullptr) {
-        return;
-    }
-
-    // Fix sortColIdx: these reference child's output columns
-    if (sort->sortColIdx != nullptr && sort->numCols > 0) {
-        List* child_tlist = child->targetlist;
-
-        for (int i = 0; i < sort->numCols; i++) {
-            AttrNumber old_idx = sort->sortColIdx[i];
-            AttrNumber new_idx = map_varattno_to_output_pos(old_idx, child_tlist);
-            ereport(WARNING, (errmsg("[CASCADES] fix_sort_var_references: sortColIdx[%d] %d -> %d",
-                                     i, old_idx, new_idx)));
-            sort->sortColIdx[i] = new_idx;
-        }
-    }
-
-    // Fix targetlist: sort doesn't evaluate targetlist, but we need correct varrefs
-    // For safety, convert vars in targetlist to reference child output
-    if (sort->plan.targetlist != NIL) {
-        sort->plan.targetlist = (List*)convert_expr_vars((Node*)sort->plan.targetlist, child->targetlist, OUTER_VAR);
-    }
-}
-
-void ExprToPlanConverter::fix_result_var_references(Plan* plan, PlannerInfo* root)
-{
-    Plan* child = plan->lefttree;
-    if (child == nullptr) {
-        return;
-    }
-
-    ereport(WARNING, (errmsg("[CASCADES] fix_result_var_references")));
-
-    // Result/Project targetlist references child's output
-    if (plan->targetlist != NIL) {
-        plan->targetlist = (List*)fix_var_mutator((Node*)plan->targetlist, child->targetlist);
-    }
-
-    // Fix qual if any
-    if (plan->qual != NIL) {
-        plan->qual = (List*)fix_var_mutator((Node*)plan->qual, child->targetlist);
-    }
-}
-
-void ExprToPlanConverter::fix_generic_var_references(Plan* plan, PlannerInfo* root)
-{
-    Plan* child = plan->lefttree;
-    if (child == nullptr) {
-        return;
-    }
-
-    // For other node types, process targetlist and qual
-    if (plan->targetlist != NIL) {
-        plan->targetlist = (List*)fix_var_mutator((Node*)plan->targetlist, child->targetlist);
-    }
-
-    if (plan->qual != NIL) {
-        plan->qual = (List*)fix_var_mutator((Node*)plan->qual, child->targetlist);
-    }
-}
-
-/*
- * Map from original table column number to child's output position.
- * Child targetlist has entries like: Var(varattno=3, resno=1) meaning
- * the 3rd column of the original table is the 1st output column.
- */
-AttrNumber ExprToPlanConverter::map_varattno_to_output_pos(AttrNumber varattno, List* child_tlist)
-{
-    int pos = 1;
-    ListCell* lc;
-    foreach (lc, child_tlist) {
-        TargetEntry* tle = (TargetEntry*)lfirst(lc);
-        if (IsA(tle->expr, Var)) {
-            Var* v = (Var*)tle->expr;
-            if (v->varattno == varattno) {
-                return (AttrNumber)pos;
-            }
-        }
-        pos++;
-    }
-    // If not found, return original value (shouldn't happen for valid plans)
-    return varattno;
-}
-
-/*
- * Try to find a Var in child targetlist.
- * Returns new Var with (newvarno, resno) if found, NULL otherwise.
- * Matches on (varno, varattno) pair like the standard optimizer's search_indexed_tlist_for_var.
- */
-static Var* match_var_in_tlist(Var* var, List* child_tlist, Index newvarno)
-{
-    int pos = 1;
-    ListCell* lc;
-    foreach(lc, child_tlist) {
-        TargetEntry* tle = (TargetEntry*)lfirst(lc);
-        if (tle->expr != nullptr && IsA(tle->expr, Var)) {
-            Var* child_var = (Var*)tle->expr;
-            if (child_var->varno == var->varno && child_var->varattno == var->varattno) {
-                Var* newvar = makeVar(newvarno, (AttrNumber)pos,
-                    var->vartype, var->vartypmod, var->varcollid, var->varlevelsup);
-                return newvar;
-            }
-        }
-        pos++;
-    }
-    return nullptr;
-}
-
-/* Simple context for fix_var_mutator */
-typedef struct {
-    List* child_tlist;
-    Index newvarno;
-} FixVarContext;
-
-/*
- * Mutator: convert Vars matching (varno,varattno) in child_tlist to (newvarno, resno).
- * For all node types (including Aggref), use generic expression_tree_mutator which
- * creates copies — never modifies the original node in-place.
- */
-static Node* fix_expr_mutator(Node* node, FixVarContext* ctx)
-{
-    if (node == nullptr) {
-        return nullptr;
-    }
-
-    if (IsA(node, Var)) {
-        Var* var = (Var*)node;
-        Var* newvar = match_var_in_tlist(var, ctx->child_tlist, ctx->newvarno);
-        return newvar != nullptr ? (Node*)newvar : node;
-    }
-
-    /* For all other node types (including Aggref), use generic mutator */
-    return expression_tree_mutator(node,
-        (Node* (*)(Node*, void*))fix_expr_mutator, (void*)ctx);
-}
-
-/*
- * Convert Vars in expression using child targetlist.
- * New varno for converted Vars is given by newvarno (typically OUTER_VAR).
- */
-static Node* convert_expr_vars(Node* node, List* child_tlist, Index newvarno)
-{
-    if (node == nullptr || child_tlist == NIL) {
-        return node;
-    }
-    FixVarContext ctx;
-    ctx.child_tlist = child_tlist;
-    ctx.newvarno = newvarno;
-    return fix_expr_mutator(node, &ctx);
-}
-
-/*
- * Legacy wrapper: convert Vars using child_tlist with newvarno=OUTER_VAR.
- * Used by fix_result_var_references and fix_generic_var_references.
- */
-static Node* fix_var_mutator(Node* node, List* child_tlist)
-{
-    return convert_expr_vars(node, child_tlist, OUTER_VAR);
 }
 
 }  // namespace cascades

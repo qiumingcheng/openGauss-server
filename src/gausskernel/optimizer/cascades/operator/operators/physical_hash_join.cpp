@@ -13,6 +13,8 @@ OptExprOp* PhysicalHashJoin::clone() const {
     PhysicalHashJoin* cloned = NEW_EX(PhysicalHashJoin, path_, left_path_, right_path_);
     cloned->set_build_keys(build_keys_);
     cloned->set_probe_keys(probe_keys_);
+    cloned->set_qual((Node*)copyObject(qual_));
+    cloned->set_join_type(join_type_);
     return cloned;
 }
 

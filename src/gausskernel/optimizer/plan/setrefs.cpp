@@ -2177,13 +2177,15 @@ static Node* fix_join_expr_mutator(Node* node, fix_join_expr_context* context)
         /* First look for the var in the input tlists */
         if (context->outer_itlist != NULL) {
             newvar = search_indexed_tlist_for_var(var, context->outer_itlist, OUTER_VAR, context->rtoffset);
-            if (newvar != NULL)
+            if (newvar != NULL) {
                 return (Node*)newvar;
+            }
         }
         if (context->inner_itlist != NULL) {
             newvar = search_indexed_tlist_for_var(var, context->inner_itlist, INNER_VAR, context->rtoffset);
-            if (newvar != NULL)
+            if (newvar != NULL) {
                 return (Node*)newvar;
+            }
         }
 
         /* If it's for acceptable_rel, adjust and return it */
@@ -2196,8 +2198,6 @@ static Node* fix_join_expr_mutator(Node* node, fix_join_expr_context* context)
         }
 
         /* No referent found for Var */
-        ereport(WARNING, (errmsg("[CASCADES] fix_join_expr_mutator: Var not found: varno=%u, varattno=%d",
-                         var->varno, var->varattno)));
         ereport(ERROR,
             (errmodule(MOD_OPT),
                 errcode(ERRCODE_OPTIMIZER_INCONSISTENT_STATE),
@@ -2287,8 +2287,6 @@ static Node* fix_upper_expr_mutator(Node* node, fix_upper_expr_context* context)
 
         newvar = search_indexed_tlist_for_var(var, context->subplan_itlist, context->newvarno, context->rtoffset);
         if (newvar == NULL) {
-            ereport(WARNING, (errmsg("[CASCADES] fix_upper_expr_mutator: Var not found: varno=%u, varattno=%d, newvarno=%u, rtoffset=%d",
-                             var->varno, var->varattno, context->newvarno, context->rtoffset)));
             ereport(ERROR,
                 (errmodule(MOD_OPT),
                     errcode(ERRCODE_NULL_VALUE_NOT_ALLOWED),

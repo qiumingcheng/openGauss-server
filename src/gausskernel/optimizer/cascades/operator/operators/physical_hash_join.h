@@ -28,11 +28,18 @@ public:
     void set_build_keys(const std::vector<int>& keys) { build_keys_ = keys; }
     void set_probe_keys(const std::vector<int>& keys) { probe_keys_ = keys; }
 
+    Node* get_qual() const { return qual_; }
+    void set_qual(Node* q) { qual_ = q; }
+    JoinType get_join_type() const { return join_type_; }
+    void set_join_type(JoinType t) { join_type_ = t; }
+
 private:
     Path* left_path_ = nullptr;
     Path* right_path_ = nullptr;
     std::vector<int> build_keys_;
     std::vector<int> probe_keys_;
+    Node* qual_ = nullptr;
+    JoinType join_type_ = JOIN_INNER;
 };
 
 }  // namespace cascades
