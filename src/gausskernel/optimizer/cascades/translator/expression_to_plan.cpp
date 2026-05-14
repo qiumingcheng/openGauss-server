@@ -178,6 +178,16 @@ Plan* ExprToPlanConverter::translate_expression(OptExpression* expr) {
         return translate_nestloop_join(expr);
     }
 
+    // Handle PhysicalHashJoin - may have placeholder path (nullptr)
+    if (phys_op->get_type() == OptExprOpType::PHYSICAL_HASH_JOIN) {
+        return translate_hash_join(expr);
+    }
+
+    // Handle PhysicalMergeJoin - may have placeholder path (nullptr)
+    if (phys_op->get_type() == OptExprOpType::PHYSICAL_MERGE_JOIN) {
+        return translate_merge_join(expr);
+    }
+
     // Handle PhysicalPassthrough - no physical node, just pass through child's plan
     // PassThrough is used by SortImplRule to represent "sort elimination via index"
     // The child must already produce sorted output, so no additional node needed
@@ -646,11 +656,225 @@ Plan* ExprToPlanConverter::translate_join(OptExpression* expr) {
 }
 
 Plan* ExprToPlanConverter::translate_hash_join(OptExpression* expr) {
-    return translate_expression(expr);
+    PhysicalHashJoin* hashjoin = dynamic_cast<PhysicalHashJoin*>(expr->get_op());
+    if (hashjoin == nullptr) {
+        return translate_expression(expr);
+    }
+
+    ereport(WARNING, (errmsg("[CASCADES] translate_hash_join: created hashjoin plan")));
+    if (expr->arity() < 2) {
+        ereport(WARNING, (errmsg("[CASCADES] translate_hash_join: insufficient children")));
+        return nullptr;
+    }
+
+    // Get paths from child operators
+    PhysicalOptExprOp* left_op = static_cast<PhysicalOptExprOp*>(expr->input_at(0)->get_op());
+    PhysicalOptExprOp* right_op = static_cast<PhysicalOptExprOp*>(expr->input_at(1)->get_op());
+    Path* left_path = left_op->get_path();
+    Path* right_path = right_op->get_path();
+    if (left_path == nullptr || right_path == nullptr) {
+        ereport(WARNING, (errmsg("[CASCADES] translate_hash_join: child path is null")));
+        return nullptr;
+    }
+
+    // Translate children
+    Plan* left_plan = translate_expression(expr->input_at(0));
+    if (left_plan == nullptr) {
+        ereport(WARNING, (errmsg("[CASCADES] translate_hash_join: left plan is null")));
+        return nullptr;
+    }
+
+    Plan* right_plan = translate_expression(expr->input_at(1));
+    if (right_plan == nullptr) {
+        ereport(WARNING, (errmsg("[CASCADES] translate_hash_join: right plan is null")));
+        return nullptr;
+    }
+
+    JoinType jointype = JOIN_INNER;
+
+    // Build HashPath for cost/size computation
+    JoinPath hash_path_node;
+    MemSet(&hash_path_node, 0, sizeof(JoinPath));
+    JoinPath* hp = &hash_path_node;
+    hp->path.pathtype = T_HashJoin;
+    hp->path.parent = left_path->parent;
+
+    // Build join pathtarget from both sides
+    PathTarget* join_pathtarget = create_empty_pathtarget();
+    join_pathtarget->exprs = (List*)copyObject(left_path->pathtarget->exprs);
+    join_pathtarget->cost.startup = 0;
+    join_pathtarget->cost.per_tuple = 0;
+    join_pathtarget->width = left_path->pathtarget->width + right_path->pathtarget->width;
+    join_pathtarget->sortgrouprefs = nullptr;
+
+    // Add inner side expressions not in outer
+    ListCell* lc;
+    foreach(lc, right_path->pathtarget->exprs) {
+        Node* inner_expr = (Node*)lfirst(lc);
+        bool found = false;
+        ListCell* lc2;
+        foreach(lc2, join_pathtarget->exprs) {
+            if (equal(inner_expr, (Node*)lfirst(lc2))) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            join_pathtarget->exprs = lappend(join_pathtarget->exprs, copyObject(inner_expr));
+        }
+    }
+
+    hp->path.pathtarget = join_pathtarget;
+    hp->path.pathkeys = NIL;
+    hp->path.param_info = nullptr;
+    hp->path.rows = 0;
+    hp->path.startup_cost = 0;
+    hp->path.total_cost = 0;
+    hp->path.dop = 0;
+    hp->jointype = jointype;
+    hp->inner_unique = false;
+    hp->outerjoinpath = left_path;
+    hp->innerjoinpath = right_path;
+    hp->joinrestrictinfo = NIL;
+    hp->skewoptimize = 0;
+
+    // Compute join cost
+    JoinCostWorkspace workspace;
+    initial_cost_hashjoin(root_, &workspace, jointype, NIL, left_path, right_path, nullptr, 1);
+
+    // Build tlist
+    List* tlist = build_path_tlist(root_, &hp->path);
+
+    // Create HashJoin plan node
+    HashJoin* join_plan = makeNode(HashJoin);
+    Plan* plan = &join_plan->join.plan;
+    plan->targetlist = tlist;
+    plan->qual = NIL;
+    plan->lefttree = left_plan;
+    plan->righttree = right_plan;
+    join_plan->join.joinqual = NIL;
+    join_plan->join.jointype = jointype;
+    join_plan->join.inner_unique = false;
+    join_plan->hashclauses = NIL;
+
+    // Copy cost and size
+    plan->startup_cost = workspace.startup_cost;
+    plan->total_cost = workspace.total_cost;
+    plan->plan_rows = hp->path.rows > 0 ? hp->path.rows : 1;
+    plan->plan_width = hp->path.pathtarget ? hp->path.pathtarget->width : 0;
+
+    return plan;
 }
 
 Plan* ExprToPlanConverter::translate_merge_join(OptExpression* expr) {
-    return translate_expression(expr);
+    PhysicalMergeJoin* mergejoin = dynamic_cast<PhysicalMergeJoin*>(expr->get_op());
+    if (mergejoin == nullptr) {
+        return translate_expression(expr);
+    }
+
+    ereport(WARNING, (errmsg("[CASCADES] translate_merge_join: created mergejoin plan")));
+    if (expr->arity() < 2) {
+        ereport(WARNING, (errmsg("[CASCADES] translate_merge_join: insufficient children")));
+        return nullptr;
+    }
+
+    // Get paths from child operators
+    PhysicalOptExprOp* left_op = static_cast<PhysicalOptExprOp*>(expr->input_at(0)->get_op());
+    PhysicalOptExprOp* right_op = static_cast<PhysicalOptExprOp*>(expr->input_at(1)->get_op());
+    Path* left_path = left_op->get_path();
+    Path* right_path = right_op->get_path();
+    if (left_path == nullptr || right_path == nullptr) {
+        ereport(WARNING, (errmsg("[CASCADES] translate_merge_join: child path is null")));
+        return nullptr;
+    }
+
+    // Translate children
+    Plan* left_plan = translate_expression(expr->input_at(0));
+    if (left_plan == nullptr) {
+        ereport(WARNING, (errmsg("[CASCADES] translate_merge_join: left plan is null")));
+        return nullptr;
+    }
+
+    Plan* right_plan = translate_expression(expr->input_at(1));
+    if (right_plan == nullptr) {
+        ereport(WARNING, (errmsg("[CASCADES] translate_merge_join: right plan is null")));
+        return nullptr;
+    }
+
+    JoinType jointype = JOIN_INNER;
+
+    // Build MergePath for cost/size computation
+    JoinPath merge_path_node;
+    MemSet(&merge_path_node, 0, sizeof(JoinPath));
+    JoinPath* mp = &merge_path_node;
+    mp->path.pathtype = T_MergeJoin;
+    mp->path.parent = left_path->parent;
+
+    // Build join pathtarget from both sides
+    PathTarget* join_pathtarget = create_empty_pathtarget();
+    join_pathtarget->exprs = (List*)copyObject(left_path->pathtarget->exprs);
+    join_pathtarget->cost.startup = 0;
+    join_pathtarget->cost.per_tuple = 0;
+    join_pathtarget->width = left_path->pathtarget->width + right_path->pathtarget->width;
+    join_pathtarget->sortgrouprefs = nullptr;
+
+    // Add inner side expressions not in outer
+    ListCell* lc;
+    foreach(lc, right_path->pathtarget->exprs) {
+        Node* inner_expr = (Node*)lfirst(lc);
+        bool found = false;
+        ListCell* lc2;
+        foreach(lc2, join_pathtarget->exprs) {
+            if (equal(inner_expr, (Node*)lfirst(lc2))) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            join_pathtarget->exprs = lappend(join_pathtarget->exprs, copyObject(inner_expr));
+        }
+    }
+
+    mp->path.pathtarget = join_pathtarget;
+    mp->path.pathkeys = NIL;
+    mp->path.param_info = nullptr;
+    mp->path.rows = 0;
+    mp->path.startup_cost = 0;
+    mp->path.total_cost = 0;
+    mp->path.dop = 0;
+    mp->jointype = jointype;
+    mp->inner_unique = false;
+    mp->outerjoinpath = left_path;
+    mp->innerjoinpath = right_path;
+    mp->joinrestrictinfo = NIL;
+    mp->skewoptimize = 0;
+
+    // Compute join cost
+    JoinCostWorkspace workspace;
+    initial_cost_mergejoin(root_, &workspace, jointype, NIL, left_path, right_path, NIL, NIL, nullptr);
+
+    // Build tlist
+    List* tlist = build_path_tlist(root_, &mp->path);
+
+    // Create MergeJoin plan node
+    MergeJoin* join_plan = makeNode(MergeJoin);
+    Plan* plan = &join_plan->join.plan;
+    plan->targetlist = tlist;
+    plan->qual = NIL;
+    plan->lefttree = left_plan;
+    plan->righttree = right_plan;
+    join_plan->join.joinqual = NIL;
+    join_plan->join.jointype = jointype;
+    join_plan->join.inner_unique = false;
+    join_plan->mergeclauses = NIL;
+
+    // Copy cost and size
+    plan->startup_cost = workspace.startup_cost;
+    plan->total_cost = workspace.total_cost;
+    plan->plan_rows = mp->path.rows > 0 ? mp->path.rows : 1;
+    plan->plan_width = mp->path.pathtarget ? mp->path.pathtarget->width : 0;
+
+    return plan;
 }
 
 Plan* ExprToPlanConverter::translate_nestloop_join(OptExpression* expr) {
