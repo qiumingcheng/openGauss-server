@@ -30,7 +30,7 @@ EnforceAndCostTask::EnforceAndCostTask(TaskContext* context, Group* group,
     : OptimizerTask(context), group_(group), required_property_(required_property) {}
 
 void EnforceAndCostTask::execute() {
-    ereport(WARNING, (errmsg("[CASCADES] EnforceAndCostTask: group id=%d, property=%s",
+    ereport(WARNING, (errmsg("[CASCADES] EnforceAndCostTask: group id=%d, required property=%s",
                          group_->id(), required_property_.to_string().c_str())));
 
     CostModel cost_model;
@@ -117,15 +117,6 @@ void EnforceAndCostTask::execute() {
             children_best_exprs.push_back(child_best);
             accumulated_child_cost += child_best->get_cost(child_required);
 
-            // Set child_path for PhysicalHashAgg after optimization
-            if (i == 0) {
-                PhysicalHashAgg* hash_agg = dynamic_cast<PhysicalHashAgg*>(expr->get_op());
-                if (hash_agg != nullptr && hash_agg->get_child_path() == nullptr) {
-                    PhysicalOptExprOp* child_op = static_cast<PhysicalOptExprOp*>(child_best->get_op());
-                    hash_agg->set_child_path(child_op->get_path());
-                }
-            }
-
             // Get child's output property
             PhysicalPropertySet child_output = child_best->get_output_property(child_required);
             children_output_properties.push_back(child_output);
@@ -139,12 +130,11 @@ void EnforceAndCostTask::execute() {
             continue;
         }
 
-        // Lower bound pruning: check total cost against upper bound
         // Upper bound is only set by root group, so this pruning is safe
-        ereport(WARNING, (errmsg("[CASCADES] EnforceAndCostTask: accumulated_child_cost=%.2f, upper_bound=%.2f",
-                             accumulated_child_cost, context_->get_upper_bound_cost())));
         if (accumulated_child_cost > context_->get_upper_bound_cost()) {
             // Children's cost alone exceeds upper bound, prune
+            ereport(WARNING, (errmsg("[CASCADES] EnforceAndCostTask: runed by upper bound, accumulated_child_cost=%.2f, upper_bound=%.2f",
+                                accumulated_child_cost, context_->get_upper_bound_cost()))); 
             continue;
         }
 
@@ -155,7 +145,6 @@ void EnforceAndCostTask::execute() {
         // Compute local cost of this expression FIRST (before enforcement)
         CostEstimate local_cost_estimate = cost_model.compute_cost(expr, required_property_, {});
         double local_expr_cost = local_cost_estimate.total_cost();
-        ereport(WARNING, (errmsg("[CASCADES] EnforceAndCostTask: local_expr_cost=%.2f", local_expr_cost)));
 
         // Check if enforcement is needed
         GroupExpression* enforced_expr = expr;
@@ -172,8 +161,8 @@ void EnforceAndCostTask::execute() {
 
         // Total cost = children costs + local cost + enforcement cost
         double total_cost = accumulated_child_cost + local_expr_cost + enforcement_cost;
-        ereport(WARNING, (errmsg("[CASCADES] EnforceAndCostTask: total_cost=%.2f (accumulated=%.2f, local=%.2f, enforcement=%.2f)",
-                             total_cost, accumulated_child_cost, local_expr_cost, enforcement_cost)));
+        ereport(WARNING, (errmsg("[CASCADES] EnforceAndCostTask: expr=%s total_cost=%.2f (accumulated=%.2f, local=%.2f, enforcement=%.2f)",
+                             expr->to_string().c_str(), total_cost, accumulated_child_cost, local_expr_cost, enforcement_cost)));
 
         // Apply cost pruning (upper bound check)
         // Upper bound is only set by root group, so this pruning is safe
@@ -360,7 +349,9 @@ std::pair<GroupExpression*, double> EnforceAndCostTask::add_enforcers(
     // Parameterized scan requirement cannot be enforced with enforcer nodes.
     // If required but not provided by the current expression, return huge cost to reject.
     if (required_property.is_parameterized_scan_req() != output_property.is_parameterized_scan_req()) {
-        ereport(WARNING, (errmsg("[CASCADES] EnforceAndCostTask: add_enforcers cannot satisfy param_scan_req, rejecting with huge cost")));
+        ereport(WARNING, (errmsg("[CASCADES] EnforceAndCostTask: add_enforcers(%s) cannot satisfy param_scan_req, rejecting with huge cost",
+        expr->to_string().c_str())));
+        expr->set_implement(required_property, output_property);
         return {expr, NESTLOOP_JOIN_MAX_COST};
     }
 
@@ -463,6 +454,7 @@ std::pair<GroupExpression*, double> EnforceAndCostTask::add_sort_enforcer(
 
     // New enforcer is the best, store it
     group_->set_best_expression(sort_enforcer, enforcer_cost, sort_required);
+    sort_enforcer->update_property_with_cost(sort_required, final_property, {input_property}, enforcer_cost);
 
     return {sort_enforcer, enforcer_cost};
 }
@@ -508,6 +500,7 @@ std::pair<GroupExpression*, double> EnforceAndCostTask::add_distribution_enforce
 
     // New enforcer is the best, store it
     group_->set_best_expression(dist_enforcer, enforcer_cost, dist_required);
+    dist_enforcer->update_property_with_cost(dist_required, final_property, {input_property}, enforcer_cost);
 
     return {dist_enforcer, enforcer_cost};
 }

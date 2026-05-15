@@ -14,7 +14,7 @@ class OptExprOp;
  * of an expression must satisfy. Different operators have different requirements:
  *
  * - PhysicalMergeJoin: Requires children to be sorted on join keys
- * - PhysicalHashJoin: Requires children to be hash distributed on join keys
+ * - PhysicalHashJoin: No special distribution requirement (builds hash table internally)
  * - PhysicalSort: Requires child with any property (sort adds ordering)
  * - PhysicalExchange: Requires child with any distribution (exchange redistributes)
  * - PhysicalSeqScan/PhysicalIndexScan/PhysicalHashAgg: No special requirements (ANY property)
@@ -50,15 +50,6 @@ private:
      * Both children need to be sorted on their respective join keys
      */
     PhysicalPropertySet derive_merge_join_child_property(
-        GroupExpression* parent_expr,
-        int child_index,
-        const PhysicalPropertySet& parent_required);
-
-    /**
-     * Derive child required property for PhysicalHashJoin
-     * Children need to be hash distributed on join keys
-     */
-    PhysicalPropertySet derive_hash_join_child_property(
         GroupExpression* parent_expr,
         int child_index,
         const PhysicalPropertySet& parent_required);

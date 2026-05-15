@@ -2,7 +2,6 @@
 #include "../memo/group_expression.h"
 #include "../operator/operator.h"
 #include "../operator/operators/physical_merge_join.h"
-#include "../operator/operators/physical_hash_join.h"
 #include "../operator/operators/physical_sort.h"
 #include "../operator/operators/physical_exchange.h"
 #include "sort_property.h"
@@ -31,9 +30,10 @@ std::vector<PhysicalPropertySet> RequiredPropertyDeriver::derive_child_required_
         }
 
         case OptExprOpType::PHYSICAL_HASH_JOIN: {
-            // HashJoin requires children to be hash distributed on join keys
+            // HashJoin does not require children to be hash distributed
+            // It builds a hash table internally during execution
             for (int i = 0; i < parent_expr->arity(); ++i) {
-                result.push_back(derive_hash_join_child_property(parent_expr, i, parent_required));
+                result.push_back(derive_default_child_property(parent_required));
             }
             break;
         }
@@ -115,31 +115,6 @@ PhysicalPropertySet RequiredPropertyDeriver::derive_merge_join_child_property(
     SortProperty sort_prop(spec);
     DistributionProperty any_dist(DistributionType::ANY);
     return PhysicalPropertySet(any_dist, sort_prop);
-}
-
-PhysicalPropertySet RequiredPropertyDeriver::derive_hash_join_child_property(
-    GroupExpression* parent_expr,
-    int child_index,
-    const PhysicalPropertySet& parent_required) {
-
-    PhysicalHashJoin* hash_join = static_cast<PhysicalHashJoin*>(parent_expr->get_op());
-
-    // Get join keys for the appropriate child
-    // For HashJoin: build_keys for build side (left), probe_keys for probe side (right)
-    const std::vector<int>* keys = nullptr;
-
-    if (child_index == 0) {
-        // Left child (build side) - needs to be hash distributed on build keys
-        keys = &hash_join->get_build_keys();
-    } else {
-        // Right child (probe side) - needs to be hash distributed on probe keys
-        keys = &hash_join->get_probe_keys();
-    }
-
-    // Child needs to be hash distributed on join keys
-    // Sort property can be ANY (HashJoin doesn't require sorted input)
-    DistributionProperty dist(DistributionType::HASH, *keys);
-    return PhysicalPropertySet(dist);
 }
 
 PhysicalPropertySet RequiredPropertyDeriver::derive_sort_child_property(
