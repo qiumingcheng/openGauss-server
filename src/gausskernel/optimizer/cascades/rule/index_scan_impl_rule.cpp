@@ -234,6 +234,18 @@ std::vector<OptExpression*> IndexScanImplRule::transform(
                 ereport(WARNING, (errmsg("[CASCADES] IndexScanImplRule:transform, found matching IndexPath for sort")));
             }
             physical_scan = NEW_EX(PhysicalIndexScan, (Path*)index_path);
+
+            // 设置排序信息：从 sort_clause 提取
+            if (sort_clause != nullptr) {
+                List* clauses = static_cast<List*>(sort_clause);
+                List* targetlist = root->parse->targetList;
+                ListCell* lc_clause = nullptr;
+                foreach (lc_clause, clauses) {
+                    SortGroupClause* sgcl = static_cast<SortGroupClause*>(lfirst(lc_clause));
+                    bool ascending = (sgcl->sortop < 500);  // heuristic
+                    physical_scan->add_sort_column(sgcl->tleSortGroupRef, ascending);    
+                }
+            }
         } else if (IsA(path, BitmapHeapPath)) {
             BitmapHeapPath* bitmap_path = (BitmapHeapPath*)path;
 
@@ -319,7 +331,7 @@ List* IndexScanImplRule::build_pathkeys_from_sort_clause(
         // Build PathKey for this column
         PathKey* pk = makeNode(PathKey);
         pk->pk_eclass = nullptr;  // Will be set by index pathkey building
-        pk->pk_strategy = sgcl->sortop;
+        pk->pk_strategy = (sgcl->sortop < 500) ? BTLessStrategyNumber : BTGreaterStrategyNumber;
         pk->pk_nulls_first = sgcl->nulls_first;
 
         pathkeys = lappend(pathkeys, pk);

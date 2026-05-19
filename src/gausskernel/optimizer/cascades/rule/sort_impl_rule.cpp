@@ -367,12 +367,8 @@ std::vector<OptExpression*> SortImplRule::transform(
                     ListCell* lc = nullptr;
                     foreach (lc, clauses) {
                         SortGroupClause* sgcl = static_cast<SortGroupClause*>(lfirst(lc));
-                        TargetEntry* tle = get_sortgroupref_tle(sgcl->tleSortGroupRef, targetlist, false);
-                        if (tle != nullptr && tle->expr != nullptr && IsA(tle->expr, Var)) {
-                            Var* var = (Var*)tle->expr;
-                            bool ascending = (sgcl->sortop < 500);  // heuristic
-                            index_scan->add_sort_column(var->varattno, ascending);
-                        }
+                        bool ascending = (sgcl->sortop < 500);  // heuristic
+                        index_scan->add_sort_column(sgcl->tleSortGroupRef, ascending);
                     }
 
                     // Add the PhysicalIndexScan to the scan_group

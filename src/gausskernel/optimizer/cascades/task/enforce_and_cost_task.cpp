@@ -30,7 +30,7 @@ EnforceAndCostTask::EnforceAndCostTask(TaskContext* context, Group* group,
     : OptimizerTask(context), group_(group), required_property_(required_property) {}
 
 void EnforceAndCostTask::execute() {
-    ereport(WARNING, (errmsg("[CASCADES] EnforceAndCostTask: group id=%d, required property=%s",
+    ereport(WARNING, (errmsg("[CASCADES] EnforceAndCostTask: the Group[%d] required property=%s",
                          group_->id(), required_property_.to_string().c_str())));
 
     CostModel cost_model;
@@ -192,7 +192,9 @@ void EnforceAndCostTask::execute() {
     if (best_expr != nullptr) {
         // Update group's best expression for this required property
         group_->set_best_expression(best_expr, best_cost, required_property_);
-
+        ereport(WARNING, (errmsg("[CASCADES] EnforceAndCostTask: the Group[%d] updated best_expr=%s, cost=%.2f", 
+            group_->id(), best_expr->get_op()->to_string().c_str(), best_cost)));
+            
         // Update cost lower bound for this group
         // The best cost found is a new lower bound for this group+property
         group_->set_cost_lower_bound(required_property_, best_cost);
