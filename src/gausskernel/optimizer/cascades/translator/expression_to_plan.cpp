@@ -253,18 +253,8 @@ Plan* ExprToPlanConverter::translate_scan(OptExpression* expr) {
         int resno = 1;
         int idx = 0;
         ListCell* lc;
-        ereport(WARNING, (errmsg("[CASCADES] translate_scan: pathtarget exprs count=%d", list_length(path->pathtarget->exprs))));
         foreach(lc, path->pathtarget->exprs) {
             Var* var = (Var*)lfirst(lc);
-            // Debug: log pathtarget expr type
-            {
-                Node* node = (Node*)var;
-                ereport(WARNING, (errmsg("[CASCADES] translate_scan: pathtarget expr[%d]: type=%d", idx, (int)nodeTag(node))));
-                if (IsA(node, Var)) {
-                    Var* v = (Var*)node;
-                    ereport(WARNING, (errmsg("[CASCADES] translate_scan: pathtarget Var: varno=%u, varattno=%d", v->varno, v->varattno)));
-                }
-            }
             // Keep original var varno, varattno from the path target
             // The resno in TargetEntry represents position in output
             Var* new_var = (Var*)copyObject(var);
