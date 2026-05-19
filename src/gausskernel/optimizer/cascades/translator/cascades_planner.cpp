@@ -13,6 +13,7 @@
 #include "optimizer/planner.h"
 #include "optimizer/prep.h"
 #include "optimizer/pathnode.h"
+#include "optimizer/var.h"
 #include "parser/parsetree.h"
 #include "utils/guc.h"
 
@@ -71,11 +72,32 @@ PlannedStmt* cascades_planner(Query* parse, int cursorOptions, ParamListInfo bou
     root->query_level = 1;
     root->tuple_fraction = 0.0;
 
+    /* Check if any RTE is a JOIN type (needed for flatten_join_alias_vars) */
+    ListCell *lc;
+    foreach (lc, parse->rtable) {
+        RangeTblEntry* rte = (RangeTblEntry*)lfirst(lc);
+        if (rte->rtekind == RTE_JOIN) {
+            root->hasJoinRTEs = true;
+            break;
+        }
+    }
+
     /* Initialize subquery_planner data */
     root->planner_cxt = CurrentMemoryContext;
 
     /* Setup optimizer data structures and preprocess query */
     setup_cascades_optimizer(root, parse);
+
+    /*
+     * Flatten JOIN RTE alias vars in target list.
+     * This matches old optimizer: preprocess_expression() calls
+     * flatten_join_alias_vars() on parse->targetList when hasJoinRTEs.
+     * Without this, SELECT * produces JOIN RTE Vars (varno=3) that
+     * set_plan_references() cannot resolve in the join's targetlist.
+     */
+    if (root->hasJoinRTEs) {
+        parse->targetList = (List*)flatten_join_alias_vars(root, (Node*)parse->targetList);
+    }
 
     /* Step 1: Query → OptExpression
      *

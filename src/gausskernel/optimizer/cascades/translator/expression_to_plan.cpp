@@ -17,6 +17,7 @@
 #include "optimizer/restrictinfo.h"
 #include "optimizer/cost.h"
 #include "optimizer/clauses.h"
+#include "optimizer/var.h"
 #include "utils/palloc.h"
 #include "utils/lsyscache.h"
 #include <stddef.h>
@@ -252,8 +253,18 @@ Plan* ExprToPlanConverter::translate_scan(OptExpression* expr) {
         int resno = 1;
         int idx = 0;
         ListCell* lc;
+        ereport(WARNING, (errmsg("[CASCADES] translate_scan: pathtarget exprs count=%d", list_length(path->pathtarget->exprs))));
         foreach(lc, path->pathtarget->exprs) {
             Var* var = (Var*)lfirst(lc);
+            // Debug: log pathtarget expr type
+            {
+                Node* node = (Node*)var;
+                ereport(WARNING, (errmsg("[CASCADES] translate_scan: pathtarget expr[%d]: type=%d", idx, (int)nodeTag(node))));
+                if (IsA(node, Var)) {
+                    Var* v = (Var*)node;
+                    ereport(WARNING, (errmsg("[CASCADES] translate_scan: pathtarget Var: varno=%u, varattno=%d", v->varno, v->varattno)));
+                }
+            }
             // Keep original var varno, varattno from the path target
             // The resno in TargetEntry represents position in output
             Var* new_var = (Var*)copyObject(var);
@@ -422,138 +433,79 @@ Plan* ExprToPlanConverter::translate_seq_scan(RelOptInfo* rel, List* tlist) {
     return &seq_scan->plan;
 }
 
+/* Forward declarations for static helper functions */
+static bool is_projection_capable_plan_node(Plan* plan);
+static List* build_tlist_from_tlist(List* target_list);
+
+/*
+ * translate_project - Translate Project expression to plan node
+ *
+ * Following create_projection_plan pattern from old optimizer:
+ * 1. Build tlist using build_path_tlist() for PhysicalProject (preserves full expressions)
+ *    or build_tlist_from_tlist() for LogicalProject
+ * 2. Check if child plan can project directly (is_projection_capable_plan_node)
+ *    or if tlist matches child's targetlist (tlist_same_exprs)
+ * 3. If either condition is true, assign tlist to child plan directly (no Result node)
+ * 4. Otherwise, create BaseResult/Result node with the tlist
+ *
+ * This matches the old optimizer's approach and properly handles expression
+ * comparison in set_plan_references via tlist_same_exprs.
+ */
 Plan* ExprToPlanConverter::translate_project(OptExpression* expr) {
     if (expr->arity() < 1) {
         return nullptr;
     }
 
+    /* Build child plan first */
     Plan* child_plan = translate_expression(expr->input_at(0));
     if (child_plan == nullptr) {
         return nullptr;
     }
 
-    List* target_list = NIL;
+    List* tlist = NIL;
 
-    // Try PhysicalProject first
+    /*
+     * Get target list based on operator type.
+     * PhysicalProject and LogicalProject both store tlist directly,
+     * so we always use build_tlist_from_tlist() to build the plan tlist.
+     * This matches the old optimizer's approach for projection plans.
+     */
     PhysicalProject* physical_proj = dynamic_cast<PhysicalProject*>(expr->get_op());
-    if (physical_proj != nullptr) {
-        target_list = physical_proj->get_target_list();
-    } else {
-        // Try LogicalProject
-        LogicalProject* logical_proj = dynamic_cast<LogicalProject*>(expr->get_op());
-        if (logical_proj != nullptr) {
-            target_list = logical_proj->get_target_list();
-        }
-    }
+    Assert(physical_proj != nullptr);
+    tlist = build_tlist_from_tlist(physical_proj->get_target_list());
 
-    // For SELECT * (target_list is NIL), no projection needed, return child directly
-    if (target_list == NIL) {
+    /* For SELECT * (tlist is NIL), no projection needed */
+    if (tlist == NIL) {
         return child_plan;
     }
 
     /*
-     * Project elimination check: compare original target_list with child's targetlist
-     * We keep the original varattno values (table column numbers) here.
-     * The Var -> OUTER_VAR conversion will be done in set_plan_references().
+     * Projection elimination check (matching create_projection_plan):
+     *
+     * 1. is_projection_capable_plan: check if child plan type can project
+     *    - SeqScan, IndexScan, etc. can project
+     *    - Sort, Material, Hash, etc. cannot project
+     *
+     * 2. tlist_same_exprs: check if our tlist matches child's targetlist exactly
+     *    - If so, we can just assign tlist to child without creating Result
      */
-    bool can_eliminate = false;
-    if (list_length(target_list) == list_length(child_plan->targetlist)) {
-        bool all_vars_match = true;
-        ListCell *lc1 = list_head(target_list);
-        ListCell *lc2 = list_head(child_plan->targetlist);
-        for (int i = 0; i < list_length(target_list) && lc1 != NULL && lc2 != NULL; i++) {
-            TargetEntry *tle1 = (TargetEntry *)lfirst(lc1);
-            TargetEntry *tle2 = (TargetEntry *)lfirst(lc2);
-            if (tle1 == NULL || tle2 == NULL || tle1->expr == NULL || tle2->expr == NULL) {
-                all_vars_match = false;
-                break;
-            }
-            if (!IsA(tle1->expr, Var) || !IsA(tle2->expr, Var)) {
-                all_vars_match = false;
-                break;
-            }
-            Var *v1 = (Var *)tle1->expr;
-            Var *v2 = (Var *)tle2->expr;
-            // Compare varno/varattno/vartype (original table column numbers)
-            if (v1->varattno != v2->varattno || v1->vartype != v2->vartype || v1->varno != v2->varno) {
-                all_vars_match = false;
-                break;
-            }
-            lc1 = lnext(lc1);
-            lc2 = lnext(lc2);
-        }
-        if (all_vars_match) {
-            can_eliminate = true;
-        }
-    }
+    bool can_project_directly = is_projection_capable_plan_node(child_plan) ||
+                                 tlist_same_exprs(tlist, child_plan->targetlist);
 
-    if (can_eliminate) {
-        // Project can be eliminated - child produces same output
+    if (can_project_directly) {
+        /*
+         * Child plan can project directly - just assign tlist to child.
+         * This eliminates the need for a separate Result node.
+         */
+        child_plan->targetlist = tlist;
         return child_plan;
     }
 
     /*
-     * If child is a Join and project needs columns from both sides,
-     * directly use project's tlist for the join instead of creating Result on top.
-     * set_join_references will properly convert both outer Vars (→OUTER_VAR)
-     * and inner Vars (→INNER_VAR).
-     * Creating a Result/BaseResult on top causes fix_upper_expr to fail because
-     * it only looks in the child's tlist (which has only outer columns).
+     * Child cannot project directly - create BaseResult/Result node.
+     * The tlist will be processed by set_upper_references() which uses
+     * search_indexed_tlist_for_var() to match Vars with child's indexed tlist.
      */
-    if (nodeTag(child_plan) == T_NestLoop ||
-        nodeTag(child_plan) == T_MergeJoin ||
-        nodeTag(child_plan) == T_HashJoin) {
-        /* Check if project tlist includes columns from both join sides */
-        bool has_inner_var = false;
-        ListCell* lc;
-        foreach(lc, target_list) {
-            TargetEntry* tle = (TargetEntry*)lfirst(lc);
-            if (IsA(tle->expr, Var)) {
-                Var* v = (Var*)tle->expr;
-                /* Check if this Var exists in child_plan->lefttree's targetlist */
-                bool found_in_outer = false;
-                ListCell* lc2;
-                foreach(lc2, child_plan->lefttree ? child_plan->lefttree->targetlist : NIL) {
-                    TargetEntry* outer_tle = (TargetEntry*)lfirst(lc2);
-                    if (IsA(outer_tle->expr, Var)) {
-                        Var* ov = (Var*)outer_tle->expr;
-                        if (ov->varno == v->varno && ov->varattno == v->varattno) {
-                            found_in_outer = true;
-                            break;
-                        }
-                    }
-                }
-                if (!found_in_outer) {
-                    has_inner_var = true;
-                }
-            }
-        }
-
-        if (has_inner_var) {
-            /* Project needs inner columns - set join's tlist to project's tlist */
-            List* join_tlist = (List*)copyObject(target_list);
-            int resno = 1;
-            foreach(lc, join_tlist) {
-                TargetEntry* tle = (TargetEntry*)lfirst(lc);
-                tle->resno = resno++;
-            }
-            ereport(WARNING, (errmsg("[CASCADES] translate_project: set join tlist to %d items (has_inner_var=true)",
-                 list_length(join_tlist))));
-            child_plan->targetlist = join_tlist;
-            ereport(WARNING, (errmsg("[CASCADES] translate_project: using project tlist for Join")));
-            return child_plan;
-        }
-    }
-
-    List* new_targetlist = (List*)copyObject(target_list);
-
-    // If child is an Agg node, update its targetlist
-    if (nodeTag(child_plan) == T_Agg) {
-        Agg* agg = (Agg*)child_plan;
-        agg->plan.targetlist = new_targetlist;
-        return child_plan;
-    }
-
 #ifdef USE_SPQ
     Result* result_plan = makeNode(Result);
     result_plan->numHashFilterCols = 0;
@@ -566,9 +518,70 @@ Plan* ExprToPlanConverter::translate_project(OptExpression* expr) {
     result_plan->plan.lefttree = child_plan;
     result_plan->plan.qual = NIL;
     result_plan->resconstantqual = nullptr;
-    result_plan->plan.targetlist = new_targetlist;
-
+    result_plan->plan.targetlist = tlist;
     return (Plan*)result_plan;
+}
+
+/*
+ * is_projection_capable_plan_node - Check if a plan node can do projection
+ *
+ * Similar to is_projection_capable_path() but operates on Plan nodes
+ * instead of Path nodes. Most plan types can project; only specific
+ * types cannot.
+ */
+static bool is_projection_capable_plan_node(Plan* plan)
+{
+    if (plan == nullptr) {
+        return false;
+    }
+
+    switch (plan->type) {
+        case T_Hash:
+        case T_Material:
+        case T_Sort:
+        case T_SortGroup:
+        case T_Unique:
+        case T_SetOp:
+        case T_LockRows:
+        case T_Limit:
+        case T_ModifyTable:
+        case T_MergeAppend:
+        case T_RecursiveUnion:
+            return false;
+        case T_ProjectSet:
+            /* ProjectSet can't have its tlist replaced arbitrarily */
+            return false;
+        default:
+            break;
+    }
+    return true;
+}
+
+/*
+ * build_tlist_from_tlist - Build plan target list from LogicalProject's target_list
+ *
+ * For LogicalProject, we build TargetEntry list preserving the expressions
+ * from the original target_list. This is used when there's no path->pathtarget
+ * (i.e., for LogicalProject which doesn't have an associated Path).
+ */
+static List* build_tlist_from_tlist(List* target_list)
+{
+    List* tlist = NIL;
+    int resno = 1;
+    ListCell* lc;
+
+    foreach (lc, target_list) {
+        TargetEntry* src_tle = (TargetEntry*)lfirst(lc);
+        TargetEntry* new_tle = makeTargetEntry((Expr*)copyObject(src_tle->expr),
+                                              resno++, NULL, false);
+        new_tle->ressortgroupref = src_tle->ressortgroupref;
+        new_tle->resname = src_tle->resname;
+        new_tle->resorigtbl = src_tle->resorigtbl;
+        new_tle->resorigcol = src_tle->resorigcol;
+        tlist = lappend(tlist, new_tle);
+    }
+
+    return tlist;
 }
 
 /*
@@ -1140,18 +1153,25 @@ Plan* ExprToPlanConverter::translate_hash_agg(OptExpression* expr) {
         }
     }
 
-agg_plan->numGroups = 1;
+    agg_plan->numGroups = 1;
     agg_plan->groupingSets = NIL;
     agg_plan->chain = NIL;
 
-    // Copy cost from path
-    Path* path = hash_agg->get_path();
-    if (path != nullptr) {
-        agg_plan->plan.startup_cost = path->startup_cost;
-        agg_plan->plan.total_cost = path->total_cost;
-        agg_plan->plan.plan_rows = path->rows;
-        agg_plan->plan.plan_width = path->pathtarget ? (int)path->pathtarget->width : 0;
+    // Derive cost and rows from cascades statistics
+    double total_cost = expr->get_cost();
+    if (total_cost > 0) {
+        agg_plan->plan.startup_cost = total_cost;
+        agg_plan->plan.total_cost = total_cost;
     }
+
+    Statistics* stats = expr->get_statistics();
+    if (stats != nullptr) {
+        agg_plan->plan.plan_rows = stats->row_count();
+    } else if (child_plan != nullptr) {
+        agg_plan->plan.plan_rows = child_plan->plan_rows;
+    }
+
+    agg_plan->plan.plan_width = child_plan != nullptr ? child_plan->plan_width : 0;
 
     return (Plan*)agg_plan;
 }

@@ -7,15 +7,13 @@ namespace cascades {
 class PhysicalHashAgg : public PhysicalOptExprOp {
 public:
     PhysicalHashAgg();
-    PhysicalHashAgg(Path* agg_path, Path* child_path, const std::vector<int>& group_keys);
+    PhysicalHashAgg(Path* agg_path, const std::vector<int>& group_keys);
 
     OptExprOp* clone() const override;
     size_t hash() const override;
     std::string to_string() const override;
     bool equals(const OptExprOp* other) const override;
 
-    Path* get_child_path() const { return child_path_; }
-    void set_child_path(Path* p) { child_path_ = p; }
     const std::vector<int>& get_group_keys() const { return group_keys_; }
 
     Node* get_having_qual() const { return having_qual_; }
@@ -29,7 +27,6 @@ public:
     void set_target_list(List* tl) { target_list_ = tl; }
 
 private:
-    Path* child_path_ = nullptr;
     std::vector<int> group_keys_;
     Node* having_qual_ = nullptr;
     Oid* grp_operators_ = nullptr;

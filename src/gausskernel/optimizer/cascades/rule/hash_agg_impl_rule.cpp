@@ -33,9 +33,8 @@ std::vector<OptExpression*> HashAggImplRule::transform(
     LogicalAggregate* agg_op = static_cast<LogicalAggregate*>(input->get_op());
     const std::vector<int>& group_keys = agg_op->get_group_keys();
 
-    // Only create physical operator - child_path will be set by optimizer
-    // after child group is optimized
-    PhysicalHashAgg* hash_agg = NEW_EX(PhysicalHashAgg, (Path*)nullptr, (Path*)nullptr, group_keys);
+    // Create physical operator with group keys
+    PhysicalHashAgg* hash_agg = NEW_EX(PhysicalHashAgg, (Path*)nullptr, group_keys);
 
     // Copy HAVING clause if present
     if (agg_op->has_having_qual()) {

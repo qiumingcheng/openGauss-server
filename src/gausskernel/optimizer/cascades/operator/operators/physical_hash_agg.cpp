@@ -5,13 +5,12 @@ namespace cascades {
 PhysicalHashAgg::PhysicalHashAgg()
     : PhysicalOptExprOp(OptExprOpType::PHYSICAL_HASH_AGG) {}
 
-PhysicalHashAgg::PhysicalHashAgg(Path* agg_path, Path* child_path, const std::vector<int>& group_keys)
+PhysicalHashAgg::PhysicalHashAgg(Path* agg_path, const std::vector<int>& group_keys)
     : PhysicalOptExprOp(OptExprOpType::PHYSICAL_HASH_AGG, agg_path),
-      child_path_(child_path),
       group_keys_(group_keys) {}
 
 OptExprOp* PhysicalHashAgg::clone() const {
-    return NEW_EX(PhysicalHashAgg, path_, child_path_, group_keys_);
+    return NEW_EX(PhysicalHashAgg, path_, group_keys_);
 }
 
 size_t PhysicalHashAgg::hash() const {

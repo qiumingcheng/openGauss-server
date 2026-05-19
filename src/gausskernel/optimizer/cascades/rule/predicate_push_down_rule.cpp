@@ -46,9 +46,6 @@ std::vector<OptExpression*> PredicatePushDownRule::transform(
         return result;
     }
 
-    ereport(WARNING, (errmsg("[CASCADES] PredicatePushDownRule:transform, qual_list=%d, child_op=%d",
-                         list_length(qual_list), (int)child_op->get_type())));
-
     // Case 1: Push filter down through joins
     if (child_op->get_type() == OptExprOpType::LOGICAL_JOIN) {
         LogicalJoin* join = static_cast<LogicalJoin*>(child_op);
@@ -105,9 +102,7 @@ std::vector<OptExpression*> PredicatePushDownRule::transform(
     }
     // Case 2: Push filter down to scan
     else if (child_op->get_type() == OptExprOpType::LOGICAL_SCAN) {
-        ereport(WARNING, (errmsg("[CASCADES] PredicatePushDownRule:transform, pushing to SCAN")));
         LogicalScan* scan = static_cast<LogicalScan*>(child_op->clone());
-
         // Get existing qual_list from scan
         List* existing_quals = scan->get_qual_list();
 
@@ -128,11 +123,10 @@ std::vector<OptExpression*> PredicatePushDownRule::transform(
         OptExpression* scan_expr = OptExpression::create(scan);
         result.push_back(scan_expr);
 
-        ereport(WARNING, (errmsg("[CASCADES] PredicatePushDownRule: pushed qualifiers to SCAN")));
+        ereport(WARNING, (errmsg("[CASCADES] PredicatePushDownRule:transform, pushing to SCAN"))); 
     }
     // Case 3: Push filter through projection
     else if (child_op->get_type() == OptExprOpType::LOGICAL_PROJECT) {
-        ereport(WARNING, (errmsg("[CASCADES] PredicatePushDownRule:transform, pushing through PROJECT")));
         LogicalProject* project = static_cast<LogicalProject*>(child_op);
         OptExpression* project_child = child->input_at(0);
 
@@ -146,6 +140,7 @@ std::vector<OptExpression*> PredicatePushDownRule::transform(
 
         OptExpression* result_expr = OptExpression::create(new_project, pushed_expr);
         result.push_back(result_expr);
+        ereport(WARNING, (errmsg("[CASCADES] PredicatePushDownRule:transform, pushing through PROJECT")));        
     }
     // Case 4: Merge with another filter - combine qual lists
     else if (child_op->get_type() == OptExprOpType::LOGICAL_FILTER) {

@@ -91,6 +91,12 @@ public:
         return (it != output_property_map_.end());
     }
 
+    void set_implement(const PhysicalPropertySet& required_property, const PhysicalPropertySet& prop) {
+        auto it = output_property_map_.find(required_property);
+        if(it == output_property_map_.end()) {
+            output_property_map_[required_property] = prop;
+        }
+    }
     /**
      * Derive the logical property for this expression.
      * Assumes child group logical properties are already derived.
