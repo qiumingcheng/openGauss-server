@@ -536,18 +536,6 @@ JoinKeyPairs QueryToExprConverter::extract_join_keys_from_quals_ex(
     return result;
 }
 
-void QueryToExprConverter::derive_statistics(OptExpression* expr, RelOptInfo* rel) {
-    if (expr == nullptr || rel == nullptr) {
-        return;
-    }
-
-    Statistics* stats = NEW_EX(Statistics);
-    stats->set_row_count(rel->rows);
-    stats->set_width(rel->reltarget ? rel->reltarget->width : 0);
-
-    expr->set_statistics(stats);
-}
-
 /*
  * check_sublink_in_node - Check if a node tree contains any SubLink
  *

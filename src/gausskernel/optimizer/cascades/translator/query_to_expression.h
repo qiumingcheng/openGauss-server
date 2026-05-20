@@ -50,10 +50,11 @@ private:
     OptExpression* translate_join(PlannerInfo* root, Query* parse, JoinExpr* join);
     OptExpression* translate_scan(PlannerInfo* root, Query* parse, RangeTblRef* rtr);
     OptExpression* translate_target_list(PlannerInfo* root, Query* parse, OptExpression* child);
+
+    // extract join keys
     std::vector<int> extract_join_keys_from_using(Node* usingClause);
     std::vector<int> extract_join_keys_from_quals(Node* quals);
     JoinKeyPairs extract_join_keys_from_quals_ex(Node* quals, int left_varno, int right_varno);
-    void derive_statistics(OptExpression* expr, RelOptInfo* rel);
 
     // Member variables
     PlannerInfo* root_ = nullptr;

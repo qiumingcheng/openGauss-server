@@ -18,15 +18,20 @@
 
 namespace cascades {
 
+const double DEFAULT_ROW_COUNT = 1010.5;
 DeriveStatsTask::DeriveStatsTask(TaskContext* context, GroupExpression* expr)
     : OptimizerTask(context), expression_(expr) {}
 
 void DeriveStatsTask::execute() {
     Group* group = expression_->get_group();
-    OptExprOp* op = expression_->get_op();
 
     ereport(WARNING, (errmsg("[CASCADES] DeriveStatsTask: group id=%d, expr=%s",
                          group->id(), expression_->to_string().c_str())));
+    if(group->get_statistics()) {
+        ereport(WARNING, (errmsg("[CASCADES] DeriveStatsTask: get group statistics row_count=%.2f",
+                         group->get_statistics()->row_count()))); 
+        return;
+    }
 
     // Collect statistics from input groups
     std::vector<Statistics*> children_stats;
@@ -34,12 +39,13 @@ void DeriveStatsTask::execute() {
         Group* input_group = expression_->input_at(i);
         Statistics* child_stats = input_group->get_statistics();
         children_stats.push_back(child_stats);
-        ereport(WARNING, (errmsg("[CASCADES] DeriveStatsTask: child %d, group id=%d, stats=%p",
-                             i, input_group->id(), (void*)child_stats)));
+        ereport(WARNING, (errmsg("[CASCADES] DeriveStatsTask: child %d, group id=%d, stats=[%p, %.0f]",
+                             i, input_group->id(), (void*)child_stats, child_stats->row_count())));
     }
 
     // Create result statistics using NEW_EX macro
     Statistics* result_stats = NEW_EX(Statistics);
+    OptExprOp* op = expression_->get_op();
 
     // Derive statistics based on operator type
     derive_statistics_by_type(op, result_stats, children_stats);
@@ -133,7 +139,7 @@ void DeriveStatsTask::derive_scan_statistics(
 
     // Default estimate
     if (result_stats->row_count() <= 0) {
-        result_stats->set_row_count(1000.0);
+        result_stats->set_row_count(DEFAULT_ROW_COUNT);
     }
 }
 
@@ -147,7 +153,7 @@ void DeriveStatsTask::derive_filter_statistics(
     OptExprOp* op) {
 
     if (children_stats.empty() || children_stats[0] == nullptr) {
-        result_stats->set_row_count(100.0);
+        result_stats->set_row_count(DEFAULT_ROW_COUNT);
         return;
     }
 
@@ -182,7 +188,7 @@ void DeriveStatsTask::derive_project_statistics(
     if (!children_stats.empty() && children_stats[0] != nullptr) {
         result_stats->copy_from(children_stats[0]);
     } else {
-        result_stats->set_row_count(1000.0);
+        result_stats->set_row_count(DEFAULT_ROW_COUNT);
     }
 }
 
@@ -197,7 +203,7 @@ void DeriveStatsTask::derive_join_statistics(
 
     if (children_stats.size() < 2 ||
         children_stats[0] == nullptr || children_stats[1] == nullptr) {
-        result_stats->set_row_count(1000.0);
+        result_stats->set_row_count(DEFAULT_ROW_COUNT);
         return;
     }
 
@@ -242,7 +248,7 @@ void DeriveStatsTask::derive_physical_join_statistics(
 
     if (children_stats.size() < 2 ||
         children_stats[0] == nullptr || children_stats[1] == nullptr) {
-        result_stats->set_row_count(1000.0);
+        result_stats->set_row_count(DEFAULT_ROW_COUNT);
         return;
     }
 
@@ -330,7 +336,7 @@ void DeriveStatsTask::derive_sort_statistics(
     if (!children_stats.empty() && children_stats[0] != nullptr) {
         result_stats->copy_from(children_stats[0]);
     } else {
-        result_stats->set_row_count(1000.0);
+        result_stats->set_row_count(DEFAULT_ROW_COUNT);
     }
 }
 
@@ -345,7 +351,7 @@ void DeriveStatsTask::derive_exchange_statistics(
     if (!children_stats.empty() && children_stats[0] != nullptr) {
         result_stats->copy_from(children_stats[0]);
     } else {
-        result_stats->set_row_count(1000.0);
+        result_stats->set_row_count(DEFAULT_ROW_COUNT);
     }
 }
 
@@ -359,7 +365,7 @@ void DeriveStatsTask::derive_limit_statistics(
     OptExprOp* op) {
 
     if (children_stats.empty() || children_stats[0] == nullptr) {
-        result_stats->set_row_count(1000.0);
+        result_stats->set_row_count(DEFAULT_ROW_COUNT);
         return;
     }
 
@@ -427,7 +433,7 @@ void DeriveStatsTask::derive_default_statistics(
             max_rows = std::max(max_rows, child_stats->row_count());
         }
     }
-    result_stats->set_row_count(max_rows > 0 ? max_rows : 1000.0);
+    result_stats->set_row_count(max_rows > 0 ? max_rows : DEFAULT_ROW_COUNT);
 }
 
 std::string DeriveStatsTask::to_string() const {

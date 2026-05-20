@@ -8,27 +8,27 @@
 
 namespace cascades {
 
-static std::vector<CostEstimate*> deal_children_costs(GroupExpression* group_expr,
+static std::vector<CostEstimate> deal_children_costs(GroupExpression* group_expr,
                                 const PhysicalPropertySet& required_property,
-                                const std::vector<CostEstimate*>& children_costs) {
+                                const std::vector<CostEstimate>& children_costs) {
         
     if(!children_costs.empty()) {
-        return std::vector<CostEstimate*>(children_costs);
+        return children_costs;
     }
 
-    std::vector<CostEstimate*> ret;
+    std::vector<CostEstimate> ret;
     for(int i=0; i<group_expr->arity(); i++) {
         Group* children = group_expr->input_at(i);
         GroupExpression* ge = children->get_best_expression(required_property);
         double cost = ge ? ge->get_cost(required_property) : 0.0;
-        ret.push_back(NEW_EX(CostEstimate, cost, 0, 0));
+        ret.push_back(CostEstimate(cost, 0, 0));
     }
     return ret;
 }
 
 CostEstimate CostModel::compute_cost(GroupExpression* group_expr,
                                       const PhysicalPropertySet& required_property,
-                                      const std::vector<CostEstimate*>& in_costs) {
+                                      const std::vector<CostEstimate>& in_costs) {
     CostEstimate cost;
 
     OptExprOp* op = group_expr->get_op();
@@ -48,7 +48,7 @@ CostEstimate CostModel::compute_cost(GroupExpression* group_expr,
 
     // Fallback: use cascades own cost estimation
     Statistics* stats = group_expr->get_group()->get_statistics();
-    std::vector<CostEstimate*> children_costs = deal_children_costs(group_expr, required_property, in_costs);
+    std::vector<CostEstimate> children_costs = deal_children_costs(group_expr, required_property, in_costs);
 
     // Physical operators have execution cost
     switch (op->get_type()) {
@@ -83,7 +83,7 @@ CostEstimate CostModel::compute_cost(GroupExpression* group_expr,
 }
 
 CostEstimate CostModel::compute_hash_join_cost(const GroupExpression* expr, Statistics* stats,
-                                              const std::vector<CostEstimate*>& children) {
+                                              const std::vector<CostEstimate>& children) {
     // Hash join cost = cost of building hash table + cost of probing
     double cost = 0;
     if (stats != nullptr) {
@@ -97,7 +97,7 @@ CostEstimate CostModel::compute_hash_join_cost(const GroupExpression* expr, Stat
 }
 
 CostEstimate CostModel::compute_merge_join_cost(const GroupExpression* expr, Statistics* stats,
-                                                const std::vector<CostEstimate*>& children) {
+                                                const std::vector<CostEstimate>& children) {
     // Merge join cost = sort cost + merge cost
     double cost = 0;
     if (stats != nullptr) {
@@ -109,7 +109,7 @@ CostEstimate CostModel::compute_merge_join_cost(const GroupExpression* expr, Sta
 }
 
 CostEstimate CostModel::compute_nestloop_join_cost(const GroupExpression* expr, Statistics* stats,
-                                                   const std::vector<CostEstimate*>& children) {
+                                                   const std::vector<CostEstimate>& children) {
     /*
      * NestLoop join cost = outer_rows * inner_cost
      * where inner_cost is the cost to scan/process inner relation once per outer row.
@@ -138,7 +138,7 @@ CostEstimate CostModel::compute_nestloop_join_cost(const GroupExpression* expr, 
 
     
     // Inner cost = cost to process one inner row (CPU per tuple)
-    double inner_cost = children[1]->cpu_cost() / inner_rows;
+    double inner_cost = children[1].cpu_cost() / inner_rows;
     // NestLoop: for each outer row, scan inner once
     double cost = outer_rows * inner_cost;
     return CostEstimate(cost, 0, 0);
@@ -156,10 +156,10 @@ CostEstimate CostModel::compute_scan_cost_impl(Statistics* stats) {
 }
 
 CostEstimate CostModel::compute_agg_cost_impl(Statistics* stats,
-                                             const std::vector<CostEstimate*>& children) {
+                                             const std::vector<CostEstimate>& children) {
     double cost = 0;
-    if (children.size() > 0 && children[0] != nullptr) {
-        cost = children[0]->cpu_cost();
+    if (children.size() > 0) {
+        cost = children[0].cpu_cost();
     }
     if (stats != nullptr) {
         // Aggregation overhead: O(n)
@@ -169,10 +169,10 @@ CostEstimate CostModel::compute_agg_cost_impl(Statistics* stats,
 }
 
 CostEstimate CostModel::compute_sort_cost_impl(Statistics* stats,
-                                               const std::vector<CostEstimate*>& children) {
+                                               const std::vector<CostEstimate>& children) {
     double cost = 0;
-    if (children.size() > 0 && children[0] != nullptr) {
-        cost = children[0]->cpu_cost();
+    if (children.size() > 0) {
+        cost = children[0].cpu_cost();
     }
     if (stats != nullptr) {
         // Sort overhead: O(n log n)

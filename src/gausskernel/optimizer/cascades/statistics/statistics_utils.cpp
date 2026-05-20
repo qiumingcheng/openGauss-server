@@ -174,7 +174,7 @@ Statistics* StatisticsUtils::build_table_statistics(Oid relid, void* target_list
 
         heap_close(relation, AccessShareLock);
     }
-
+    ereport(WARNING, (errmsg("[CASCADES] DeriveStatsTask: relid=%d, rows=%.0f", relid, stats->row_count())));
     return stats;
 }
 

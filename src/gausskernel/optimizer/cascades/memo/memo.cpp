@@ -418,13 +418,10 @@ void Memo::derive_all_group_logical_property() {
 OptExpression* Memo::extract_best_plan(const PhysicalPropertySet& required_property) {
     GroupExpression* best_expr = root_group_->get_best_expression(required_property);
     ereport(WARNING, (errmsg("[CASCADES] extract_best_plan: required_property=%s", required_property.to_string().c_str())));
-    ereport(WARNING, (errmsg("[CASCADES] extract_best_plan: best_expr=%p", (void*)best_expr)));
+    ereport(WARNING, (errmsg("[CASCADES] extract_best_plan: best_expr=%s", best_expr->to_string().c_str())));
     if (best_expr == nullptr) {
         // Log all best expressions in root_group for debugging
         ereport(WARNING, (errmsg("[CASCADES] extract_best_plan: no best_expr for required_property, root_group id=%d", root_group_->id())));
-        // Try to find any best expression with empty property
-        GroupExpression* any_best = root_group_->get_best_expression(PhysicalPropertySet());
-        ereport(WARNING, (errmsg("[CASCADES] extract_best_plan: best_expr for empty property=%p", (void*)any_best)));
         return nullptr;
     }
     return build_best_plan(best_expr, required_property);
@@ -444,13 +441,16 @@ OptExpression* Memo::build_best_plan(GroupExpression* expr, const PhysicalProper
     for (int i = 0; i < expr->arity(); ++i) {
         Group* input_group = expr->input_at(i);
 
-        // Get input property for this child
-        // If input_properties is empty (leaf node case), use ANY property
+        // Get child_required: check children_required_property_ first
         PhysicalPropertySet child_required;
-        if (!input_properties.empty() && i < static_cast<int>(input_properties.size())) {
+        const PhysicalPropertySet* explicit_prop = expr->get_children_required_property();
+        if (explicit_prop != nullptr) {
+            child_required = *explicit_prop;  // 优先使用 SortImplRule 设置的
+        } else if (!input_properties.empty() && i < static_cast<int>(input_properties.size())) {
             child_required = input_properties[i];
         }
-
+        ereport(WARNING, (errmsg("[CASCADES] extract_best_plan: the Group[%d, %s] child required property=%s",
+                         expr->get_group()->id(), expr->to_string().c_str(), child_required.to_string().c_str())));
         GroupExpression* input_best = input_group->get_best_expression(child_required);
         if (input_best != nullptr) {
             input_plans.push_back(build_best_plan(input_best, child_required));
