@@ -89,7 +89,8 @@ private:
     std::pair<GroupExpression*, double> add_sort_enforcer(
         GroupExpression* expr,
         const PhysicalPropertySet& input_property,
-        const PhysicalPropertySet& required_property) const;
+        const PhysicalPropertySet& required_property,
+        double current_cost) const;
 
     /**
      * Add Distribution enforcer operator
@@ -102,7 +103,8 @@ private:
     std::pair<GroupExpression*, double> add_distribution_enforcer(
         GroupExpression* expr,
         const PhysicalPropertySet& input_property,
-        const PhysicalPropertySet& required_property) const;
+        const PhysicalPropertySet& required_property,
+        double current_cost) const;
 
     /**
      * Derive the output property for an expression based on its operator type

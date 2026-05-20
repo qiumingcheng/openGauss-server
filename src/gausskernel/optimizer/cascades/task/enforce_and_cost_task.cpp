@@ -377,14 +377,14 @@ std::pair<GroupExpression*, double> EnforceAndCostTask::add_enforcers(
     if (is_gather && needs_sort && needs_distribution) {
         // Gather case: Sort first, then Exchange
         // 1. Add Sort enforcer - preserves distribution, adds sort
-        std::pair<GroupExpression*, double> sort_result = add_sort_enforcer(result, output_property, required_property);
+        std::pair<GroupExpression*, double> sort_result = add_sort_enforcer(result, output_property, required_property, current_cost);
         result = sort_result.first;
         total_enforcement_cost += sort_result.second;
         // Update output_property: preserves distribution, adds required sort
         output_property.set_sort(required_property.get_sort());
 
         // 2. Add Distribution enforcer on top of sort - preserves sort, adds distribution
-        std::pair<GroupExpression*, double> dist_result = add_distribution_enforcer(result, output_property, required_property);
+        std::pair<GroupExpression*, double> dist_result = add_distribution_enforcer(result, output_property, required_property, current_cost);
         result = dist_result.first;
         total_enforcement_cost += dist_result.second;
         // Update output_property: adds required distribution
@@ -395,7 +395,7 @@ std::pair<GroupExpression*, double> EnforceAndCostTask::add_enforcers(
 
         // 1. Add Distribution enforcer first - preserves sort, adds distribution
         if (needs_distribution) {
-            std::pair<GroupExpression*, double> dist_result = add_distribution_enforcer(result, output_property, required_property);
+            std::pair<GroupExpression*, double> dist_result = add_distribution_enforcer(result, output_property, required_property, current_cost);
             result = dist_result.first;
             total_enforcement_cost += dist_result.second;
             // Update output_property: adds required distribution
@@ -404,7 +404,7 @@ std::pair<GroupExpression*, double> EnforceAndCostTask::add_enforcers(
 
         // 2. Add Sort enforcer on top - preserves distribution, adds sort
         if (needs_sort) {
-            std::pair<GroupExpression*, double> sort_result = add_sort_enforcer(result, output_property, required_property);
+            std::pair<GroupExpression*, double> sort_result = add_sort_enforcer(result, output_property, required_property, current_cost);
             result = sort_result.first;
             total_enforcement_cost += sort_result.second;
             // Update output_property: adds required sort
@@ -418,7 +418,8 @@ std::pair<GroupExpression*, double> EnforceAndCostTask::add_enforcers(
 std::pair<GroupExpression*, double> EnforceAndCostTask::add_sort_enforcer(
     GroupExpression* expr,
     const PhysicalPropertySet& input_property,
-    const PhysicalPropertySet& required_property) const {
+    const PhysicalPropertySet& required_property,
+    double current_cost) const {
 
     GroupExpression* sort_enforcer = required_property.get_sort().append_enforcers(group_);
     if (sort_enforcer == nullptr) {
@@ -436,7 +437,9 @@ std::pair<GroupExpression*, double> EnforceAndCostTask::add_sort_enforcer(
 
     // Compute actual enforcer cost using CostModel
     CostModel cost_model;
-    CostEstimate enforcer_cost_estimate = cost_model.compute_cost(sort_enforcer, sort_required, {});
+    std::vector<CostEstimate> child_costs;
+    child_costs.push_back(CostEstimate(current_cost, 0, 0));
+    CostEstimate enforcer_cost_estimate = cost_model.compute_cost(sort_enforcer, sort_required, child_costs);
     double enforcer_cost = enforcer_cost_estimate.total_cost();
 
     // Use update_output_property_set to avoid duplicate enforcers
@@ -464,7 +467,8 @@ std::pair<GroupExpression*, double> EnforceAndCostTask::add_sort_enforcer(
 std::pair<GroupExpression*, double> EnforceAndCostTask::add_distribution_enforcer(
     GroupExpression* expr,
     const PhysicalPropertySet& input_property,
-    const PhysicalPropertySet& required_property) const {
+    const PhysicalPropertySet& required_property,
+    double current_cost) const {
 
     GroupExpression* dist_enforcer = required_property.get_distribution().append_enforcers(group_);
     if (dist_enforcer == nullptr) {
@@ -482,7 +486,9 @@ std::pair<GroupExpression*, double> EnforceAndCostTask::add_distribution_enforce
 
     // Compute actual enforcer cost using CostModel
     CostModel cost_model;
-    CostEstimate enforcer_cost_estimate = cost_model.compute_cost(dist_enforcer, dist_required, {});
+    std::vector<CostEstimate> child_costs;
+    child_costs.push_back(CostEstimate(current_cost, 0, 0)); 
+    CostEstimate enforcer_cost_estimate = cost_model.compute_cost(dist_enforcer, dist_required, child_costs);
     double enforcer_cost = enforcer_cost_estimate.total_cost();
 
     // Use update_output_property_set to avoid duplicate enforcers
@@ -537,7 +543,8 @@ SortProperty EnforceAndCostTask::build_sort_property_from_sort_clause(void* sort
         bool ascending = (sgcl->sortop < 500);
         spec.add_ordering(column_id, ascending);
     }
-    return SortProperty(spec);
+    // Pass original sortClause to preserve full information for PhysicalSort
+    return SortProperty(spec, sort_clause);
 }
 
 }  // namespace cascades

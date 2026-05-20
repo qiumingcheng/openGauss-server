@@ -39,7 +39,7 @@ static PhysicalPropertySet build_physical_property_set_from_sort_clause(void* so
                              column_id, sgcl->sortop, ascending)));
         spec.add_ordering(column_id, ascending);
     }
-    SortProperty sort_prop(spec);
+    SortProperty sort_prop(spec, sort_clause);
     return PhysicalPropertySet(DistributionProperty(DistributionType::ANY), sort_prop);
 }
 

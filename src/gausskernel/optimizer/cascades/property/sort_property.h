@@ -57,10 +57,12 @@ class SortProperty {
 public:
     SortProperty();
     explicit SortProperty(const OrderSpec& spec);
+    explicit SortProperty(const OrderSpec& spec, void* sort_clause);
     ~SortProperty() = default;
 
     bool is_empty() const { return is_empty_; }
     const OrderSpec& get_spec() const { return spec_; }
+    void* get_sort_clause() const { return sort_clause_; }
 
     bool is_satisfy(const SortProperty& required) const;
     size_t hash() const;
@@ -76,6 +78,7 @@ public:
 private:
     bool is_empty_;
     OrderSpec spec_;
+    void* sort_clause_;  // Original sortClause (List<SortGroupClause>) for PhysicalSort
 };
 
 }

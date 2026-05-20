@@ -32,9 +32,12 @@ size_t OrderSpec::hash() const {
     return h;
 }
 
-SortProperty::SortProperty() : is_empty_(true) {}
+SortProperty::SortProperty() : is_empty_(true), sort_clause_(nullptr) {}
 
-SortProperty::SortProperty(const OrderSpec& spec) : is_empty_(false), spec_(spec) {}
+SortProperty::SortProperty(const OrderSpec& spec) : is_empty_(false), spec_(spec), sort_clause_(nullptr) {}
+
+SortProperty::SortProperty(const OrderSpec& spec, void* sort_clause)
+    : is_empty_(false), spec_(spec), sort_clause_(sort_clause) {}
 
 bool SortProperty::is_satisfy(const SortProperty& required) const {
     if (required.is_empty_) {
@@ -77,6 +80,7 @@ std::string SortProperty::to_string() const {
 GroupExpression* SortProperty::append_enforcers(Group* child) const {
     // Create PhysicalSort enforcer for sort property
     PhysicalSort* sort = NEW_EX(PhysicalSort);
+    sort->set_sort_clause(sort_clause_);
     std::vector<Group*> inputs = {child};
     GroupExpression* enforcer = NEW_EX(GroupExpression, sort, inputs);
     enforcer->set_group(child);
