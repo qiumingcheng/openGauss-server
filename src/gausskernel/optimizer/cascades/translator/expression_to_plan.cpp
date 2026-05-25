@@ -337,30 +337,79 @@ void ExprToPlanConverter::init_scan_plan(Scan* scan_plan, RelOptInfo* rel, List*
 }
 
 Plan* ExprToPlanConverter::translate_index_scan(IndexPath* index_path, RelOptInfo* rel, List* tlist) {
-    IndexScan* index_scan = makeNode(IndexScan);
-    Scan* scan = &index_scan->scan;
+    if (index_path->path.pathtype == T_IndexOnlyScan) {
+        IndexOnlyScan* index_only_scan = makeNode(IndexOnlyScan);
+        Scan* scan = &index_only_scan->scan;
 
-    init_scan_plan(scan, rel, tlist);
+        init_scan_plan(scan, rel, tlist);
 
-    /* Index-specific fields - use fix_indexqual_references to convert RestrictInfo
-     * to plain expressions, handle outer Var replacement, and index Var substitution
-     */
-    index_scan->indexid = index_path->indexinfo->indexoid;
-    index_scan->indexname = (char*)get_rel_name(index_scan->indexid);
-    index_scan->indexqual = fix_indexqual_references(root_, index_path, nullptr);
-    index_scan->indexqualorig = get_actual_clauses(index_path->indexquals);
-    index_scan->indexorderby = fix_indexorderby_references(root_, index_path);
-    index_scan->indexorderbyorig = get_actual_clauses(index_path->indexorderbys);
-    index_scan->indexorderbyops = nullptr;
-    index_scan->indexorderdir = index_path->indexscandir;
-    index_scan->selectivity = index_path->indexselectivity;
-    index_scan->is_partial = (index_path->indexinfo->indpred != NIL);
-    index_scan->is_ustore = index_path->is_ustore;
+        index_only_scan->indexid = index_path->indexinfo->indexoid;
+        index_only_scan->indexqual = fix_indexqual_references(root_, index_path, nullptr);
+        index_only_scan->indexqualorig = get_actual_clauses(index_path->indexquals);
+        index_only_scan->indexorderby = fix_indexorderby_references(root_, index_path);
+        index_only_scan->indexorderdir = index_path->indexscandir;
+        index_only_scan->selectivity = index_path->indexselectivity;
+        index_only_scan->is_partial = (index_path->indexinfo->indpred != NIL);
 
-    ereport(WARNING, (errmsg("[CASCADES] translate_scan: created IndexScan, indexid=%u, indexqual=%d",
-                             index_scan->indexid, list_length(index_scan->indexqual))));
+        /* Build indextlist from index columns */
+        List* indextlist = NIL;
+        IndexOptInfo* indexinfo = index_path->indexinfo;
+        List* indexprs = indexinfo->indexprs;
+        ListCell* lc_expr = list_head(indexprs);
+        for (int i = 0; i < indexinfo->ncolumns; i++) {
+            if (indexinfo->indexkeys[i] != 0) {
+                /* Simple column reference - create Var referencing the base table column */
+                Var* var = (Var*)makeNode(Var);
+                var->varno = rel->relid;
+                var->varattno = indexinfo->indexkeys[i];
+                var->vartype = indexinfo->opcintype[i];
+                var->vartypmod = -1;
+                var->varcollid = indexinfo->indexcollations[i];
+                var->varlevelsup = 0;
+                var->varnoold = rel->relid;
+                var->varoattno = indexinfo->indexkeys[i];
+                TargetEntry* tle = makeTargetEntry((Expr*)var, i + 1, NULL, false);
+                indextlist = lappend(indextlist, tle);
+            } else {
+                /* Expression column - get from indexprs */
+                if (lc_expr == NULL) {
+                    continue;
+                }
+                Node* expr = (Node*)lfirst(lc_expr);
+                lc_expr = lnext(lc_expr);
+                TargetEntry* tle = makeTargetEntry((Expr*)copyObject(expr), i + 1, NULL, false);
+                indextlist = lappend(indextlist, tle);
+            }
+        }
+        index_only_scan->indextlist = indextlist;
 
-    return &scan->plan;
+        ereport(WARNING, (errmsg("[CASCADES] translate_scan: created IndexOnlyScan, indexid=%u, indexqual=%d",
+                                 index_only_scan->indexid, list_length(index_only_scan->indexqual))));
+
+        return &scan->plan;
+    } else {
+        IndexScan* index_scan = makeNode(IndexScan);
+        Scan* scan = &index_scan->scan;
+
+        init_scan_plan(scan, rel, tlist);
+
+        index_scan->indexid = index_path->indexinfo->indexoid;
+        index_scan->indexname = (char*)get_rel_name(index_scan->indexid);
+        index_scan->indexqual = fix_indexqual_references(root_, index_path, nullptr);
+        index_scan->indexqualorig = get_actual_clauses(index_path->indexquals);
+        index_scan->indexorderby = fix_indexorderby_references(root_, index_path);
+        index_scan->indexorderbyorig = get_actual_clauses(index_path->indexorderbys);
+        index_scan->indexorderbyops = nullptr;
+        index_scan->indexorderdir = index_path->indexscandir;
+        index_scan->selectivity = index_path->indexselectivity;
+        index_scan->is_partial = (index_path->indexinfo->indpred != NIL);
+        index_scan->is_ustore = index_path->is_ustore;
+
+        ereport(WARNING, (errmsg("[CASCADES] translate_scan: created IndexScan, indexid=%u, indexqual=%d",
+                                 index_scan->indexid, list_length(index_scan->indexqual))));
+
+        return &scan->plan;
+    }
 }
 
 Plan* ExprToPlanConverter::translate_bitmap_scan(BitmapHeapPath* bitmap_path, RelOptInfo* rel, List* tlist) {
@@ -1183,19 +1232,8 @@ Plan* ExprToPlanConverter::translate_sort(OptExpression* expr) {
     if (op->get_type() == OptExprOpType::PHYSICAL_SORT) {
         PhysicalSort* physical_sort = static_cast<PhysicalSort*>(op);
         sort_clause = (List*)physical_sort->get_sort_clause();
-    } else if (op->is_physical()) {
-        // For other physical operators with path, use create_plan
-        PhysicalOptExprOp* phys_op = static_cast<PhysicalOptExprOp*>(op);
-        Path* path = phys_op->get_path();
-        if (path != nullptr && root_ != nullptr) {
-            return create_plan(root_, path);
-        }
     } else {
-        // For logical sort, extract sort keys
-        LogicalSort* logical_sort = dynamic_cast<LogicalSort*>(op);
-        if (logical_sort != nullptr) {
-            sort_clause = (List*)logical_sort->get_sort_clause();
-        }
+        assert(false);
     }
 
     if (sort_clause == nullptr || list_length(sort_clause) == 0) {
@@ -1227,14 +1265,12 @@ Plan* ExprToPlanConverter::translate_sort(OptExpression* expr) {
         Index ref = sgcl->tleSortGroupRef;
 
         ListCell* tl_cell;
-        int pos = 1;
         foreach(tl_cell, child_plan->targetlist) {
             TargetEntry* te = (TargetEntry*)lfirst(tl_cell);
             if (te->ressortgroupref == ref) {
-                sort_col_idx = pos;
+                sort_col_idx = te->resno;
                 break;
             }
-            pos++;
         }
 
         Assert(sort_col_idx > 0);

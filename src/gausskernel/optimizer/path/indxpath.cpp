@@ -137,7 +137,7 @@ static Relids get_bitmap_tree_required_outer(Path* bitmapqual);
 static Bitmapset* get_bitmap_tree_required_upper(Path* bitmapqual);
 static void find_indexpath_quals(Path* bitmapqual, List** quals, List** preds);
 static int find_list_position(Node* node, List** nodelist);
-static bool check_index_only(PlannerInfo* root, RelOptInfo* rel, IndexOptInfo* index);
+bool check_index_only(PlannerInfo* root, RelOptInfo* rel, IndexOptInfo* index);
 static double get_loop_count(PlannerInfo* root, Relids outer_relids);
 static void match_restriction_clauses_to_index(RelOptInfo* rel, IndexOptInfo* index, IndexClauseSet* clauseset);
 static void match_join_clauses_to_index(
@@ -2048,7 +2048,7 @@ static int find_list_position(Node* node, List** nodelist)
  * check_index_only
  *		Determine whether an index-only scan is possible for this index.
  */
-static bool check_index_only(PlannerInfo* root, RelOptInfo* rel, IndexOptInfo* index)
+bool check_index_only(PlannerInfo* root, RelOptInfo* rel, IndexOptInfo* index)
 {
     bool result = false;
     Bitmapset* attrs_used = NULL;

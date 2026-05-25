@@ -208,8 +208,8 @@ std::vector<OptExpression*> IndexScanImplRule::transform(
             IndexPath* index_path = (IndexPath*)path;
             List* pathkeys = index_path->path.pathkeys;
 
-            ereport(WARNING, (errmsg("[CASCADES] IndexScanImplRule:transform, IndexPath path type=%d, pathkeys=%p, sort_clause=%p",
-                                 path->type, (void*)pathkeys, sort_clause)));
+            ereport(WARNING, (errmsg("[CASCADES] IndexScanImplRule:transform, IndexPath path type=%d, indexonly=%d, pathkeys=%p, sort_clause=%p",
+                                 index_path->path.pathtype, (index_path->path.pathtype == T_IndexOnlyScan), (void*)pathkeys, sort_clause)));
 
             // If LogicalScan has sort requirement, check if IndexPath's pathkeys match
             if (sort_clause != nullptr) {

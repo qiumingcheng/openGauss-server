@@ -58,9 +58,6 @@ std::vector<OptExpression*> ScanImplRule::transform(
         return {};
     }
 
-    ereport(WARNING, (errmsg("[CASCADES] ScanImplRule:transform, creating seqscan path for table_id=%d",
-                         table_id)));
-
     // Get output columns from LogicalScan operator (not from logical property)
     // The output_columns_ member stores the logical output after column pruning
     ColumnRefSet output_cols = scan_op->get_output_columns();

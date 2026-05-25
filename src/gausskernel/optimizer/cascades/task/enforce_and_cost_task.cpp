@@ -181,18 +181,13 @@ void EnforceAndCostTask::execute() {
             best_expr = enforced_expr;
             best_output_property = output_property;
             best_children_output_properties = children_output_properties;  // Save for plan reconstruction
-            ereport(WARNING, (errmsg("[CASCADES] EnforceAndCostTask: updated best_expr=%s, cost=%.2f", 
-                best_expr->get_op()->to_string().c_str(), best_cost)));
         }
     }
 
-    // Store best expression with its cost
-    ereport(WARNING, (errmsg("[CASCADES] EnforceAndCostTask: final best_expr=%p, best_cost=%.2f",
-                         (void*)best_expr, best_cost)));
     if (best_expr != nullptr) {
         // Update group's best expression for this required property
         group_->set_best_expression(best_expr, best_cost, required_property_);
-        ereport(WARNING, (errmsg("[CASCADES] EnforceAndCostTask: the Group[%d] updated best_expr=%s, cost=%.2f", 
+        ereport(WARNING, (errmsg("[CASCADES] EnforceAndCostTask: >>> the Group[%d] updated final best_expr=%s, cost=%.2f", 
             group_->id(), best_expr->get_op()->to_string().c_str(), best_cost)));
             
         // Update cost lower bound for this group
@@ -458,8 +453,7 @@ std::pair<GroupExpression*, double> EnforceAndCostTask::add_sort_enforcer(
     }
 
     // New enforcer is the best, store it
-    group_->set_best_expression(sort_enforcer, enforcer_cost, sort_required);
-    sort_enforcer->update_property_with_cost(sort_required, final_property, {input_property}, enforcer_cost);
+    sort_enforcer->update_property_with_cost(sort_required, final_property, {input_property}, enforcer_cost + current_cost);
 
     return {sort_enforcer, enforcer_cost};
 }
@@ -507,8 +501,7 @@ std::pair<GroupExpression*, double> EnforceAndCostTask::add_distribution_enforce
     }
 
     // New enforcer is the best, store it
-    group_->set_best_expression(dist_enforcer, enforcer_cost, dist_required);
-    dist_enforcer->update_property_with_cost(dist_required, final_property, {input_property}, enforcer_cost);
+    dist_enforcer->update_property_with_cost(dist_required, final_property, {input_property}, enforcer_cost + current_cost);
 
     return {dist_enforcer, enforcer_cost};
 }

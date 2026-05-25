@@ -348,13 +348,15 @@ std::vector<OptExpression*> SortImplRule::transform(
 
                 // Create IndexPath with pathkeys
                 PlannerInfo* root = context->get_root();
+                bool can_index_only = check_index_only(root, scan->get_rel(), index);
                 IndexPath* index_path = create_index_path(root, index,
                     NIL, NIL, NIL, NIL, pathkeys,
-                    scan_dir, false, nullptr, nullptr, 1.0, 1);
+                    scan_dir, can_index_only, nullptr, nullptr, 1.0, 1);
 
                 if (index_path != nullptr) {
-                    ereport(WARNING, (errmsg("[CASCADES] SortImplRule: created IndexPath with pathkeys len=%d",
-                                         index_path->path.pathkeys ? list_length(index_path->path.pathkeys) : 0)));
+                    ereport(WARNING, (errmsg("[CASCADES] SortImplRule: created IndexPath with pathkeys len=%d, can_index_only=%d, pathtype=%d",
+                                    index_path->path.pathkeys ? list_length(index_path->path.pathkeys) : 0,
+                                    (int)can_index_only, index_path->path.pathtype)));
 
                     // Create PhysicalIndexScan with the IndexPath
                     PhysicalIndexScan* index_scan = NEW_EX(PhysicalIndexScan, (Path*)index_path);

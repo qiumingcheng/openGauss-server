@@ -436,6 +436,9 @@ OptExpression* Memo::build_best_plan(GroupExpression* expr, const PhysicalProper
     // When empty, we use default ANY property for children.
     if (expr->arity() > 0) {
         Assert(!input_properties.empty());
+    } else {
+        ereport(WARNING, (errmsg("[CASCADES] extract_best_plan: the Group[%d, %s] no child required property",
+                         expr->get_group()->id(), expr->to_string().c_str())));
     }
 
     for (int i = 0; i < expr->arity(); ++i) {
