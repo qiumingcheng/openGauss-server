@@ -81,8 +81,11 @@ std::vector<OptExpression*> ScanImplRule::transform(
                              : nullptr;
         for (int col : output_cols) {
             if (col > 0 && col <= rel->max_attr && rte != nullptr) {
-                Oid atttype = get_atttype(rte->relid, col);
-                Var* var = makeVar(table_id, col, atttype, -1, InvalidOid, 0);
+                Oid atttype;
+                int32 atttypmod;
+                Oid attcollid;
+                get_atttypetypmodcoll(rte->relid, col, &atttype, &atttypmod, &attcollid);
+                Var* var = makeVar(table_id, col, atttype, atttypmod, attcollid, 0);
                 rel->reltarget->exprs = lappend(rel->reltarget->exprs, var);
                 rel->reltarget->width += get_typlen(atttype);
             }

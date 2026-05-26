@@ -1123,15 +1123,8 @@ Plan* ExprToPlanConverter::translate_hash_agg(OptExpression* expr) {
 
     Agg* agg_plan = makeNode(Agg);
     agg_plan->plan.lefttree = child_plan;
+    agg_plan->plan.targetlist = (List*)copyObject(hash_agg->get_target_list());
 
-    // Do NOT call convert_var_references here. Let set_plan_references()
-    // (specifically set_upper_references) handle Var conversion, matching the
-    // old optimizer where create_agg_plan builds the Agg targetlist with
-    // original table Vars and set_plan_references converts them to OUTER_VAR later.
-    List* agg_tlist = (List*)copyObject(hash_agg->get_target_list());
-    agg_plan->plan.targetlist = agg_tlist;
-
-    // Set HAVING clause - parse->havingQual is already preprocessed into List* format
     if (hash_agg->has_having_qual()) {
         agg_plan->plan.qual = (List*)hash_agg->get_having_qual();
     } else {
@@ -1139,56 +1132,45 @@ Plan* ExprToPlanConverter::translate_hash_agg(OptExpression* expr) {
     }
 
     if (group_keys.empty()) {
-        // Global aggregate (no GROUP BY)
         agg_plan->aggstrategy = AGG_PLAIN;
         agg_plan->numCols = 0;
         agg_plan->grpColIdx = nullptr;
         agg_plan->grpOperators = nullptr;
-        ereport(WARNING, (errmsg("[CASCADES] translate_hash_agg: global aggregate")));
+        agg_plan->grp_collations = nullptr;
     } else {
-        // Grouped aggregate - use hashed aggregation
         agg_plan->aggstrategy = AGG_HASHED;
         agg_plan->numCols = (int)group_keys.size();
         agg_plan->grpColIdx = (AttrNumber*)palloc(agg_plan->numCols * sizeof(AttrNumber));
         agg_plan->grpOperators = (Oid*)palloc(agg_plan->numCols * sizeof(Oid));
+        agg_plan->grp_collations = (Oid*)palloc(agg_plan->numCols * sizeof(Oid));
 
-        // Use grpOperators extracted by HashAggImplRule if available
         Oid* src_ops = hash_agg->get_grp_operators();
-        ereport(WARNING, (errmsg("[CASCADES] translate_hash_agg: numCols=%d, src_ops=%p",
-                             agg_plan->numCols, (void*)src_ops)));
+        Oid* src_collations = hash_agg->get_grp_collations();
 
-        // grpColIdx[i] should be the resno in the child plan's targetlist.
-        // Match group key expressions against child_plan->targetlist using
-        // tlist_member (matching old optimizer's locate_grouping_columns).
+        List* agg_tlist = agg_plan->plan.targetlist;
         for (size_t i = 0; i < group_keys.size(); i++) {
             AttrNumber target_resno = group_keys[i];
-            TargetEntry* group_tle = nullptr;
-
-            ListCell* lc;
-            foreach(lc, agg_tlist) {
-                TargetEntry* te = (TargetEntry*)lfirst(lc);
-                if (te->resno == target_resno) {
-                    group_tle = te;
-                    break;
-                }
-            }
-
+            TargetEntry* group_tle = get_tle_by_resno(agg_tlist, target_resno);
             if (group_tle == nullptr) {
-                ereport(ERROR, (errmsg("[CASCADES] translate_hash_agg: failed to find target entry for group key %zu", i)));
                 return nullptr;
             }
 
-            // Find this group key expression in child_plan->targetlist
             TargetEntry* child_tle = tlist_member((Node*)group_tle->expr, child_plan->targetlist);
             if (child_tle == nullptr) {
-                ereport(ERROR, (errmsg("[CASCADES] translate_hash_agg: failed to find group key %zu in child plan targetlist", i)));
-                return nullptr;
+                child_tle = get_tle_by_resno(child_plan->targetlist, target_resno);
+                if (child_tle == nullptr) {
+                    return nullptr;
+                }
             }
 
             agg_plan->grpColIdx[i] = child_tle->resno;
             agg_plan->grpOperators[i] = (src_ops != nullptr) ? src_ops[i] : InvalidOid;
-            ereport(WARNING, (errmsg("[CASCADES] translate_hash_agg: key[%zu] colIdx=%d, op=%u",
-                                 i, agg_plan->grpColIdx[i], agg_plan->grpOperators[i])));
+
+            Oid coll = (src_collations != nullptr) ? src_collations[i] : InvalidOid;
+            if (!OidIsValid(coll)) {
+                coll = InvalidOid;
+            }
+            agg_plan->grp_collations[i] = coll;
         }
     }
 
@@ -1196,7 +1178,6 @@ Plan* ExprToPlanConverter::translate_hash_agg(OptExpression* expr) {
     agg_plan->groupingSets = NIL;
     agg_plan->chain = NIL;
 
-    // Derive cost and rows from cascades statistics
     double total_cost = expr->get_cost();
     if (total_cost > 0) {
         agg_plan->plan.startup_cost = total_cost;

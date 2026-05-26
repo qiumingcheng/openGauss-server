@@ -355,8 +355,11 @@ OptExpression* QueryToExprConverter::translate_scan(PlannerInfo* root, Query* pa
                 }
                 if (rel->max_attr > 0) {
                     for (int att = 1; att <= rel->max_attr; att++) {
-                        Oid atttype = get_atttype(rte->relid, att);
-                        Var* var = makeVar(rtindex, att, atttype, -1, InvalidOid, 0);
+                        Oid atttype;
+                        int32 atttypmod;
+                        Oid attcollid;
+                        get_atttypetypmodcoll(rte->relid, att, &atttype, &atttypmod, &attcollid);
+                        Var* var = makeVar(rtindex, att, atttype, atttypmod, attcollid, 0);
                         rel->reltarget->exprs = lappend(rel->reltarget->exprs, var);
                         rel->reltarget->width += 32;
                     }

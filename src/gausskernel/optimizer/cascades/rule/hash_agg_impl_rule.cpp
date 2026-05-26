@@ -13,6 +13,7 @@
 #include "optimizer/tlist.h"
 #include "catalog/pg_operator.h"
 #include "nodes/makefuncs.h"
+#include "nodes/nodeFuncs.h"
 
 namespace cascades {
 
@@ -42,14 +43,16 @@ std::vector<OptExpression*> HashAggImplRule::transform(
         ereport(WARNING, (errmsg("[CASCADES] HashAggImplRule:transform, copying having_qual")));
     }
 
-    // Extract grpOperators from parse->groupClause
+    // Extract grpOperators and grpCollations from parse->groupClause
     PlannerInfo* root = context->get_root();
     if (root != nullptr && root->parse != nullptr && root->parse->groupClause != nullptr) {
-        Oid* grp_ops = extract_grouping_ops(root->parse->groupClause);
+        List* groupClause = root->parse->groupClause;
+        List* targetList = root->parse->targetList;
+        Oid* grp_ops = extract_grouping_ops(groupClause);
+        Oid* grp_collations = extract_grouping_collations(groupClause, targetList);
+
         hash_agg->set_grp_operators(grp_ops);
-        int num_keys = list_length(root->parse->groupClause);
-        ereport(WARNING, (errmsg("[CASCADES] HashAggImplRule:transform, extracted grpOperators, num_keys=%d, first_op=%u",
-                             num_keys, grp_ops[0])));
+        hash_agg->set_grp_collations(grp_collations);
     } else {
         ereport(WARNING, (errmsg("[CASCADES] HashAggImplRule:transform, groupClause is null or empty")));
     }

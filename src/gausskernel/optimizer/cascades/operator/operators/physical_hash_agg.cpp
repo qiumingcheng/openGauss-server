@@ -10,7 +10,12 @@ PhysicalHashAgg::PhysicalHashAgg(Path* agg_path, const std::vector<int>& group_k
       group_keys_(group_keys) {}
 
 OptExprOp* PhysicalHashAgg::clone() const {
-    return NEW_EX(PhysicalHashAgg, path_, group_keys_);
+    PhysicalHashAgg* cloned = NEW_EX(PhysicalHashAgg, path_, group_keys_);
+    cloned->having_qual_ = having_qual_;
+    cloned->grp_operators_ = grp_operators_;
+    cloned->grp_collations_ = grp_collations_;
+    cloned->target_list_ = target_list_;
+    return cloned;
 }
 
 size_t PhysicalHashAgg::hash() const {

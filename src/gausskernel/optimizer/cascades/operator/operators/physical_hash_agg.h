@@ -23,6 +23,9 @@ public:
     Oid* get_grp_operators() const { return grp_operators_; }
     void set_grp_operators(Oid* ops) { grp_operators_ = ops; }
 
+    Oid* get_grp_collations() const { return grp_collations_; }
+    void set_grp_collations(Oid* collations) { grp_collations_ = collations; }
+
     List* get_target_list() const { return target_list_; }
     void set_target_list(List* tl) { target_list_ = tl; }
 
@@ -30,6 +33,7 @@ private:
     std::vector<int> group_keys_;
     Node* having_qual_ = nullptr;
     Oid* grp_operators_ = nullptr;
+    Oid* grp_collations_ = nullptr;
     List* target_list_ = nullptr;
 };
 
