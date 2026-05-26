@@ -1157,20 +1157,12 @@ Plan* ExprToPlanConverter::translate_hash_agg(OptExpression* expr) {
 
             TargetEntry* child_tle = tlist_member((Node*)group_tle->expr, child_plan->targetlist);
             if (child_tle == nullptr) {
-                child_tle = get_tle_by_resno(child_plan->targetlist, target_resno);
-                if (child_tle == nullptr) {
-                    return nullptr;
-                }
+                return nullptr;
             }
 
             agg_plan->grpColIdx[i] = child_tle->resno;
             agg_plan->grpOperators[i] = (src_ops != nullptr) ? src_ops[i] : InvalidOid;
-
-            Oid coll = (src_collations != nullptr) ? src_collations[i] : InvalidOid;
-            if (!OidIsValid(coll)) {
-                coll = InvalidOid;
-            }
-            agg_plan->grp_collations[i] = coll;
+            agg_plan->grp_collations[i] = (src_collations != nullptr) ? src_collations[i] : InvalidOid;;
         }
     }
 

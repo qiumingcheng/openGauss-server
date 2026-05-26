@@ -97,10 +97,9 @@ OptExpression* QueryToExprConverter::translate_select(PlannerInfo* root, Query* 
             ListCell* lc;
             foreach(lc, parse->groupClause) {
                 SortGroupClause* sgc = (SortGroupClause*)lfirst(lc);
-                // Use resno (result number) from target list, not tleSortGroupRef
-                // This is what grpColIdx needs in the Agg node
-                Node* groupexpr = get_sortgroupclause_expr(sgc, parse->targetList);
-                TargetEntry* te = tlist_member(groupexpr, parse->targetList);
+                // Use get_sortgroupclause_tle to find the correct TLE by tleSortGroupRef
+                // This ensures we get the GROUP BY entry (at end of targetList), not SELECT entry
+                TargetEntry* te = get_sortgroupclause_tle(sgc, parse->targetList);
                 if (te != nullptr) {
                     group_keys.push_back(te->resno);
                     ereport(WARNING, (errmsg("[CASCADES] translate_select: group key resno=%d", te->resno)));
