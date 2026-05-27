@@ -8,15 +8,73 @@
 
 namespace cascades {
 
+std::vector<PhysicalPropertySet> RequiredPropertyDeriver::deal_specified_required(
+    GroupExpression* parent_expr,
+    const PhysicalPropertySet& parent_required,
+    const PhysicalPropertySet* specified_required,
+    OptExprOp* op) {
+    
+    std::vector<PhysicalPropertySet> result;
+    switch (op->get_type())
+    {
+        case OptExprOpType::PHYSICAL_MERGE_JOIN: {
+            result.push_back(*specified_required);
+            // MergeJoin requires both children to be sorted on join keys
+            for (int i = 1; i < parent_expr->arity(); ++i) {
+                result.push_back(derive_merge_join_child_property(parent_expr, i, parent_required));
+            }
+            break;
+        }
+
+        case OptExprOpType::PHYSICAL_HASH_JOIN: {
+            result.push_back(*specified_required);
+            // HashJoin does not require children to be hash distributed
+            // It builds a hash table internally during execution
+            for (int i = 1; i < parent_expr->arity(); ++i) {
+                result.push_back(derive_default_child_property(parent_required));
+            }
+            break;
+        }
+
+        case OptExprOpType::PHYSICAL_NESTLOOP_JOIN: {
+            result.push_back(*specified_required);
+            // Nested loop: left child (outer) gets ANY property
+            // right child (inner) needs parameterized scan for index access
+            for (int i = 1; i < parent_expr->arity(); ++i) {
+                PhysicalPropertySet child_prop = derive_default_child_property(parent_required);
+                if (i == 1) {
+                    child_prop.set_parameterized_scan_req(true);
+                }
+                result.push_back(child_prop);
+            }
+            break;
+        }
+
+        default: {
+            // Default: child inherits parent's required property
+            for (int i = 0; i < parent_expr->arity(); ++i) {
+                result.push_back(*specified_required);
+            }
+            break;
+        }
+    }
+    return result;
+}
+
 std::vector<PhysicalPropertySet> RequiredPropertyDeriver::derive_child_required_properties(
     GroupExpression* parent_expr,
     const PhysicalPropertySet& parent_required) {
 
     std::vector<PhysicalPropertySet> result;
     OptExprOp* op = parent_expr->get_op();
-
+   
     if (op == nullptr) {
         return result;
+    }
+
+    const PhysicalPropertySet* specified_required = parent_expr->get_children_required_property();
+    if(specified_required != nullptr) {
+        return deal_specified_required(parent_expr, parent_required, specified_required, op);
     }
 
     // Derive child required properties based on operator type

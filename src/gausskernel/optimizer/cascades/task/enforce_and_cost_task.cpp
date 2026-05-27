@@ -62,24 +62,17 @@ void EnforceAndCostTask::execute() {
             continue;
         }
 
+        std::vector<PhysicalPropertySet> children_require_properties;
         std::vector<PhysicalPropertySet> children_output_properties;
         std::vector<GroupExpression*> children_best_exprs;
 
         bool all_children_optimized = true;
         double accumulated_child_cost = 0.0;  // For lower bound pruning
 
+        children_require_properties = property_deriver.derive_child_required_properties(expr, required_property_);
         for (int i = 0; i < expr->arity(); ++i) {
             Group* child_group = expr->input_at(i);
-
-            // First check if GroupExpression has explicitly set children_required_property_
-            // This is set by SortImplRule for PassThrough operator
-            PhysicalPropertySet child_required;
-            const PhysicalPropertySet* explicit_prop = expr->get_children_required_property();
-            if (explicit_prop != nullptr) {
-                child_required = *explicit_prop;
-            } else {
-                child_required = property_deriver.derive_child_required_properties(expr, required_property_)[i];
-            }
+            PhysicalPropertySet child_required = children_require_properties[i];
             ereport(WARNING, (errmsg("[CASCADES] EnforceAndCostTask: child %d, group id=%d, child_required=%s",
                                  i, child_group->id(), child_required.to_string().c_str())));
 

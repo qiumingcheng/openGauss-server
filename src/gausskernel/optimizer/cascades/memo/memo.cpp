@@ -1,6 +1,7 @@
 #include "memo.h"
 #include "opt_expression.h"
 #include "../operator/operator.h"
+#include "../property/required_property_deriver.h"
 #include "nodes/memnodes.h"
 #include "utils/memutils.h"
 #include <algorithm>
@@ -424,12 +425,28 @@ OptExpression* Memo::extract_best_plan(const PhysicalPropertySet& required_prope
         ereport(WARNING, (errmsg("[CASCADES] extract_best_plan: no best_expr for required_property, root_group id=%d", root_group_->id())));
         return nullptr;
     }
-    return build_best_plan(best_expr, required_property);
+    OptExpression* plan = build_best_plan(best_expr, required_property);
+
+    // 验证：检查根节点代价
+    if (plan != nullptr) {
+        ereport(WARNING, (errmsg("[CASCADES] extract_best_plan: root cost=%.2f, row_count=%.2f",
+                         plan->get_cost(),
+                         plan->get_statistics() ? plan->get_statistics()->row_count() : 0.0)));
+    }
+    return plan;
+}
+
+static double get_group_expression_cost(GroupExpression* expr, const PhysicalPropertySet& required_property) {
+    if (expr == nullptr) {
+        return 0.0;
+    }
+    return expr->get_cost(required_property);
 }
 
 OptExpression* Memo::build_best_plan(GroupExpression* expr, const PhysicalPropertySet& required_property) {
     std::vector<OptExpression*> input_plans;
-    std::vector<PhysicalPropertySet> input_properties = expr->get_input_properties(required_property);
+    RequiredPropertyDeriver property_deriver;
+    std::vector<PhysicalPropertySet> input_properties = property_deriver.derive_child_required_properties(expr, required_property);
 
     // Note: input_properties may be empty if the required_property was not recorded
     // during costing, or if the GroupExpression was not costed for this property.
@@ -443,15 +460,7 @@ OptExpression* Memo::build_best_plan(GroupExpression* expr, const PhysicalProper
 
     for (int i = 0; i < expr->arity(); ++i) {
         Group* input_group = expr->input_at(i);
-
-        // Get child_required: check children_required_property_ first
-        PhysicalPropertySet child_required;
-        const PhysicalPropertySet* explicit_prop = expr->get_children_required_property();
-        if (explicit_prop != nullptr) {
-            child_required = *explicit_prop;  // 优先使用 SortImplRule 设置的
-        } else if (!input_properties.empty() && i < static_cast<int>(input_properties.size())) {
-            child_required = input_properties[i];
-        }
+        PhysicalPropertySet child_required = input_properties[i];
         ereport(WARNING, (errmsg("[CASCADES] extract_best_plan: the Group[%d, %s] child required property=%s",
                          expr->get_group()->id(), expr->to_string().c_str(), child_required.to_string().c_str())));
         GroupExpression* input_best = input_group->get_best_expression(child_required);
@@ -462,7 +471,23 @@ OptExpression* Memo::build_best_plan(GroupExpression* expr, const PhysicalProper
         }
     }
 
-    return OptExpression::create_with_childrens(expr->get_op(), input_plans);
+    OptExpression* result = OptExpression::create_with_childrens(expr->get_op(), input_plans);
+
+    // 传播代价：从 GroupExpression 获取已计算的代价
+    double cost = get_group_expression_cost(expr, required_property);
+    result->set_cost(cost);
+
+    // 传播基数：从 Group 获取统计信息
+    Group* group = expr->get_group();
+    if (group != nullptr && group->get_statistics() != nullptr) {
+        result->set_statistics(group->get_statistics());
+    }
+
+    ereport(WARNING, (errmsg("[CASCADES] build_best_plan: expr=%s, cost=%.2f, row_count=%.2f",
+                         expr->get_op()->to_string().c_str(), cost,
+                         group && group->get_statistics() ? group->get_statistics()->row_count() : 0.0)));
+
+    return result;
 }
 
 std::string Memo::to_string() const {

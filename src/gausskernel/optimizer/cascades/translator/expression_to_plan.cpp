@@ -25,6 +25,34 @@
 namespace cascades {
 
 /*
+ * Helper function to copy cost and cardinality from OptExpression to Plan.
+ * Falls back to provided default values if OptExpression doesn't have valid cost/stats.
+ */
+inline void assign_plan_cost_stats(Plan* plan, OptExpression* expr,
+                                   double start_cost, double total_cost, double fallback_rows)
+{
+    if (plan == nullptr || expr == nullptr) {
+        return;
+    }
+
+    double expr_cost = expr->get_cost();
+    if (expr_cost > 0) {
+        plan->startup_cost = start_cost;
+        plan->total_cost = expr_cost;
+    } else {
+        plan->startup_cost = start_cost;
+        plan->total_cost = total_cost;
+    }
+
+    Statistics* stats = expr->get_statistics();
+    if (stats != nullptr) {
+        plan->plan_rows = stats->row_count();
+    } else {
+        plan->plan_rows = fallback_rows;
+    }
+}
+
+/*
  * Assign plan_node_id to each node in the plan tree.
  * This is needed by the executor to identify plan nodes.
  */
@@ -293,9 +321,7 @@ Plan* ExprToPlanConverter::translate_scan(OptExpression* expr) {
     }
 
     /* Copy cost estimates from path */
-    plan->startup_cost = path->startup_cost;
-    plan->total_cost = path->total_cost;
-    plan->plan_rows = path->rows;
+    assign_plan_cost_stats(plan, expr, path->startup_cost, path->total_cost, path->rows);
     plan->plan_width = path->pathtarget ? path->pathtarget->width : 0;
 
     /* Attach restriction clauses from rel->baserestrictinfo */
@@ -558,6 +584,10 @@ Plan* ExprToPlanConverter::translate_project(OptExpression* expr) {
     result_plan->plan.qual = NIL;
     result_plan->resconstantqual = nullptr;
     result_plan->plan.targetlist = tlist;
+
+    // 使用 assign_plan_cost_stats 设置代价
+    assign_plan_cost_stats(&result_plan->plan, expr, child_plan->startup_cost, child_plan->total_cost, child_plan->plan_rows);
+
     return (Plan*)result_plan;
 }
 
@@ -665,6 +695,9 @@ Plan* ExprToPlanConverter::translate_filter(OptExpression* expr) {
     result_plan->plan.targetlist = (List*)copyObject(child_plan->targetlist);
     result_plan->plan.qual = qual;
     result_plan->resconstantqual = nullptr;
+
+    // 使用 assign_plan_cost_stats 设置代价
+    assign_plan_cost_stats(&result_plan->plan, expr, child_plan->startup_cost, child_plan->total_cost, child_plan->plan_rows);
 
     return (Plan*)result_plan;
 }
@@ -845,9 +878,7 @@ Plan* ExprToPlanConverter::translate_hash_join(OptExpression* expr) {
     join_plan->hashclauses = hashclauses;
 
     // Copy cost and size
-    plan->startup_cost = workspace.startup_cost;
-    plan->total_cost = workspace.total_cost;
-    plan->plan_rows = hp->path.rows > 0 ? hp->path.rows : 1;
+    assign_plan_cost_stats(plan, expr, workspace.startup_cost, workspace.total_cost, hp->path.rows > 0 ? hp->path.rows : 1);
     plan->plan_width = hp->path.pathtarget ? hp->path.pathtarget->width : 0;
 
     return plan;
@@ -956,9 +987,7 @@ Plan* ExprToPlanConverter::translate_merge_join(OptExpression* expr) {
     join_plan->mergeclauses = NIL;
 
     // Copy cost and size
-    plan->startup_cost = workspace.startup_cost;
-    plan->total_cost = workspace.total_cost;
-    plan->plan_rows = mp->path.rows > 0 ? mp->path.rows : 1;
+    assign_plan_cost_stats(plan, expr, workspace.startup_cost, workspace.total_cost, mp->path.rows > 0 ? mp->path.rows : 1);
     plan->plan_width = mp->path.pathtarget ? mp->path.pathtarget->width : 0;
 
     return plan;
@@ -1095,10 +1124,8 @@ Plan* ExprToPlanConverter::translate_nestloop_join(OptExpression* expr) {
     join_plan->join.inner_unique = false;
     join_plan->nestParams = nestParams;
 
-    // Copy cost and size from computed workspace
-    plan->startup_cost = workspace.startup_cost;
-    plan->total_cost = workspace.total_cost;
-    plan->plan_rows = np->path.rows > 0 ? np->path.rows : 1;
+    // Copy cost and size
+    assign_plan_cost_stats(plan, expr, workspace.startup_cost, workspace.total_cost, np->path.rows > 0 ? np->path.rows : 1);
     plan->plan_width = np->path.pathtarget ? np->path.pathtarget->width : 0;
 
     return plan;
@@ -1170,19 +1197,11 @@ Plan* ExprToPlanConverter::translate_hash_agg(OptExpression* expr) {
     agg_plan->groupingSets = NIL;
     agg_plan->chain = NIL;
 
-    double total_cost = expr->get_cost();
-    if (total_cost > 0) {
-        agg_plan->plan.startup_cost = total_cost;
-        agg_plan->plan.total_cost = total_cost;
-    }
-
-    Statistics* stats = expr->get_statistics();
-    if (stats != nullptr) {
-        agg_plan->plan.plan_rows = stats->row_count();
-    } else if (child_plan != nullptr) {
-        agg_plan->plan.plan_rows = child_plan->plan_rows;
-    }
-
+    // 使用 assign_plan_cost_stats 保持一致的代价赋值风格
+    double child_startup = child_plan != nullptr ? child_plan->startup_cost : 0;
+    double child_total = child_plan != nullptr ? child_plan->total_cost : 0;
+    double child_rows = child_plan != nullptr ? child_plan->plan_rows : 0;
+    assign_plan_cost_stats(&agg_plan->plan, expr, child_startup, child_total, child_rows);
     agg_plan->plan.plan_width = child_plan != nullptr ? child_plan->plan_width : 0;
 
     return (Plan*)agg_plan;
@@ -1278,14 +1297,13 @@ Plan* ExprToPlanConverter::translate_sort(OptExpression* expr) {
     sort_plan->mem_info.maxMem = 0;
     sort_plan->mem_info.regressCost = 0;
 
-// Copy cost from path
+    // Copy cost from path
     Path* path = static_cast<PhysicalOptExprOp*>(op)->get_path();
-    if (path != nullptr) {
-        sort_plan->plan.startup_cost = path->startup_cost;
-        sort_plan->plan.total_cost = path->total_cost;
-        sort_plan->plan.plan_rows = path->rows;
-        sort_plan->plan.plan_width = path->pathtarget ? (int)path->pathtarget->width : 0;
-    }
+    double fallback_rows = (path != nullptr) ? path->rows : 0;
+    double fallback_start = (path != nullptr) ? path->startup_cost : 0;
+    double fallback_total = (path != nullptr) ? path->total_cost : 0;
+    assign_plan_cost_stats(&sort_plan->plan, expr, fallback_start, fallback_total, fallback_rows);
+    sort_plan->plan.plan_width = path != nullptr && path->pathtarget ? (int)path->pathtarget->width : 0;
 
     return (Plan*)sort_plan;
 }
@@ -1339,10 +1357,8 @@ Plan* ExprToPlanConverter::translate_limit(OptExpression* expr) {
     limit_plan->limitCount = limit_count;
     limit_plan->limitOffset = limit_offset;
 
-    /* Copy cost estimates from child plan */
-    limit_plan->plan.startup_cost = child_plan->startup_cost;
-    limit_plan->plan.total_cost = child_plan->total_cost;
-    limit_plan->plan.plan_rows = child_plan->plan_rows;
+    // 使用 assign_plan_cost_stats 保持一致的代价赋值风格
+    assign_plan_cost_stats(&limit_plan->plan, expr, child_plan->startup_cost, child_plan->total_cost, child_plan->plan_rows);
     limit_plan->plan.plan_width = child_plan->plan_width;
 
     return (Plan*)limit_plan;
@@ -1385,6 +1401,9 @@ Plan* ExprToPlanConverter::translate_subquery_scan(OptExpression* expr) {
     if (expr->arity() > 0) {
         scan_node->scan.plan.lefttree = translate_expression(expr->input_at(0));
     }
+
+    // 使用 assign_plan_cost_stats 设置代价
+    assign_plan_cost_stats(&scan_node->scan.plan, expr, sq_path->path.startup_cost, sq_path->path.total_cost, sq_path->path.rows);
 
     return (Plan*)scan_node;
 }

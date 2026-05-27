@@ -81,6 +81,12 @@ private:
      */
     PhysicalPropertySet derive_default_child_property(
         const PhysicalPropertySet& parent_required);
+
+    std::vector<PhysicalPropertySet> deal_specified_required(
+    GroupExpression* parent_expr,
+    const PhysicalPropertySet& parent_required,
+    const PhysicalPropertySet* specified_required,
+    OptExprOp* op);
 };
 
 }  // namespace cascades

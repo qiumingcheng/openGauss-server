@@ -32,7 +32,7 @@ OptimizerContext::OptimizerContext(PlannerInfo* root, MemoryContext context)
     // rule_set_.add_rule(CrossJoinEliminationRule::instance());
     // rule_set_.add_rule(DuplicateJoinEliminationRule::instance());
     rule_set_.add_rule(PredicatePushDownRule::instance()); 
-    rule_set_.add_rule(AggregationSimplifyRule::instance());
+    // rule_set_.add_rule(AggregationSimplifyRule::instance());
     rule_set_.add_rule(SubqueryUnnestRule::instance());
 
     // Initialize implementation rules
