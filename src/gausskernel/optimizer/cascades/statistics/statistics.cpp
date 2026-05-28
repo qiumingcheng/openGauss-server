@@ -5,6 +5,23 @@
 namespace cascades {
 
 // ============================================================================
+// Helper: resolve NDV from column statistics
+// stadistinct < 0 means it's a multiplier: ndv = |stadistinct| * row_count
+// ============================================================================
+static inline double resolve_ndv_from_stats(const ColumnStatsPtr& stats, double row_count) {
+    if (stats == nullptr) {
+        return 1.0;
+    }
+    double ndv = stats->ndv();
+    if (ndv > 0) {
+        return ndv;
+    } else if (ndv < 0) {
+        return -ndv * row_count;
+    }
+    return 1.0;
+}
+
+// ============================================================================
 // Constructors and assignment
 // ============================================================================
 
@@ -106,42 +123,7 @@ void Statistics::compute_aggregation(const std::vector<int>& group_keys) {
 // Join cardinality estimation
 // ============================================================================
 
-double Statistics::estimate_join_cardinality(Statistics* left, Statistics* right,
-                                            int left_key, int right_key) {
-    if (left == nullptr || right == nullptr) {
-        return left != nullptr ? left->row_count() :
-               (right != nullptr ? right->row_count() : 0.0);
-    }
-
-    double left_rows = left->row_count();
-    double right_rows = right->row_count();
-
-    // Get NDV (Number of Distinct Values) for join keys
-    double left_ndv = 1.0;
-    double right_ndv = 1.0;
-
-    auto left_stats = left->get_column_stats(left_key);
-    auto right_stats = right->get_column_stats(right_key);
-
-    if (left_stats != nullptr) {
-        left_ndv = left_stats->ndv();
-    }
-    if (right_stats != nullptr) {
-        right_ndv = right_stats->ndv();
-    }
-
-    // Classic SQL join cardinality formula:
-    // join_rows = left_rows * right_rows / max(left_ndv, right_ndv)
-    double max_ndv = std::max(left_ndv, right_ndv);
-    if (max_ndv <= 1.0) max_ndv = 1.0;
-
-    double join_rows = (left_rows * right_rows) / max_ndv;
-
-    // Clamp to reasonable bounds
-    return std::max(1.0, std::min(join_rows, left_rows * right_rows));
-}
-
-double Statistics::estimate_join_cardinality_advanced(
+double Statistics::estimate_join_cardinality(
     Statistics* left, Statistics* right,
     const std::vector<int>& left_keys,
     const std::vector<int>& right_keys) {
@@ -156,36 +138,29 @@ double Statistics::estimate_join_cardinality_advanced(
         return left->row_count() * right->row_count();
     }
 
-    // Assume all join keys have similar cardinality reduction
-    // Use the first key pair for estimation (can be extended for multiple keys)
-    double selectivity = 1.0;
+    double left_rows = left->row_count();
+    double right_rows = right->row_count();
 
+    // Calculate combined selectivity for all join key pairs
+    double selectivity = 1.0;
     for (size_t i = 0; i < std::min(left_keys.size(), right_keys.size()); ++i) {
         int left_key = left_keys[i];
         int right_key = right_keys[i];
 
-        double left_ndv = 1.0;
-        double right_ndv = 1.0;
-
         auto left_stats = left->get_column_stats(left_key);
         auto right_stats = right->get_column_stats(right_key);
-
-        if (left_stats != nullptr && left_stats->ndv() > 0) {
-            left_ndv = left_stats->ndv();
-        }
-        if (right_stats != nullptr && right_stats->ndv() > 0) {
-            right_ndv = right_stats->ndv();
-        }
+        double left_ndv = resolve_ndv_from_stats(left_stats, left_rows);
+        double right_ndv = resolve_ndv_from_stats(right_stats, right_rows);
 
         // Selectivity for this join key pair
         double key_selectivity = 1.0 / std::max(left_ndv, right_ndv);
         selectivity *= key_selectivity;
     }
 
-    double join_rows = left->row_count() * right->row_count() * selectivity;
+    double join_rows = left_rows * right_rows * selectivity;
 
     // Clamp to reasonable bounds
-    return std::max(1.0, std::min(join_rows, left->row_count() * right->row_count()));
+    return std::max(1.0, std::min(join_rows, left_rows * right_rows));
 }
 
 // ============================================================================

@@ -1189,7 +1189,7 @@ Plan* ExprToPlanConverter::translate_hash_agg(OptExpression* expr) {
 
             agg_plan->grpColIdx[i] = child_tle->resno;
             agg_plan->grpOperators[i] = (src_ops != nullptr) ? src_ops[i] : InvalidOid;
-            agg_plan->grp_collations[i] = (src_collations != nullptr) ? src_collations[i] : InvalidOid;;
+            agg_plan->grp_collations[i] = (src_collations != nullptr) ? src_collations[i] : InvalidOid;
         }
     }
 

@@ -65,15 +65,8 @@ public:
     void apply_selectivity(double selectivity);
     void compute_aggregation(const std::vector<int>& group_keys);
 
-    // Join cardinality estimation
-    static double estimate_join_cardinality(Statistics* left, Statistics* right,
-                                           int left_key, int right_key);
-
-    /**
-     * Advanced join cardinality using openGauss statistics
-     * Supports multiple join keys and cross-type joins
-     */
-    static double estimate_join_cardinality_advanced(
+    // Join cardinality estimation (supports single-key and multi-key joins)
+    static double estimate_join_cardinality(
         Statistics* left, Statistics* right,
         const std::vector<int>& left_keys,
         const std::vector<int>& right_keys);

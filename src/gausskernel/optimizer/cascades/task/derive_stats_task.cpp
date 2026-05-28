@@ -215,23 +215,27 @@ void DeriveStatsTask::derive_join_statistics(
 
     double join_rows;
     if (!left_keys.empty() && !right_keys.empty() && left_keys.size() == right_keys.size()) {
-        // Multi-key join
-        join_rows = Statistics::estimate_join_cardinality_advanced(
+        // Multi-key join: use vector-based signature
+        join_rows = Statistics::estimate_join_cardinality(
             children_stats[0], children_stats[1],
             left_keys, right_keys);
     } else {
-        // Single key or symmetric join
+        // Single key or symmetric join: use single-element vectors
+        std::vector<int> left_key_vec;
+        std::vector<int> right_key_vec;
         const std::vector<int>& join_keys = join_op->get_join_keys();
-        int left_key = join_keys.empty() ? 0 : join_keys[0];
-        int right_key = join_keys.empty() ? 0 : join_keys[0];
+        if (!join_keys.empty()) {
+            left_key_vec.push_back(join_keys[0]);
+            right_key_vec.push_back(join_keys[0]);
+        }
         join_rows = Statistics::estimate_join_cardinality(
             children_stats[0], children_stats[1],
-            left_key, right_key);
+            left_key_vec, right_key_vec);
     }
 
     result_stats->set_row_count(join_rows);
 
-    // Extension Point 3: Merge column statistics
+    // Extension Point 3: Merge column statistics for join keys NDV
     if (!left_keys.empty() && !right_keys.empty()) {
         StatisticsUtils::merge_join_column_statistics(
             result_stats, children_stats[0], children_stats[1],
@@ -253,9 +257,10 @@ void DeriveStatsTask::derive_physical_join_statistics(
     }
 
     // Physical joins: same cardinality estimation as logical
-    // Use Statistics utility for estimation
+    // Use Statistics utility for estimation (empty vectors = cartesian product)
     double join_rows = Statistics::estimate_join_cardinality(
-        children_stats[0], children_stats[1], 0, 0);
+        children_stats[0], children_stats[1],
+        std::vector<int>(), std::vector<int>());
 
     result_stats->set_row_count(join_rows);
 

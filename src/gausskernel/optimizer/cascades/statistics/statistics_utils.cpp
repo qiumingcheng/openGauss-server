@@ -154,6 +154,7 @@ Statistics* StatisticsUtils::build_table_statistics(Oid relid, void* target_list
 
     // Get relation descriptor to fetch attribute list
     Relation relation = heap_open(relid, AccessShareLock);
+    ColumnRefSet output_cols;
     if (relation != NULL) {
         TupleDesc tupdesc = relation->rd_att;
 
@@ -170,11 +171,12 @@ Statistics* StatisticsUtils::build_table_statistics(Oid relid, void* target_list
             ColumnStatsPtr col_stats = std::make_shared<ColumnStats>(
                 null_frac, ndv, avg_width);
             stats->add_column_stats(i, col_stats);
+            output_cols.add(i);
         }
 
         heap_close(relation, AccessShareLock);
     }
-    ereport(WARNING, (errmsg("[CASCADES] DeriveStatsTask: relid=%d, rows=%.0f", relid, stats->row_count())));
+    stats->set_output_columns(output_cols);
     return stats;
 }
 
