@@ -8,6 +8,7 @@ class OptExpression;
 class OptimizerContext;
 class LogicalScan;
 class Group;
+class PhysicalIndexScan;
 
 class SortImplRule : public Rule {
 public:
@@ -30,6 +31,11 @@ private:
                                            List** out_pathkeys) const;
     void set_sort_requirement_on_scan(OptExpression* expr, void* sort_clause) const;
     OptExpression* clone_expression_tree(OptExpression* expr, void* sort_clause) const;
+    PhysicalIndexScan* create_index_scan_to_group(OptExpression* scan_expr,
+                                                void* sort_clause,
+                                                IndexOptInfo* index,
+                                                List* pathkeys,
+                                                OptimizerContext* context) const;
 };
 
 }  // namespace cascades

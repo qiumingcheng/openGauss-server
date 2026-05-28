@@ -73,6 +73,9 @@ CostEstimate CostModel::compute_cost(GroupExpression* group_expr,
         case OptExprOpType::PHYSICAL_SORT:
             cost += compute_sort_cost_impl(stats, children_costs);
             break;
+        case OptExprOpType::PHYSICAL_PASSTHROUGH:
+            cost += CostEstimate(DEFAULT_CPU_TUPLE_COST, 0, 0);
+            break;
         default:
             // Default per-tuple cost
             if (stats != nullptr) {

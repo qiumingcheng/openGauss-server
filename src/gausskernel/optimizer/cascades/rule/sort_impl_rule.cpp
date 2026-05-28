@@ -54,7 +54,7 @@ LogicalScan* SortImplRule::find_base_scan_with_sort_check(
     }
 
     OptExprOp* op = expr->get_op();
-    if (op == nullptr) {
+    if (op == nullptr || op->is_physical()) {
         return nullptr;
     }
 
@@ -64,32 +64,20 @@ LogicalScan* SortImplRule::find_base_scan_with_sort_check(
         return static_cast<LogicalScan*>(op);
     }
 
-    if (op_type == OptExprOpType::LOGICAL_FILTER) {
-        if (expr->arity() > 0) {
-            return find_base_scan_with_sort_check(expr->input_at(0), sort_clause);
-        }
-        return nullptr;
-    }
-
-    if (op_type == OptExprOpType::LOGICAL_PROJECT) {
-        if (expr->arity() > 0) {
-            return find_base_scan_with_sort_check(expr->input_at(0), sort_clause);
-        }
-        return nullptr;
-    }
-
     if (op_type == OptExprOpType::LOGICAL_AGGREGATE) {
         LogicalAggregate* aggr = static_cast<LogicalAggregate*>(op);
         const std::vector<int>& group_keys = aggr->get_group_keys();
 
         if (sort_matches_group_keys(sort_clause, group_keys)) {
             if (expr->arity() > 0) {
-                return find_base_scan_with_sort_check(expr->input_at(0), nullptr);
+                return find_base_scan_with_sort_check(expr->input_at(0), sort_clause);
             }
         }
-        return nullptr;
+    } else {
+        if (expr->arity() > 0) {
+          return find_base_scan_with_sort_check(expr->input_at(0), sort_clause);
+        }
     }
-
     return nullptr;
 }
 
@@ -265,13 +253,7 @@ bool SortImplRule::find_index_for_sort_on_join_outer(OptExpression* join_expr, v
         return false;
     }
 
-    // Get outer (left) child of the join
     if (join_expr->arity() < 1) {
-        return false;
-    }
-
-    OptExpression* outer_expr = join_expr->input_at(0);
-    if (outer_expr == nullptr) {
         return false;
     }
 
@@ -279,10 +261,11 @@ bool SortImplRule::find_index_for_sort_on_join_outer(OptExpression* join_expr, v
     LogicalJoin* join = static_cast<LogicalJoin*>(op);
     JoinType jtype = join->get_join_type();
     if (jtype == JOIN_FULL || jtype == JOIN_RIGHT || jtype == JOIN_RIGHT_ANTI_FULL) {
+        ereport(WARNING, (errmsg("[CASCADES] find_index_for_sort_on_join_outer: join type=%d, skipping FULL/RIGHT join", (int)jtype)));
         return false;
     }
 
-    // Delegate to the original find_index_for_sort on the outer child
+    OptExpression* outer_expr = join_expr->input_at(0);
     return find_index_for_sort(outer_expr, sort_clause, context, out_index, out_pathkeys);
 }
 
@@ -354,6 +337,68 @@ OptExpression* SortImplRule::clone_expression_tree(OptExpression* expr, void* so
     return result;
 }
 
+PhysicalIndexScan* SortImplRule::create_index_scan_to_group(
+    OptExpression* scan_expr,
+    void* sort_clause,
+    IndexOptInfo* index,
+    List* pathkeys,
+    OptimizerContext* context) const
+{
+    // Find the LogicalScan in the expression tree
+    LogicalScan* scan = find_base_scan_with_sort_check(scan_expr, sort_clause);
+    if (scan == nullptr) {
+        return nullptr;
+    }
+
+    Group* scan_group = find_group_for_scan(scan, context);
+    if (scan_group == nullptr) {
+        return nullptr;
+    }
+
+    // Determine scan direction from pathkeys
+    // BTLessStrategyNumber = ASC, BTGreaterStrategyNumber = DESC
+    ScanDirection scan_dir = ForwardScanDirection;
+    if (pathkeys != NIL) {
+        PathKey* first_pk = (PathKey*)linitial(pathkeys);
+        if (first_pk->pk_strategy == BTGreaterStrategyNumber) {
+            scan_dir = BackwardScanDirection;
+        }
+    }
+
+    // Create IndexPath with pathkeys
+    PlannerInfo* root = context->get_root();
+    bool can_index_only = check_index_only(root, scan->get_rel(), index);
+    IndexPath* index_path = create_index_path(root, index,
+        NIL, NIL, NIL, NIL, pathkeys,
+        scan_dir, can_index_only, nullptr, nullptr, 1.0, 1);
+
+    if (index_path == nullptr) {
+        return nullptr;
+    }
+
+    // Create PhysicalIndexScan with the IndexPath
+    PhysicalIndexScan* index_scan = NEW_EX(PhysicalIndexScan, (Path*)index_path);
+    index_scan->set_relid(scan->get_relid());
+    index_scan->set_table_id(scan->get_table_id());
+
+    // Set multi-column sort info from sort_clause
+    List* clauses = static_cast<List*>(sort_clause);
+    List* targetlist = root->parse->targetList;
+    ListCell* lc = nullptr;
+    foreach (lc, clauses) {
+        SortGroupClause* sgcl = static_cast<SortGroupClause*>(lfirst(lc));
+        bool ascending = (sgcl->sortop < 500);  // heuristic
+        index_scan->add_sort_column(sgcl->tleSortGroupRef, ascending);
+    }
+
+    // Add the PhysicalIndexScan to the scan_group
+    std::vector<Group*> inputs;
+    GroupExpression* index_scan_ge = NEW_EX(GroupExpression, (OptExprOp*)index_scan, inputs);
+    scan_group->add_expression(index_scan_ge);
+
+    return index_scan;
+}
+
 std::vector<OptExpression*> SortImplRule::transform(
     OptExpression* input, OptimizerContext* context) {
     LogicalSort* logical_sort = static_cast<LogicalSort*>(input->get_op());
@@ -368,98 +413,45 @@ std::vector<OptExpression*> SortImplRule::transform(
     OptExpression* sort_expr = OptExpression::create(physical_sort, child);
     results.push_back(sort_expr);
 
-    ereport(WARNING, (errmsg("[CASCADES] SortImplRule: generated PhysicalSort path")));
-
-    // Path 2: PassThrough(child) - eliminate sort by using index
-    // The sort requirement is passed to the child via children_required_property_
-    // set by ApplyRuleTask. When EnforceAndCostTask processes PassThrough,
-    // it will check if the child can provide the required sort via its index.
-    IndexOptInfo* index = nullptr;
-    List* pathkeys = nullptr;
-    if (find_index_for_sort(child, sort_clause, context, &index, &pathkeys)) {
-        ereport(WARNING, (errmsg("[CASCADES] SortImplRule: find_index_for_sort succeeded, creating IndexScan with pathkeys")));
-
-        // Find the LogicalScan in the child tree
-        LogicalScan* scan = find_base_scan_with_sort_check(child, sort_clause);
-        if (scan != nullptr) {
-            Group* scan_group = find_group_for_scan(scan, context);
-            if (scan_group != nullptr) {
-                ereport(WARNING, (errmsg("[CASCADES] SortImplRule: found scan in group %d", scan_group->id())));
-
-                // Determine scan direction from pathkeys
-                // BTLessStrategyNumber = ASC, BTGreaterStrategyNumber = DESC
-                ScanDirection scan_dir = ForwardScanDirection;
-                if (pathkeys != NIL) {
-                    PathKey* first_pk = (PathKey*)linitial(pathkeys);
-                    if (first_pk->pk_strategy == BTGreaterStrategyNumber) {
-                        scan_dir = BackwardScanDirection;
-                    }
-                }
-
-                // Create IndexPath with pathkeys
-                PlannerInfo* root = context->get_root();
-                bool can_index_only = check_index_only(root, scan->get_rel(), index);
-                IndexPath* index_path = create_index_path(root, index,
-                    NIL, NIL, NIL, NIL, pathkeys,
-                    scan_dir, can_index_only, nullptr, nullptr, 1.0, 1);
-
-                if (index_path != nullptr) {
-                    ereport(WARNING, (errmsg("[CASCADES] SortImplRule: created IndexPath with pathkeys len=%d, can_index_only=%d, pathtype=%d",
-                                    index_path->path.pathkeys ? list_length(index_path->path.pathkeys) : 0,
-                                    (int)can_index_only, index_path->path.pathtype)));
-
-                    // Create PhysicalIndexScan with the IndexPath
-                    PhysicalIndexScan* index_scan = NEW_EX(PhysicalIndexScan, (Path*)index_path);
-                    index_scan->set_relid(scan->get_relid());
-                    index_scan->set_table_id(scan->get_table_id());
-
-                    // Set multi-column sort info from sort_clause
-                    List* clauses = static_cast<List*>(sort_clause);
-                    List* targetlist = root->parse->targetList;
-                    ListCell* lc = nullptr;
-                    foreach (lc, clauses) {
-                        SortGroupClause* sgcl = static_cast<SortGroupClause*>(lfirst(lc));
-                        bool ascending = (sgcl->sortop < 500);  // heuristic
-                        index_scan->add_sort_column(sgcl->tleSortGroupRef, ascending);
-                    }
-
-                    // Add the PhysicalIndexScan to the scan_group
-                    std::vector<Group*> inputs;
-                    GroupExpression* index_scan_ge = NEW_EX(GroupExpression, (OptExprOp*)index_scan, inputs);
-                    scan_group->add_expression(index_scan_ge);
-                    ereport(WARNING, (errmsg("[CASCADES] SortImplRule: added PhysicalIndexScan to group %d", scan_group->id())));
-
-                    // Create a modified child tree where the LogicalScan is replaced
-                    // with a reference to the scan_group
-                    // Actually, we need to create an expression tree that references scan_group
-                    // For now, we'll just create the PassThrough with the original child
-                    // and rely on the fact that we added the IndexScan to scan_group
-                    PassThroughOperator* pass = NEW_EX(PassThroughOperator);
-                    OptExpression* pass_expr = OptExpression::create(pass, child);
-                    pass_expr->set_sort_requirement(sort_clause);
-                    results.push_back(pass_expr);
-
-                    ereport(WARNING, (errmsg("[CASCADES] SortImplRule: generated PassThrough path (sort elimination)")));
-                }
-            }
+    // ========== 判断是否有 Join 节点 ==========
+    // Find the actual LogicalJoin by traversing through Project/Filter
+    OptExpression* actual_child = child;
+    bool has_join = false;
+    while (actual_child->get_op()->get_type() == OptExprOpType::LOGICAL_PROJECT ||
+           actual_child->get_op()->get_type() == OptExprOpType::LOGICAL_FILTER) {
+        if (actual_child->arity() > 0) {
+            actual_child = actual_child->input_at(0);
+        } else {
+            break;
         }
     }
+    if (actual_child->get_op()->get_type() == OptExprOpType::LOGICAL_JOIN) {
+        has_join = true;
+    }
 
-    // Path 3: PassThrough on Join - eliminate sort by using index on outer table
-    // Check if child is a LogicalJoin
-    if (child->get_op()->get_type() == OptExprOpType::LOGICAL_JOIN) {
-        IndexOptInfo* join_index = nullptr;
-        List* join_pathkeys = nullptr;
-        if (find_index_for_sort_on_join_outer(child, sort_clause, context, &join_index, &join_pathkeys)) {
-            ereport(WARNING, (errmsg("[CASCADES] SortImplRule: found index for sort on join outer, creating PassThrough")));
+    IndexOptInfo* index = nullptr;
+    List* pathkeys = nullptr;
+    bool found_index = false;
 
-            // Create PassThrough with the Join as child
+    if (has_join) {
+        // Join path: 尝试在外表上找索引
+        found_index = find_index_for_sort_on_join_outer(actual_child, sort_clause, context, &index, &pathkeys);
+    } else {
+        // Non-Join path: 单表场景
+        found_index = find_index_for_sort(child, sort_clause, context, &index, &pathkeys);
+    }
+
+    // 使用公共函数创建 IndexScan
+    if (found_index) {
+        // 确定要传递的表达式（Join场景传outer_expr，单表传child）
+        OptExpression* scan_expr = has_join ? actual_child->input_at(0) : child;
+        PhysicalIndexScan* index_scan = create_index_scan_to_group(
+            scan_expr, sort_clause, index, pathkeys, context);
+        if (index_scan != nullptr) {
             PassThroughOperator* pass = NEW_EX(PassThroughOperator);
             OptExpression* pass_expr = OptExpression::create(pass, child);
             pass_expr->set_sort_requirement(sort_clause);
             results.push_back(pass_expr);
-
-            ereport(WARNING, (errmsg("[CASCADES] SortImplRule: generated PassThrough on Join path")));
         }
     }
 
