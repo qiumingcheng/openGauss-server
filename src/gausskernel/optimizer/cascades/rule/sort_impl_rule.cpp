@@ -445,6 +445,24 @@ std::vector<OptExpression*> SortImplRule::transform(
         }
     }
 
+    // Path 3: PassThrough on Join - eliminate sort by using index on outer table
+    // Check if child is a LogicalJoin
+    if (child->get_op()->get_type() == OptExprOpType::LOGICAL_JOIN) {
+        IndexOptInfo* join_index = nullptr;
+        List* join_pathkeys = nullptr;
+        if (find_index_for_sort_on_join_outer(child, sort_clause, context, &join_index, &join_pathkeys)) {
+            ereport(WARNING, (errmsg("[CASCADES] SortImplRule: found index for sort on join outer, creating PassThrough")));
+
+            // Create PassThrough with the Join as child
+            PassThroughOperator* pass = NEW_EX(PassThroughOperator);
+            OptExpression* pass_expr = OptExpression::create(pass, child);
+            pass_expr->set_sort_requirement(sort_clause);
+            results.push_back(pass_expr);
+
+            ereport(WARNING, (errmsg("[CASCADES] SortImplRule: generated PassThrough on Join path")));
+        }
+    }
+
     return results;
 }
 
