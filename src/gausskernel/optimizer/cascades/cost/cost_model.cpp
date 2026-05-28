@@ -5,6 +5,8 @@
 #include "../operator/operator.h"
 #include "nodes/parsenodes.h"
 #include "optimizer/pathnode.h"
+#include "pg_config.h"
+#include <algorithm>
 
 namespace cascades {
 
@@ -171,13 +173,46 @@ CostEstimate CostModel::compute_agg_cost_impl(Statistics* stats,
 CostEstimate CostModel::compute_sort_cost_impl(Statistics* stats,
                                                const std::vector<CostEstimate>& children) {
     double cost = 0;
+    double startup_cost = 0;
     if (children.size() > 0) {
         cost = children[0].cpu_cost();
+        startup_cost = children[0].cpu_cost();
     }
     if (stats != nullptr) {
-        // Sort overhead: O(n log n)
         double rows = stats->row_count();
-        cost += rows * std::log2(rows > 1 ? rows : 2) * DEFAULT_CPU_TUPLE_COST;
+        if (rows < 2.0) {
+            rows = 2.0;
+        }
+
+        // Estimate row width (average ~30 bytes for typical tuples)
+        double width = 30.0;
+        double input_bytes = rows * width;
+
+        // sort_mem in KB, typical default is 16384KB (16MB)
+        long sort_mem_bytes = 16384L * 1024L;
+
+        // comparison_cost = 2.0 * cpu_operator_cost
+        double comparison_cost = 2.0 * DEFAULT_CPU_TUPLE_COST;
+
+        // CPU cost: N log2 N comparisons
+        startup_cost += comparison_cost * rows * (std::log(rows) / std::log(2.0));
+
+        // Per-tuple cost (like cpu_operator_cost * tuples in cost_sort)
+        cost += DEFAULT_CPU_TUPLE_COST * rows;
+
+        // Disk I/O cost (only if data exceeds sort_mem)
+        if (input_bytes > sort_mem_bytes) {
+            double npages = std::ceil(input_bytes / (double)BLCKSZ);
+            double nruns = (input_bytes / sort_mem_bytes) * 0.5;
+            double mergeorder = 6.0;  // tuplesort_merge_order approximation
+            double log_runs = (nruns > mergeorder) ?
+                std::ceil(std::log(nruns) / std::log(mergeorder)) : 1.0;
+            double npageaccesses = 2.0 * npages * log_runs;
+            // Assume 3/4 sequential, 1/4 random access
+            double disk_cost = npageaccesses * (DEFAULT_SEQ_PAGE_COST * 0.75 + DEFAULT_RANDOM_PAGE_COST * 0.25);
+            startup_cost += disk_cost;
+            cost += disk_cost;
+        }
     }
     return CostEstimate(cost, 0, 0);
 }
