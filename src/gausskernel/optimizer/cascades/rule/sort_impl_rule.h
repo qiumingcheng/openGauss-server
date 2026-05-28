@@ -25,6 +25,9 @@ private:
     bool can_use_index_for_sort(OptExpression* scan_expr, void* sort_clause, OptimizerContext* context) const;
     bool find_index_for_sort(OptExpression* scan_expr, void* sort_clause, OptimizerContext* context,
                              IndexOptInfo** out_index, List** out_pathkeys) const;
+    bool find_index_for_sort_on_join_outer(OptExpression* join_expr, void* sort_clause,
+                                           OptimizerContext* context, IndexOptInfo** out_index,
+                                           List** out_pathkeys) const;
     void set_sort_requirement_on_scan(OptExpression* expr, void* sort_clause) const;
     OptExpression* clone_expression_tree(OptExpression* expr, void* sort_clause) const;
 };

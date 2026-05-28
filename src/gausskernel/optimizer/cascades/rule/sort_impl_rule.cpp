@@ -249,6 +249,43 @@ bool SortImplRule::find_index_for_sort(OptExpression* scan_expr, void* sort_clau
     return false;
 }
 
+bool SortImplRule::find_index_for_sort_on_join_outer(OptExpression* join_expr, void* sort_clause,
+                                                    OptimizerContext* context, IndexOptInfo** out_index,
+                                                    List** out_pathkeys) const
+{
+    *out_index = nullptr;
+    *out_pathkeys = nullptr;
+
+    if (join_expr == nullptr || sort_clause == nullptr) {
+        return false;
+    }
+
+    OptExprOp* op = join_expr->get_op();
+    if (op == nullptr || op->get_type() != OptExprOpType::LOGICAL_JOIN) {
+        return false;
+    }
+
+    // Get outer (left) child of the join
+    if (join_expr->arity() < 1) {
+        return false;
+    }
+
+    OptExpression* outer_expr = join_expr->input_at(0);
+    if (outer_expr == nullptr) {
+        return false;
+    }
+
+    // Check join type - only non-FULL/RIGHT joins can propagate sort order
+    LogicalJoin* join = static_cast<LogicalJoin*>(op);
+    JoinType jtype = join->get_join_type();
+    if (jtype == JOIN_FULL || jtype == JOIN_RIGHT || jtype == JOIN_RIGHT_ANTI_FULL) {
+        return false;
+    }
+
+    // Delegate to the original find_index_for_sort on the outer child
+    return find_index_for_sort(outer_expr, sort_clause, context, out_index, out_pathkeys);
+}
+
 void SortImplRule::set_sort_requirement_on_scan(OptExpression* expr, void* sort_clause) const
 {
     if (expr == nullptr || sort_clause == nullptr) {
