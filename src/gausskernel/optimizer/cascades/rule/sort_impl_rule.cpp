@@ -305,13 +305,26 @@ void SortImplRule::set_sort_requirement_on_scan(OptExpression* expr, void* sort_
         return;
     }
 
-    // Recursively set on child for filter/project/aggregate
+    // Recursively set on child for filter/project/aggregate/join
     if (op_type == OptExprOpType::LOGICAL_FILTER ||
         op_type == OptExprOpType::LOGICAL_PROJECT ||
         op_type == OptExprOpType::LOGICAL_AGGREGATE) {
         if (expr->arity() > 0) {
             set_sort_requirement_on_scan(expr->input_at(0), sort_clause);
         }
+        return;
+    }
+
+    if (op_type == OptExprOpType::LOGICAL_JOIN) {
+        // Pass sort requirement to outer (left) child
+        LogicalJoin* join = static_cast<LogicalJoin*>(op);
+        JoinType jtype = join->get_join_type();
+        if (jtype != JOIN_FULL && jtype != JOIN_RIGHT && jtype != JOIN_RIGHT_ANTI_FULL) {
+            if (expr->arity() > 0) {
+                set_sort_requirement_on_scan(expr->input_at(0), sort_clause);
+            }
+        }
+        return;
     }
 }
 
