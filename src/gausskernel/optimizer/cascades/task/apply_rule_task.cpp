@@ -35,8 +35,6 @@ static PhysicalPropertySet build_physical_property_set_from_sort_clause(void* so
         // For most types, < operator Oid < > operator Oid numerically.
         // So we use a heuristic: if sortop Oid is "small", assume ASC.
         bool ascending = (sgcl->sortop < 500);  // heuristic: < operators have smaller Oids
-        ereport(WARNING, (errmsg("[CASCADES] build_physical_property_set_from_sort_clause: column_id=%d, sortop=%u, ascending=%d",
-                             column_id, sgcl->sortop, ascending)));
         spec.add_ordering(column_id, ascending);
     }
     SortProperty sort_prop(spec, sort_clause);

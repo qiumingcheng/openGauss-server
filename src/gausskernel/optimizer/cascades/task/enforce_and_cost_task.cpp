@@ -73,7 +73,7 @@ void EnforceAndCostTask::execute() {
         for (int i = 0; i < expr->arity(); ++i) {
             Group* child_group = expr->input_at(i);
             PhysicalPropertySet child_required = children_require_properties[i];
-            ereport(WARNING, (errmsg("[CASCADES] EnforceAndCostTask: child %d, group id=%d, child_required=%s",
+            ereport(WARNING, (errmsg("[CASCADES] EnforceAndCostTask: child %d group id=%d, child_required=%s",
                                  i, child_group->id(), child_required.to_string().c_str())));
 
             // Lower bound pruning: check if this branch can be pruned
@@ -104,8 +104,8 @@ void EnforceAndCostTask::execute() {
                 return;
             }
 
-            ereport(WARNING, (errmsg("[CASCADES] EnforceAndCostTask: child %d best_expr found, cost=%.2f",
-                                 i, child_best->get_cost(child_required))));
+            ereport(WARNING, (errmsg("[CASCADES] EnforceAndCostTask: child %d best_expr=%s found, cost=%.2f",
+                                 i, child_best->to_string().c_str(), child_best->get_cost(child_required))));
 
             children_best_exprs.push_back(child_best);
             accumulated_child_cost += child_best->get_cost(child_required);
@@ -133,7 +133,7 @@ void EnforceAndCostTask::execute() {
 
         // Derive output property for this expression
         PhysicalPropertySet output_property = derive_output_property(expr, children_output_properties);
-        ereport(WARNING, (errmsg("[CASCADES] EnforceAndCostTask: output_property=%s", output_property.to_string().c_str())));
+        ereport(WARNING, (errmsg("[CASCADES] EnforceAndCostTask: expr output_property=%s", output_property.to_string().c_str())));
 
         // Compute local cost of this expression FIRST (before enforcement)
         CostEstimate local_cost_estimate = cost_model.compute_cost(expr, required_property_, {});
@@ -180,8 +180,8 @@ void EnforceAndCostTask::execute() {
     if (best_expr != nullptr) {
         // Update group's best expression for this required property
         group_->set_best_expression(best_expr, best_cost, required_property_);
-        ereport(WARNING, (errmsg("[CASCADES] EnforceAndCostTask: >>> the Group[%d] updated final best_expr=%s, cost=%.2f", 
-            group_->id(), best_expr->get_op()->to_string().c_str(), best_cost)));
+        ereport(WARNING, (errmsg("[CASCADES] EnforceAndCostTask: >>> the Group[%d] updated final best_expr(%s)=%s, cost=%.2f", 
+            group_->id(), required_property_.to_string().c_str(), best_expr->get_op()->to_string().c_str(), best_cost)));
             
         // Update cost lower bound for this group
         // The best cost found is a new lower bound for this group+property
@@ -429,11 +429,12 @@ std::pair<GroupExpression*, double> EnforceAndCostTask::add_sort_enforcer(
     child_costs.push_back(CostEstimate(current_cost, 0, 0));
     CostEstimate enforcer_cost_estimate = cost_model.compute_cost(sort_enforcer, sort_required, child_costs);
     double enforcer_cost = enforcer_cost_estimate.total_cost();
+    double total_cost = enforcer_cost + current_cost;
 
     // Use update_output_property_set to avoid duplicate enforcers
     // This returns the consistent property object
     PhysicalPropertySet final_property = group_->update_output_property_set(
-        sort_enforcer, enforcer_cost, sort_required);
+        sort_enforcer, total_cost, sort_required);
 
     // If the returned property is different, it means there's already a cheaper enforcer
     if (final_property != sort_required) {
@@ -446,7 +447,7 @@ std::pair<GroupExpression*, double> EnforceAndCostTask::add_sort_enforcer(
     }
 
     // New enforcer is the best, store it
-    sort_enforcer->update_property_with_cost(sort_required, final_property, {input_property}, enforcer_cost + current_cost);
+    sort_enforcer->update_property_with_cost(sort_required, final_property, {input_property}, total_cost);
 
     return {sort_enforcer, enforcer_cost};
 }
@@ -477,11 +478,12 @@ std::pair<GroupExpression*, double> EnforceAndCostTask::add_distribution_enforce
     child_costs.push_back(CostEstimate(current_cost, 0, 0)); 
     CostEstimate enforcer_cost_estimate = cost_model.compute_cost(dist_enforcer, dist_required, child_costs);
     double enforcer_cost = enforcer_cost_estimate.total_cost();
+    double total_cost = enforcer_cost + current_cost;
 
     // Use update_output_property_set to avoid duplicate enforcers
     // This returns the consistent property object
     PhysicalPropertySet final_property = group_->update_output_property_set(
-        dist_enforcer, enforcer_cost, dist_required);
+        dist_enforcer, total_cost, dist_required);
 
     // If the returned property is different, it means there's already a cheaper enforcer
     if (final_property != dist_required) {
@@ -494,7 +496,7 @@ std::pair<GroupExpression*, double> EnforceAndCostTask::add_distribution_enforce
     }
 
     // New enforcer is the best, store it
-    dist_enforcer->update_property_with_cost(dist_required, final_property, {input_property}, enforcer_cost + current_cost);
+    dist_enforcer->update_property_with_cost(dist_required, final_property, {input_property}, total_cost);
 
     return {dist_enforcer, enforcer_cost};
 }
