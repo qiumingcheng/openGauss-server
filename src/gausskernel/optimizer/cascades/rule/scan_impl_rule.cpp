@@ -32,9 +32,10 @@ std::vector<OptExpression*> ScanImplRule::transform(
                          input->to_string().c_str())));
     int table_id = scan_op->get_table_id();
 
-    // Note: predicate_id is no longer used directly from LogicalScan
-    // Predicates are now handled by LogicalFilter on top of LogicalScan
-    // and transferred by FilterImplRule to PhysicalScan
+    // Note: Qualifiers can be attached to LogicalScan via two paths:
+    // 1. Directly from translate_scan() using baserestrictinfo
+    // 2. From PredicatePushDownRule eliminating Filter->Scan patterns
+    // Both paths set LogicalScan.qual_list which is restored to rel->baserestrictinfo here.
 
     // Get PlannerInfo
     PlannerInfo* root = context->get_root();

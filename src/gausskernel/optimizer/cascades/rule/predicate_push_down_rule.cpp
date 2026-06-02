@@ -101,6 +101,9 @@ std::vector<OptExpression*> PredicatePushDownRule::transform(
         }
     }
     // Case 2: Push filter down to scan
+    // NOTE: Although translate_scan() no longer creates Filter->Scan for initial baserestrictinfo,
+    // this branch is still needed to handle Filter nodes introduced by other transformation rules
+    // (e.g., SubqueryUnnestRule) or from JOIN predicate pushdown scenarios.
     else if (child_op->get_type() == OptExprOpType::LOGICAL_SCAN) {
         LogicalScan* scan = static_cast<LogicalScan*>(child_op->clone());
         // Get existing qual_list from scan
