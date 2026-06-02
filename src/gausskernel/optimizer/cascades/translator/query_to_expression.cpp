@@ -69,7 +69,7 @@ OptExpression* QueryToExprConverter::convert(PlannerInfo* root, Query* parse) {
 
 OptExpression* QueryToExprConverter::translate_select(PlannerInfo* root, Query* parse) {
     // 1. Convert FROM clause
-    // Note: translate_scan now creates LogicalFilter on top of scans with baserestrictinfo
+    // Note: translate_scan directly attaches baserestrictinfo to LogicalScan.qual_list
     OptExpression* from_expr = nullptr;
     if (parse->jointree != nullptr) {
         from_expr = translate_from(root, parse, (Node*)parse->jointree);
@@ -377,14 +377,10 @@ OptExpression* QueryToExprConverter::translate_scan(PlannerInfo* root, Query* pa
                                      rtindex, (long)scan_op->get_output_columns().size(),
                                      rel->reltarget ? list_length(rel->reltarget->exprs) : 0)));
 
-                // If there are restriction clauses, create a LogicalFilter on top of the scan
+                // Directly attach restriction clauses to LogicalScan instead of wrapping with LogicalFilter
+                // This avoids a Filter->Scan pattern that would be immediately eliminated by PredicatePushDownRule
                 if (rel->baserestrictinfo != NIL) {
-                    LogicalFilter* filter_op = NEW_EX(LogicalFilter);
-                    filter_op->set_qual_list(rel->baserestrictinfo);
-
-                    OptExpression* scan_expr = OptExpression::create(scan_op);
-                    OptExpression* result = OptExpression::create(filter_op, scan_expr);
-                    return result;
+                    scan_op->set_qual_list(rel->baserestrictinfo);
                 }
             }
         }
