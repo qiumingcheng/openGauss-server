@@ -127,6 +127,19 @@ void DeriveStatsTask::derive_scan_statistics(
         Statistics* table_stats = StatisticsUtils::build_table_statistics(relid, nullptr);
         if (table_stats != nullptr) {
             result_stats->copy_from(table_stats);
+
+            // Apply qual_list selectivity (predicates attached directly to LogicalScan)
+            List* qual_list = scan_op->get_qual_list();
+            if (qual_list != nullptr && list_length(qual_list) > 0) {
+                PlannerInfo* root = context_->get_optimizer_context()->get_root();
+                double selectivity = StatisticsUtils::estimate_filter_selectivity(root, qual_list, relid);
+                result_stats->apply_selectivity(selectivity);
+                ereport(WARNING, (errmsg("[CASCADES] DeriveStatsTask: scan qual_list selectivity=%.6f, rows %.0f -> %.0f",
+                                    selectivity,
+                                    result_stats->row_count() / selectivity,
+                                    result_stats->row_count())));
+            }
+
             // table_stats is allocated in MemoryContext, no need to delete
             return;
         }
@@ -165,9 +178,8 @@ void DeriveStatsTask::derive_filter_statistics(
     if (filter_op != nullptr) {
         void* qual_list = filter_op->get_qual_list();
         if (qual_list != nullptr) {
-            // Use openGauss clauselist_selectivity through StatisticsUtils
-            // Note: In a full integration, this would require PlannerInfo
-            double selectivity = StatisticsUtils::estimate_filter_selectivity(qual_list, InvalidOid);
+            PlannerInfo* root = context_->get_optimizer_context()->get_root();
+            double selectivity = StatisticsUtils::estimate_filter_selectivity(root, qual_list, InvalidOid);
             result_stats->apply_selectivity(selectivity);
             return;
         }

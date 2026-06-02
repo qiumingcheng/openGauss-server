@@ -89,16 +89,53 @@ CostEstimate CostModel::compute_cost(GroupExpression* group_expr,
 
 CostEstimate CostModel::compute_hash_join_cost(const GroupExpression* expr, Statistics* stats,
                                               const std::vector<CostEstimate>& children) {
-    // Hash join cost = cost of building hash table + cost of probing
-    double cost = 0;
-    if (stats != nullptr) {
-        double rows = stats->row_count();
-        // Build phase: O(n) hash computation
-        cost += rows * DEFAULT_CPU_TUPLE_COST;
-        // Memory cost for hash table (estimated at 2x row size)
-        cost += rows * 0.001;  // memory cost factor
+    /*
+     * Hash join cost = cost_build + cost_probe + cost_output
+     *
+     * cost_build  = inner_rows * (DEFAULT_CPU_TUPLE_COST + 0.001)  // Build hash table from right child
+     * cost_probe  = outer_rows * DEFAULT_CPU_TUPLE_COST * (1 + innerbucketsize * 0.5)  // Probe with left child
+     * cost_output = output_rows * DEFAULT_CPU_TUPLE_COST  // Output result tuples
+     *
+     * innerbucketsize ≈ inner_rows / default_numbuckets (hash collision factor)
+     * 0.5 because hash miss skips qual evaluation
+     */
+    const auto& inputs = expr->get_inputs();
+    double inner_rows = 1.0;  // right child (index 1)
+    double outer_rows = 1.0;  // left child (index 0)
+
+    if (inputs.size() >= 2 && inputs[1] != nullptr) {
+        Statistics* inner_stats = inputs[1]->get_statistics();
+        if (inner_stats != nullptr) {
+            inner_rows = inner_stats->row_count();
+            if (inner_rows < 1) inner_rows = 1;
+        }
     }
-    return CostEstimate(cost, 0, 0);
+
+    if (inputs.size() >= 1 && inputs[0] != nullptr) {
+        Statistics* outer_stats = inputs[0]->get_statistics();
+        if (outer_stats != nullptr) {
+            outer_rows = outer_stats->row_count();
+            if (outer_rows < 1) outer_rows = 1;
+        }
+    }
+
+    double output_rows = (stats != nullptr) ? stats->row_count() : outer_rows;
+    if (output_rows < 1) output_rows = 1;
+
+    // Default hash table bucket count
+    static const int DEFAULT_NUMBUCKETS = 64;
+    double innerbucketsize = std::max(1.0, inner_rows / DEFAULT_NUMBUCKETS);
+
+    // Build phase: right table builds hash table
+    double cost_build = inner_rows * (DEFAULT_CPU_TUPLE_COST + 0.001);
+
+    // Probe phase: left table probes hash table
+    double cost_probe = outer_rows * DEFAULT_CPU_TUPLE_COST * (1.0 + innerbucketsize * 0.5);
+
+    // Output phase: output result tuples
+    double cost_output = output_rows * DEFAULT_CPU_TUPLE_COST;
+
+    return CostEstimate(cost_build + cost_probe + cost_output, 0, 0);
 }
 
 CostEstimate CostModel::compute_merge_join_cost(const GroupExpression* expr, Statistics* stats,
@@ -141,11 +178,15 @@ CostEstimate CostModel::compute_nestloop_join_cost(const GroupExpression* expr, 
         if (inner_rows < 1) inner_rows = 1;
     }
 
-    
-    // Inner cost = cost to process one inner row (CPU per tuple)
-    double inner_cost = children[1].cpu_cost() / inner_rows;
+    double output_rows = (stats != nullptr) ? stats->row_count() : outer_rows;
+    if (output_rows < 1) output_rows = 1;
+
+    // Output phase: output result tuples
+    double cost_output = output_rows * DEFAULT_CPU_TUPLE_COST;
+
     // NestLoop: for each outer row, scan inner once
-    double cost = outer_rows * inner_cost;
+    double inner_cost = children[1].cpu_cost(); 
+    double cost = outer_rows * inner_cost + cost_output;
     return CostEstimate(cost, 0, 0);
 }
 

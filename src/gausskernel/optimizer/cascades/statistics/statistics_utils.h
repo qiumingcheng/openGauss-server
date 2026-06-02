@@ -3,6 +3,8 @@
 #include "postgres.h"
 #include "access/attnum.h"
 
+struct PlannerInfo;  /* Forward declaration to avoid pulling in optimizer/planner.h */
+
 namespace cascades {
 
 /**
@@ -82,11 +84,21 @@ public:
      * Estimate filter selectivity using openGauss estimation
      * Extension Point 1: Integrates with clauselist_selectivity()
      *
-     * @param clauses Filter clauses (List* in openGauss terms)
+     * @param clauses Filter clauses (List* of RestrictInfo* in openGauss terms)
      * @param relid Relation OID
      * @return Selectivity factor (0.0 - 1.0)
      */
     static double estimate_filter_selectivity(void* clauses, Oid relid);
+
+    /**
+     * Estimate filter selectivity using clauselist_selectivity() with PlannerInfo
+     *
+     * @param root PlannerInfo for selectivity estimation
+     * @param clauses Filter clauses (List* of RestrictInfo* in openGauss terms)
+     * @param relid Relation OID
+     * @return Selectivity factor (0.0 - 1.0)
+     */
+    static double estimate_filter_selectivity(PlannerInfo* root, void* clauses, Oid relid);
 
     /**
      * Estimate join selectivity using openGauss estimation

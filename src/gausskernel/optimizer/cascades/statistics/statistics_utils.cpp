@@ -5,6 +5,7 @@
 #include "utils/syscache.h"
 #include "nodes/nodeFuncs.h"
 #include "optimizer/clauses.h"
+#include "optimizer/cost.h"
 #include "optimizer/pathnode.h"
 #include "parser/parsetree.h"
 #include "../base/memory_utils.h"
@@ -196,13 +197,8 @@ double StatisticsUtils::estimate_filter_selectivity(void* clauses, Oid relid) {
         return 1.0;
     }
 
-    // TODO: This requires a PlannerInfo pointer which is not available here
-    // In a full integration, you would pass the PlannerInfo from the planner
-    // and call:
-    //   return clauselist_selectivity(root, qual_list, varRelid, JOIN_INNER, nullptr);
-
-    // For now, estimate selectivity based on number of clauses
-    // Each clause is assumed to reduce rows by a factor
+    // Simple heuristic estimation (fallback when PlannerInfo is not available)
+    // For accurate estimation, use the PlannerInfo overload which calls clauselist_selectivity()
     double selectivity = 1.0;
 
     // Simple estimation: each clause reduces selectivity
@@ -227,6 +223,24 @@ double StatisticsUtils::estimate_filter_selectivity(void* clauses, Oid relid) {
 
     // Clamp to reasonable range
     return std::max(0.0001, std::min(1.0, selectivity));
+}
+
+// ============================================================================
+// Selectivity estimation with PlannerInfo - uses clauselist_selectivity
+// ============================================================================
+
+double StatisticsUtils::estimate_filter_selectivity(PlannerInfo* root, void* clauses, Oid relid) {
+    if (root == nullptr || clauses == nullptr) {
+        return estimate_filter_selectivity(clauses, relid);  // Fallback to simple estimation
+    }
+
+    List* qual_list = reinterpret_cast<List*>(clauses);
+    if (qual_list == nullptr || list_length(qual_list) == 0) {
+        return 1.0;
+    }
+
+    Selectivity selectivity = clauselist_selectivity(root, qual_list, 0, JOIN_INNER, nullptr);
+    return std::max(0.0001, std::min(1.0, (double)selectivity));
 }
 
 // ============================================================================
