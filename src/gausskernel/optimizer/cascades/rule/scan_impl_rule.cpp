@@ -131,8 +131,10 @@ std::vector<OptExpression*> ScanImplRule::transform(
     physical_scan->set_relid(scan_op->get_relid());
     physical_scan->set_table_id(scan_op->get_table_id());
 
-    // Note: predicate transfer is now handled by FilterImplRule
-    // which adds predicate_ids from LogicalFilter to PhysicalScan
+    // Note: Qualifiers are already set in LogicalScan.qual_list via two paths:
+    // 1. Directly from translate_scan() using baserestrictinfo
+    // 2. From PredicatePushDownRule eliminating Filter->Scan patterns
+    // They are restored to rel->baserestrictinfo above for path creation.
 
     OptExpression* new_expr = OptExpression::create(physical_scan);
     ereport(WARNING, (errmsg("[CASCADES] ScanImplRule:transform, created physical scan: %s",
