@@ -26,8 +26,10 @@ static double get_group_best_cost(Group* group, const PhysicalPropertySet& requi
 }
 
 EnforceAndCostTask::EnforceAndCostTask(TaskContext* context, Group* group,
-                                       const PhysicalPropertySet& required_property)
-    : OptimizerTask(context), group_(group), required_property_(required_property) {}
+                                       const PhysicalPropertySet& required_property,
+                                       PhysicalPropertySet* top_required_prop)
+    : OptimizerTask(context), group_(group), required_property_(required_property),
+      top_required_prop_(top_required_prop) {}
 
 void EnforceAndCostTask::execute() {
     ereport(WARNING, (errmsg("[CASCADES] EnforceAndCostTask: the Group[%d] required property=%s",
@@ -69,7 +71,7 @@ void EnforceAndCostTask::execute() {
         bool all_children_optimized = true;
         double accumulated_child_cost = 0.0;  // For lower bound pruning
 
-        children_require_properties = property_deriver.derive_child_required_properties(expr, required_property_);
+        children_require_properties = property_deriver.derive_child_required_properties(expr, required_property_, &top_required_prop_);
         for (int i = 0; i < expr->arity(); ++i) {
             Group* child_group = expr->input_at(i);
             PhysicalPropertySet child_required = children_require_properties[i];
@@ -99,8 +101,8 @@ void EnforceAndCostTask::execute() {
                     break;
                 }
                 // Has physical expressions but not yet optimized for this property - push tasks
-                push_task(MakeTask<EnforceAndCostTask>(context_, group_, required_property_));
-                push_task(MakeTask<EnforceAndCostTask>(context_, child_group, child_required));
+                push_task(MakeTask<EnforceAndCostTask>(context_, group_, required_property_, top_required_prop_));
+                push_task(MakeTask<EnforceAndCostTask>(context_, child_group, child_required, top_required_prop_));
                 return;
             }
 

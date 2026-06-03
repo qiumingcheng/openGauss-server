@@ -425,9 +425,9 @@ OptExpression* Memo::extract_best_plan(const PhysicalPropertySet& required_prope
         ereport(WARNING, (errmsg("[CASCADES] extract_best_plan: no best_expr for required_property, root_group id=%d", root_group_->id())));
         return nullptr;
     }
-    OptExpression* plan = build_best_plan(best_expr, required_property);
 
-    // 验证：检查根节点代价
+    PhysicalPropertySet *top_prop = nullptr;
+    OptExpression* plan = build_best_plan(best_expr, required_property, top_prop);
     if (plan != nullptr) {
         ereport(WARNING, (errmsg("[CASCADES] extract_best_plan: root cost=%.2f, row_count=%.2f",
                          plan->get_cost(),
@@ -443,10 +443,13 @@ static double get_group_expression_cost(GroupExpression* expr, const PhysicalPro
     return expr->get_cost(required_property);
 }
 
-OptExpression* Memo::build_best_plan(GroupExpression* expr, const PhysicalPropertySet& required_property) {
+OptExpression* Memo::build_best_plan(GroupExpression* expr, const PhysicalPropertySet& required_property,
+                PhysicalPropertySet* top_prop) {
     std::vector<OptExpression*> input_plans;
     RequiredPropertyDeriver property_deriver;
-    std::vector<PhysicalPropertySet> input_properties = property_deriver.derive_child_required_properties(expr, required_property);
+    std::vector<PhysicalPropertySet> input_properties;
+
+    input_properties = property_deriver.derive_child_required_properties(expr, required_property, &top_prop);
 
     // Note: input_properties may be empty if the required_property was not recorded
     // during costing, or if the GroupExpression was not costed for this property.
@@ -465,7 +468,7 @@ OptExpression* Memo::build_best_plan(GroupExpression* expr, const PhysicalProper
                          expr->get_group()->id(), expr->to_string().c_str(), child_required.to_string().c_str())));
         GroupExpression* input_best = input_group->get_best_expression(child_required);
         if (input_best != nullptr) {
-            input_plans.push_back(build_best_plan(input_best, child_required));
+            input_plans.push_back(build_best_plan(input_best, child_required, top_prop));
         } else {
             Assert(false);
         }

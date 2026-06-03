@@ -42,7 +42,8 @@ public:
      */
     std::vector<PhysicalPropertySet> derive_child_required_properties(
         GroupExpression* parent_expr,
-        const PhysicalPropertySet& parent_required);
+        const PhysicalPropertySet& parent_required,
+        PhysicalPropertySet** top_required);
 
 private:
     /**
@@ -62,10 +63,10 @@ private:
         const PhysicalPropertySet& parent_required);
 
     /**
-     * Derive child required property for PhysicalPassthrough
-     * Child inherits the parent's required property (pass through)
+     * Default: child inherits parent's required property
+     * Used for operators that pass through requirements
      */
-    PhysicalPropertySet derive_passthrough_child_property(
+    PhysicalPropertySet derive_default_child_property(
         const PhysicalPropertySet& parent_required);
 
     /**
@@ -74,19 +75,6 @@ private:
      */
     PhysicalPropertySet derive_exchange_child_property(
         const PhysicalPropertySet& parent_required);
-
-    /**
-     * Default: child inherits parent's required property
-     * Used for operators that pass through requirements
-     */
-    PhysicalPropertySet derive_default_child_property(
-        const PhysicalPropertySet& parent_required);
-
-    std::vector<PhysicalPropertySet> deal_specified_required(
-    GroupExpression* parent_expr,
-    const PhysicalPropertySet& parent_required,
-    const PhysicalPropertySet* specified_required,
-    OptExprOp* op);
 };
 
 }  // namespace cascades

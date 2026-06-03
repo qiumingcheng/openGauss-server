@@ -48,7 +48,8 @@ class GroupExpression;
 class EnforceAndCostTask : public OptimizerTask {
 public:
     EnforceAndCostTask(TaskContext* context, Group* group,
-                       const PhysicalPropertySet& required_property);
+                       const PhysicalPropertySet& required_property,
+                       PhysicalPropertySet* top_required_prop = nullptr);
 
     void execute() override;
     std::string to_string() const override;
@@ -134,6 +135,7 @@ private:
 private:
     Group* group_;
     PhysicalPropertySet required_property_;
+    PhysicalPropertySet* top_required_prop_;
 };
 
 }

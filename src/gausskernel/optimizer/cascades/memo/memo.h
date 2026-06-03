@@ -156,7 +156,8 @@ private:
      * @param required_property The required property
      * @return The best plan as OptExpression
      */
-    OptExpression* build_best_plan(GroupExpression* expr, const PhysicalPropertySet& required_property);
+    OptExpression* build_best_plan(GroupExpression* expr, const PhysicalPropertySet& required_property,
+                                    PhysicalPropertySet* top_required_prop);
 
     /**
      * Internal helper to find an existing GroupExpression by hash.
