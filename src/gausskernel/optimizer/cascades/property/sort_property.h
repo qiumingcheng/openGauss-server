@@ -2,6 +2,8 @@
 #include <vector>
 #include <string>
 
+struct PlannerInfo;
+
 namespace cascades {
 
 
@@ -14,8 +16,9 @@ class GroupExpression;
 struct Ordering {
     int column_id;
     bool ascending;  // true = ASC, false = DESC
+    int table_id;    // cascades table_id, -1 = unknown
 
-    Ordering(int col, bool asc) : column_id(col), ascending(asc) {}
+    Ordering(int col, bool asc, int tid = -1) : column_id(col), ascending(asc), table_id(tid) {}
 };
 
 /**
@@ -27,8 +30,8 @@ public:
     explicit OrderSpec(const std::vector<Ordering>& orderings) : orderings_(orderings) {}
 
     const std::vector<Ordering>& get_orderings() const { return orderings_; }
-    void add_ordering(int column_id, bool ascending) {
-        orderings_.emplace_back(column_id, ascending);
+    void add_ordering(int column_id, bool ascending, int table_id = -1) {
+        orderings_.emplace_back(column_id, ascending, table_id);
     }
 
     bool is_satisfy(const OrderSpec& required) const;
@@ -40,6 +43,9 @@ public:
         for (size_t i = 0; i < orderings_.size(); ++i) {
             if (orderings_[i].column_id != other.orderings_[i].column_id ||
                 orderings_[i].ascending != other.orderings_[i].ascending) {
+                return false;
+            }
+            if (orderings_[i].table_id != other.orderings_[i].table_id) {
                 return false;
             }
         }
@@ -80,5 +86,11 @@ private:
     OrderSpec spec_;
     void* sort_clause_;  // Original sortClause (List<SortGroupClause>) for PhysicalSort
 };
+
+/**
+ * Build OrderSpec from SortGroupClause list, extracting table_id from targetlist Var expressions
+ * Returns empty OrderSpec if sort_clause is null
+ */
+OrderSpec build_order_spec_from_sort_clause(::PlannerInfo* root, void* sort_clause);
 
 }

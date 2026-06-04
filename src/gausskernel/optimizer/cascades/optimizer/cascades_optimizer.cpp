@@ -63,7 +63,7 @@ OptExpression* CascadesOptimizer::logical_rewrite(OptExpression* expression) {
     TaskContext* rewrite_context = NEW_EX(TaskContext, &context_,
                                           PhysicalPropertySet(),
                                           nullptr,
-                                          std::numeric_limits<double>::infinity());
+                                          std::numeric_limits<double>::max());
 
     // Collect transformation rules for logical rewrite
     // Only include rules that are safe to apply in pre-memo phase
@@ -105,7 +105,7 @@ void CascadesOptimizer::explore() {
         root_task_context_ = NEW_EX(TaskContext, &context_,
                                               PhysicalPropertySet(),
                                               nullptr,
-                                              std::numeric_limits<double>::infinity());
+                                              std::numeric_limits<double>::max());
         ereport(WARNING, (errmsg("[CASCADES] >>> Created root task context")));
     }
 

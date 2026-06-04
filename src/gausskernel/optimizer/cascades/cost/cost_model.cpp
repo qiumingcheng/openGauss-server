@@ -219,7 +219,6 @@ CostEstimate CostModel::compute_sort_cost_impl(Statistics* stats,
     double cost = 0;
     double startup_cost = 0;
     if (children.size() > 0) {
-        cost = children[0].cpu_cost();
         startup_cost = children[0].cpu_cost();
     }
     if (stats != nullptr) {
@@ -242,7 +241,7 @@ CostEstimate CostModel::compute_sort_cost_impl(Statistics* stats,
         startup_cost += comparison_cost * rows * (std::log(rows) / std::log(2.0));
 
         // Per-tuple cost (like cpu_operator_cost * tuples in cost_sort)
-        cost += DEFAULT_CPU_TUPLE_COST * rows;
+        cost += DEFAULT_CPU_TUPLE_COST * rows + startup_cost;
 
         // Disk I/O cost (only if data exceeds sort_mem)
         if (input_bytes > sort_mem_bytes) {

@@ -57,21 +57,30 @@ public:
     void set_table_id(int id) { table_id_ = id; }
 
     // Multi-column sort info from pathkeys (set when created with pathkeys)
-    void add_sort_column(int column_id, bool ascending) {
-        sort_columns_.push_back(column_id);
-        sort_ascending_.push_back(ascending);
+    struct SortColumnInfo {
+        int column_id = -1;
+        bool ascending = true;
+        int table_id = -1;
+    };
+
+    void add_sort_column(int column_id, bool ascending, int table_id = -1) {
+        SortColumnInfo info;
+        info.column_id = column_id;
+        info.ascending = ascending;
+        info.table_id = table_id;
+        sort_columns_.push_back(info);
     }
     bool has_sort_info() const { return !sort_columns_.empty(); }
     int get_sort_column_count() const { return sort_columns_.size(); }
-    int get_sort_column_id(int idx) const { return sort_columns_[idx]; }
-    bool get_sort_ascending(int idx) const { return sort_ascending_[idx]; }
+    int get_sort_column_id(int idx) const { return sort_columns_[idx].column_id; }
+    bool get_sort_ascending(int idx) const { return sort_columns_[idx].ascending; }
+    int get_sort_table_id(int idx) const { return sort_columns_[idx].table_id; }
 
 private:
     Oid relid_ = InvalidOid;
     int table_id_ = -1;
     // Multi-column sort info extracted from pathkeys
-    std::vector<int> sort_columns_;
-    std::vector<bool> sort_ascending_;
+    std::vector<SortColumnInfo> sort_columns_;
 };
 
 }  // namespace cascades

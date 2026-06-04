@@ -20,6 +20,41 @@
 
 namespace cascades {
 
+// Check if a scan expression's table_id conflicts with the required sort's table_id.
+// Returns true if enforcement is impossible and the expression should be skipped.
+static bool is_sort_enforcement_impossible_for_scan(GroupExpression* expr, const PhysicalPropertySet& required)
+{
+    if (!required.has_sort()) {
+        return false;
+    }
+
+    const auto& required_orderings = required.get_sort().get_spec().get_orderings();
+    if (required_orderings.empty()) {
+        return false;
+    }
+
+    int expr_table_id = -1;
+    OptExprOpType op_type = expr->get_op()->get_type();
+    if (op_type == OptExprOpType::PHYSICAL_SEQ_SCAN) {
+        expr_table_id = static_cast<const PhysicalSeqScan*>(expr->get_op())->get_table_id();
+    } else if (op_type == OptExprOpType::PHYSICAL_INDEX_SCAN) {
+        expr_table_id = static_cast<const PhysicalIndexScan*>(expr->get_op())->get_table_id();
+    }
+
+    if (expr_table_id < 0) {
+        return false;
+    }
+
+    // All required orderings must have table_id == expr_table_id to allow enforcement
+    for (const auto& ord : required_orderings) {
+        if (ord.table_id != expr_table_id) {
+            return true;  // Mismatch, skip enforcement
+        }
+    }
+
+    return false;  // All orderings match, enforcement is possible
+}
+
 static double get_group_best_cost(Group* group, const PhysicalPropertySet& required_property) {
     double cost = group->get_cost_lower_bound(required_property);
     return cost > 0 ? cost : std::numeric_limits<double>::max();
@@ -50,8 +85,8 @@ void EnforceAndCostTask::execute() {
                          (int)physical_exprs.size())));
 
     for (GroupExpression* expr : physical_exprs) {
-        ereport(WARNING, (errmsg("[CASCADES] EnforceAndCostTask: processing expr=%s",
-                             expr->to_string().c_str())));
+        ereport(WARNING, (errmsg("[CASCADES] EnforceAndCostTask: processing expr=%s(%p)",
+                             expr->to_string().c_str(), expr)));
 
         // Skip if expression is unused (has empty child groups)
         if (expr->is_unused()) {
@@ -61,6 +96,14 @@ void EnforceAndCostTask::execute() {
 
         if(expr->is_implement(required_property_)){
             ereport(WARNING, (errmsg("[CASCADES] EnforceAndCostTask: skipped, expression has implemented")));
+            continue;
+        }
+
+        // Early skip: if required sort has a specific table_id that conflicts with this
+        // expression's table, sort enforcement is impossible — skip to avoid wasted work.
+        if (is_sort_enforcement_impossible_for_scan(expr, required_property_)) {
+            expr->set_implement(required_property_, PhysicalPropertySet());
+            ereport(WARNING, (errmsg("[CASCADES] EnforceAndCostTask: skipped, expr table_id conflicts with required sort table_id")));
             continue;
         }
 
@@ -79,9 +122,8 @@ void EnforceAndCostTask::execute() {
                                  i, child_group->id(), child_required.to_string().c_str())));
 
             // Lower bound pruning: check if this branch can be pruned
-            // Use > instead of >= to allow equal cost plans
             double child_lower_bound = child_group->get_cost_lower_bound(child_required);
-            if (child_lower_bound > 0 && accumulated_child_cost + child_lower_bound > context_->get_upper_bound_cost()) {
+            if (child_lower_bound > 0 && accumulated_child_cost + child_lower_bound >= context_->get_upper_bound_cost()) {
                 // This child's lower bound already exceeds upper bound, prune
                 ereport(WARNING, (errmsg("[CASCADES] EnforceAndCostTask: pruned by lower bound, child_lower_bound=%.2f, accumulated=%.2f, upper_bound=%.2f",
                                      child_lower_bound, accumulated_child_cost, context_->get_upper_bound_cost())));
@@ -182,9 +224,9 @@ void EnforceAndCostTask::execute() {
     if (best_expr != nullptr) {
         // Update group's best expression for this required property
         group_->set_best_expression(best_expr, best_cost, required_property_);
-        ereport(WARNING, (errmsg("[CASCADES] EnforceAndCostTask: >>> the Group[%d] updated final best_expr(%s)=%s, cost=%.2f", 
+        ereport(WARNING, (errmsg("[CASCADES] EnforceAndCostTask: >>> the Group[%d] updated final best_expr(%s)=%s, cost=%.2f",
             group_->id(), required_property_.to_string().c_str(), best_expr->get_op()->to_string().c_str(), best_cost)));
-            
+
         // Update cost lower bound for this group
         // The best cost found is a new lower bound for this group+property
         group_->set_cost_lower_bound(required_property_, best_cost);
@@ -201,6 +243,12 @@ void EnforceAndCostTask::execute() {
         // Update expression's property table
         // Save children's output properties as input properties for plan reconstruction
         best_expr->update_property_with_cost(required_property_, best_output_property, best_children_output_properties, best_cost);
+    } else {
+        // No valid expression found for this property — all were skipped or rejected.
+        // Set lower bound to MAX_COST so parent groups prune this branch instead of retrying.
+        group_->set_cost_lower_bound(required_property_, std::numeric_limits<double>::max());
+        ereport(WARNING, (errmsg("[CASCADES] EnforceAndCostTask: >>> the Group[%d] has no valid expression for %s",
+            group_->id(), required_property_.to_string().c_str())));
     }
 }
 
@@ -235,7 +283,9 @@ PhysicalPropertySet EnforceAndCostTask::derive_output_property(
         if (scan->has_sort_info()) {
             OrderSpec spec;
             for (int i = 0; i < scan->get_sort_column_count(); i++) {
-                spec.add_ordering(scan->get_sort_column_id(i), scan->get_sort_ascending(i));
+                spec.add_ordering(scan->get_sort_column_id(i),
+                                  scan->get_sort_ascending(i),
+                                  scan->get_sort_table_id(i));
             }
             SortProperty sort_prop(spec);
             return PhysicalPropertySet(DistributionProperty(DistributionType::ANY), sort_prop);
@@ -289,7 +339,7 @@ PhysicalPropertySet EnforceAndCostTask::derive_output_property(
             const std::vector<int>& group_keys = sort_agg->get_group_keys();
             OrderSpec spec;
             for (int key : group_keys) {
-                spec.add_ordering(key, true);  // Assume ascending
+                spec.add_ordering(key, true, -1);  // Todo Assume ascending
             }
             SortProperty sort_prop(spec);
             return PhysicalPropertySet(child_property.get_distribution(), sort_prop);
@@ -301,7 +351,7 @@ PhysicalPropertySet EnforceAndCostTask::derive_output_property(
             const std::vector<int>& probe_keys = merge_join->get_probe_keys();
             OrderSpec spec;
             for (int key : probe_keys) {
-                spec.add_ordering(key, true);  // Assume ascending
+                spec.add_ordering(key, true, -1);  // Todo Assume ascending
             }
             SortProperty sort_prop(spec);
             return PhysicalPropertySet(child_property.get_distribution(), sort_prop);
@@ -521,19 +571,8 @@ SortProperty EnforceAndCostTask::build_sort_property_from_sort_clause(void* sort
     if (sort_clause == nullptr) {
         return SortProperty();
     }
-
-    List* clauses = static_cast<List*>(sort_clause);
-    OrderSpec spec;
-    ListCell* lc = nullptr;
-    foreach (lc, clauses) {
-        SortGroupClause* sgcl = static_cast<SortGroupClause*>(lfirst(lc));
-        // Use tleSortGroupRef as column_id (same as pathkeys construction in SortImplRule)
-        int column_id = sgcl->tleSortGroupRef;
-        // Heuristic: sortop < 500 means ASC (operator Oid for < is typically smaller)
-        bool ascending = (sgcl->sortop < 500);
-        spec.add_ordering(column_id, ascending);
-    }
-    // Pass original sortClause to preserve full information for PhysicalSort
+    PlannerInfo* root = context_->get_optimizer_context()->get_root();
+    OrderSpec spec = build_order_spec_from_sort_clause(root, sort_clause);
     return SortProperty(spec, sort_clause);
 }
 

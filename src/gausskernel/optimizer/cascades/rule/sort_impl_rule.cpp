@@ -368,8 +368,9 @@ PhysicalIndexScan* SortImplRule::create_index_scan_to_group(
     // Create IndexPath with pathkeys
     PlannerInfo* root = context->get_root();
     bool can_index_only = check_index_only(root, scan->get_rel(), index);
+    List* indexclauses = index->rel->baserestrictinfo;
     IndexPath* index_path = create_index_path(root, index,
-        NIL, NIL, NIL, NIL, pathkeys,
+        indexclauses, NIL, NIL, NIL, pathkeys,
         scan_dir, can_index_only, nullptr, nullptr, 1.0, 1);
 
     if (index_path == nullptr) {
@@ -385,10 +386,11 @@ PhysicalIndexScan* SortImplRule::create_index_scan_to_group(
     List* clauses = static_cast<List*>(sort_clause);
     List* targetlist = root->parse->targetList;
     ListCell* lc = nullptr;
+    int scan_table_id = scan->get_table_id();
     foreach (lc, clauses) {
         SortGroupClause* sgcl = static_cast<SortGroupClause*>(lfirst(lc));
         bool ascending = (sgcl->sortop < 500);  // heuristic
-        index_scan->add_sort_column(sgcl->tleSortGroupRef, ascending);
+        index_scan->add_sort_column(sgcl->tleSortGroupRef, ascending, scan_table_id);
     }
 
     // Add the PhysicalIndexScan to the scan_group

@@ -240,10 +240,11 @@ std::vector<OptExpression*> IndexScanImplRule::transform(
                 List* clauses = static_cast<List*>(sort_clause);
                 List* targetlist = root->parse->targetList;
                 ListCell* lc_clause = nullptr;
+                int scan_table_id = scan_op->get_table_id();
                 foreach (lc_clause, clauses) {
                     SortGroupClause* sgcl = static_cast<SortGroupClause*>(lfirst(lc_clause));
                     bool ascending = (sgcl->sortop < 500);  // heuristic
-                    physical_scan->add_sort_column(sgcl->tleSortGroupRef, ascending);    
+                    physical_scan->add_sort_column(sgcl->tleSortGroupRef, ascending, scan_table_id);
                 }
             }
         } else if (IsA(path, BitmapHeapPath)) {

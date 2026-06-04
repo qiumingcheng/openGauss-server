@@ -17,26 +17,13 @@
 namespace cascades {
 
 // Helper function to build PhysicalPropertySet from sort_clause (List of SortGroupClause)
-static PhysicalPropertySet build_physical_property_set_from_sort_clause(void* sort_clause)
+static PhysicalPropertySet build_physical_property_set_from_sort_clause(
+    void* sort_clause, PlannerInfo* root)
 {
     if (sort_clause == nullptr) {
         return PhysicalPropertySet();
     }
-
-    List* clauses = static_cast<List*>(sort_clause);
-    OrderSpec spec;
-    ListCell* lc = nullptr;
-    foreach (lc, clauses) {
-        SortGroupClause* sgcl = static_cast<SortGroupClause*>(lfirst(lc));
-        int column_id = sgcl->tleSortGroupRef;
-        // Note: sgcl->sortop is the ordering operator Oid.
-        // BTLessStrategyNumber (1) and BTGreaterStrategyNumber (5) are STRATEGY NUMBERS, not Oids.
-        // We cannot directly compare sortop (Oid) with strategy numbers.
-        // For most types, < operator Oid < > operator Oid numerically.
-        // So we use a heuristic: if sortop Oid is "small", assume ASC.
-        bool ascending = (sgcl->sortop < 500);  // heuristic: < operators have smaller Oids
-        spec.add_ordering(column_id, ascending);
-    }
+    OrderSpec spec = build_order_spec_from_sort_clause(root, sort_clause);
     SortProperty sort_prop(spec, sort_clause);
     return PhysicalPropertySet(DistributionProperty(DistributionType::ANY), sort_prop);
 }
@@ -68,11 +55,11 @@ static OptExpression* build_opt_expression(GroupExpression* group_expr) {
     return result;
 }
 
-static void set_children_required_property(GroupExpression* new_group_expr, OptExpression* result) {
+static void set_children_required_property(GroupExpression* new_group_expr, OptExpression* result, PlannerInfo* root) {
     // If result has sort_requirement (set by SortImplRule for PassThrough),
     // convert it to PhysicalPropertySet and set on GroupExpression
     if (result->get_sort_requirement() != nullptr) {
-        PhysicalPropertySet sort_prop = build_physical_property_set_from_sort_clause(result->get_sort_requirement());
+        PhysicalPropertySet sort_prop = build_physical_property_set_from_sort_clause(result->get_sort_requirement(), root);
         new_group_expr->set_children_required_property(NEW_EX(PhysicalPropertySet, DistributionProperty(),
                                                  SortProperty(sort_prop.get_sort())));
         ereport(WARNING, (errmsg("[CASCADES] ApplyRuleTask: set children_required_property from sort_requirement")));
@@ -149,7 +136,7 @@ void ApplyRuleTask::execute() {
         new_group_expr->merge_applied_rules(expression_->get_applied_rules());
         new_group_expr->add_applied_rule(rule_->type());
 
-        set_children_required_property(new_group_expr, result);
+        set_children_required_property(new_group_expr, result, optimizer_context->get_root());
         ereport(WARNING, (errmsg("[CASCADES] ApplyRuleTask: inserted new expr, is_logical=%d, group id=%d",
                              new_group_expr->get_op()->is_logical() ? 1 : 0, new_group_expr->get_group()->id())));
 

@@ -3,8 +3,38 @@
 #include "../memo/group.h"
 #include "../memo/group_expression.h"
 #include "../operator/operators.h"
+#include "nodes/parsenodes.h"
+#include "optimizer/tlist.h"
 
 namespace cascades {
+
+OrderSpec build_order_spec_from_sort_clause(::PlannerInfo* root, void* sort_clause)
+{
+    OrderSpec spec;
+    if (sort_clause == nullptr) {
+        return spec;
+    }
+
+    List* targetlist = root != nullptr ? root->parse->targetList : nullptr;
+    List* clauses = static_cast<List*>(sort_clause);
+    ListCell* lc = nullptr;
+    foreach (lc, clauses) {
+        SortGroupClause* sgcl = static_cast<SortGroupClause*>(lfirst(lc));
+        int column_id = sgcl->tleSortGroupRef;
+        bool ascending = (sgcl->sortop < 500);
+
+        int table_id = -1;
+        if (targetlist != nullptr) {
+            TargetEntry* tle = get_sortgroupref_tle(column_id, targetlist, false);
+            if (tle != nullptr && tle->expr != nullptr && IsA(tle->expr, Var)) {
+                table_id = ((Var*)tle->expr)->varno;
+            }
+        }
+
+        spec.add_ordering(column_id, ascending, table_id);
+    }
+    return spec;
+}
 bool OrderSpec::is_satisfy(const OrderSpec& required) const {
     // A output order satisfies required order if it starts with the required order
     // e.g., output [a, b, c] satisfies required [a, b] but not required [b, c]
@@ -19,6 +49,9 @@ bool OrderSpec::is_satisfy(const OrderSpec& required) const {
             orderings_[i].ascending != required.orderings_[i].ascending) {
             return false;
         }
+        if (orderings_[i].table_id != required.orderings_[i].table_id) {
+            return false;
+        }
     }
     return true;
 }
@@ -28,6 +61,7 @@ size_t OrderSpec::hash() const {
     for (const auto& ord : orderings_) {
         h = h * 31 + ord.column_id;
         h = h * 37 + (ord.ascending ? 1 : 0);
+        h = h * 41 + ord.table_id;
     }
     return h;
 }
@@ -71,6 +105,9 @@ std::string SortProperty::to_string() const {
     for (size_t i = 0; i < orderings.size(); ++i) {
         if (i > 0) result += ", ";
         result += "col" + std::to_string(orderings[i].column_id);
+        if (orderings[i].table_id >= 0) {
+            result += "(table=" + std::to_string(orderings[i].table_id) + ")";
+        }
         result += orderings[i].ascending ? " ASC" : " DESC";
     }
     result += ")";

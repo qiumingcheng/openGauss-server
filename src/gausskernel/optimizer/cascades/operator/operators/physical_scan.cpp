@@ -80,7 +80,9 @@ OptExprOp* PhysicalIndexScan::clone() const {
     cloned->set_path(path_);
     // Copy multi-column sort info
     for (size_t i = 0; i < sort_columns_.size(); i++) {
-        cloned->add_sort_column(sort_columns_[i], sort_ascending_[i]);
+        cloned->add_sort_column(sort_columns_[i].column_id,
+                                sort_columns_[i].ascending,
+                                sort_columns_[i].table_id);
     }
     return cloned;
 }

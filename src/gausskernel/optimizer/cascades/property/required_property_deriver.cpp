@@ -118,7 +118,7 @@ PhysicalPropertySet RequiredPropertyDeriver::derive_merge_join_child_property(
     for (int key : *keys) {
         // Assuming ascending order for merge join keys
         // In a full implementation, this could support DESC order
-        spec.add_ordering(key, true);  // true = ascending
+        spec.add_ordering(key, true, -1);  // table_id unknown for merge join keys
     }
 
     // Child needs to satisfy the sort requirement
