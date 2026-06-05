@@ -485,11 +485,6 @@ OptExpression* Memo::build_best_plan(GroupExpression* expr, const PhysicalProper
     if (group != nullptr && group->get_statistics() != nullptr) {
         result->set_statistics(group->get_statistics());
     }
-
-    ereport(WARNING, (errmsg("[CASCADES] build_best_plan: expr=%s, cost=%.2f, row_count=%.2f",
-                         expr->get_op()->to_string().c_str(), cost,
-                         group && group->get_statistics() ? group->get_statistics()->row_count() : 0.0)));
-
     return result;
 }
 

@@ -34,6 +34,8 @@ private:
     Plan* translate_limit(OptExpression* expr);
     Plan* translate_subquery_scan(OptExpression* expr);
 
+    Path* get_or_create_path(OptExpression* expr);
+
     // Helper functions for scan translation
     void init_scan_plan(Scan* scan_plan, RelOptInfo* rel, List* tlist);
     Plan* translate_index_scan(IndexPath* index_path, RelOptInfo* rel, List* tlist);

@@ -45,7 +45,7 @@ OptimizerContext::OptimizerContext(PlannerInfo* root, MemoryContext context)
     rule_set_.add_rule(LimitImplRule::instance());
     rule_set_.add_rule(SubqueryScanImplRule::instance());
 
-    // rule_set_.add_rule(NestLoopImplRule::instance());
+    rule_set_.add_rule(NestLoopImplRule::instance());
     rule_set_.add_rule(HashJoinImplRule::instance());
     // rule_set_.add_rule(MergeJoinImplRule::instance());
 }

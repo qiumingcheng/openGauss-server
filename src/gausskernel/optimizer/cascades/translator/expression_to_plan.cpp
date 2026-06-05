@@ -707,6 +707,66 @@ Plan* ExprToPlanConverter::translate_join(OptExpression* expr) {
     return translate_expression(expr);
 }
 
+/*
+ * Get path from operator, or create a synthetic one from translated child plan.
+ * PhysicalSort enforcers created in append_enforcers() have no Path.
+ * Join translation needs path metadata (parent, pathtarget, rows, costs).
+ * This method translates the child expression first to get the plan,
+ * then constructs a minimal Path if the operator lacks one.
+ */
+Path* ExprToPlanConverter::get_or_create_path(OptExpression* expr)
+{
+    PhysicalOptExprOp* op = static_cast<PhysicalOptExprOp*>(expr->get_op());
+    Path* path = op->get_path();
+    if (path != nullptr) {
+        return path;
+    }
+
+    // Operator has no path (e.g., PhysicalSort enforcer)
+    // Translate child to get plan metadata, then create a synthetic Path
+    Plan* plan = translate_expression(expr);
+    if (plan == nullptr) {
+        return nullptr;
+    }
+
+    Path* synthetic = static_cast<Path*>(palloc0(sizeof(Path)));
+    // Derive pathtype from the translated plan instead of hardcoding T_Sort.
+    // Currently only PhysicalSort enforcers reach here, but this makes
+    // get_or_create_path robust against future no-path operators.
+    synthetic->pathtype = nodeTag(plan);
+    synthetic->parent = nullptr;
+    // Use make_pathtarget_from_tlist to populate pathtarget->exprs from
+    // the translated plan's targetlist. Without this, pathtarget->exprs
+    // is empty, causing incomplete join pathtargets.
+    synthetic->pathtarget = make_pathtarget_from_tlist(plan->targetlist);
+    synthetic->pathtarget->width = plan->plan_width;
+    synthetic->rows = plan->plan_rows;
+    synthetic->startup_cost = plan->startup_cost;
+    synthetic->total_cost = plan->total_cost;
+    synthetic->param_info = nullptr;
+    synthetic->pathkeys = NIL;
+
+    return synthetic;
+}
+
+// When synthetic path has no parent, extract relids from underlying child.
+// For Sort enforcer (outer: Sort -> Scan), expr->input_at(0)->input_at(0) is the Scan.
+static Relids get_child_relids(OptExpression* child_expr, Path* child_path)
+{
+    if (child_path->parent != nullptr) {
+        return child_path->parent->relids;
+    }
+    if (child_expr->arity() > 0) {
+        OptExpression* underlying_child = child_expr->input_at(0);
+        PhysicalOptExprOp* underlying_op = static_cast<PhysicalOptExprOp*>(underlying_child->get_op());
+        Path* underlying_path = underlying_op->get_path();
+        if (underlying_path != nullptr && underlying_path->parent != nullptr) {
+            return underlying_path->parent->relids;
+        }
+    }
+    return nullptr;
+}
+
 Plan* ExprToPlanConverter::translate_hash_join(OptExpression* expr) {
     PhysicalHashJoin* hashjoin = dynamic_cast<PhysicalHashJoin*>(expr->get_op());
     if (hashjoin == nullptr) {
@@ -721,17 +781,15 @@ Plan* ExprToPlanConverter::translate_hash_join(OptExpression* expr) {
         return nullptr;
     }
 
-    // Get paths from child operators
-    PhysicalOptExprOp* left_op = static_cast<PhysicalOptExprOp*>(expr->input_at(0)->get_op());
-    PhysicalOptExprOp* right_op = static_cast<PhysicalOptExprOp*>(expr->input_at(1)->get_op());
-    Path* left_path = left_op->get_path();
-    Path* right_path = right_op->get_path();
+    // Get paths from child operators (creates synthetic paths if needed)
+    Path* left_path = get_or_create_path(expr->input_at(0));
+    Path* right_path = get_or_create_path(expr->input_at(1));
     if (left_path == nullptr || right_path == nullptr) {
         ereport(WARNING, (errmsg("[CASCADES] translate_hash_join: child path is null")));
         return nullptr;
     }
 
-    // Translate children
+    // Translate children (already translated inside get_or_create_path for missing-path ops)
     Plan* left_plan = translate_expression(expr->input_at(0));
     if (left_plan == nullptr) {
         ereport(WARNING, (errmsg("[CASCADES] translate_hash_join: left plan is null")));
@@ -829,25 +887,29 @@ Plan* ExprToPlanConverter::translate_hash_join(OptExpression* expr) {
     // (matching old optimizer: get_switched_clauses)
     // ExecInitHashJoin reads linitial(args) as OUTER hashkey and lsecond(args) as INNER hashkey.
     {
-        Relids outerrelids = left_path->parent->relids;
-        ListCell* lc3;
-        foreach(lc3, hashclauses) {
-            OpExpr* hclause = (OpExpr*)lfirst(lc3);
-            if (IsA(hclause, OpExpr) && list_length(hclause->args) == 2) {
-                Node* left_arg = (Node*)linitial(hclause->args);
-                Node* right_arg = (Node*)lsecond(hclause->args);
-                bool left_is_outer = false;
-                if (IsA(left_arg, Var)) {
-                    left_is_outer = bms_is_member(((Var*)left_arg)->varno, outerrelids);
-                }
-                if (!left_is_outer && IsA(right_arg, Var)) {
-                    // RIGHT side is outer → need to swap args (commute)
-                    OpExpr* temp = (OpExpr*)copyObject(hclause);
-                    CommuteOpExpr(temp);
-                    lfirst(lc3) = temp;
+        Relids outerrelids = get_child_relids(expr->input_at(0), left_path);
+        // Only perform swap when we can reliably identify outer vars.
+        // Skipping swap is safe: the optimizer already produces clauses in correct order.
+        if (outerrelids != nullptr) {
+            ListCell* lc3;
+            foreach(lc3, hashclauses) {
+                OpExpr* hclause = (OpExpr*)lfirst(lc3);
+                if (IsA(hclause, OpExpr) && list_length(hclause->args) == 2) {
+                    Node* left_arg = (Node*)linitial(hclause->args);
+                    Node* right_arg = (Node*)lsecond(hclause->args);
+                    bool left_is_outer = false;
+                    if (IsA(left_arg, Var)) {
+                        left_is_outer = bms_is_member(((Var*)left_arg)->varno, outerrelids);
+                    }
+                    if (!left_is_outer && IsA(right_arg, Var)) {
+                        // RIGHT side is outer → need to swap args (commute)
+                        OpExpr* temp = (OpExpr*)copyObject(hclause);
+                        CommuteOpExpr(temp);
+                        lfirst(lc3) = temp;
+                    }
                 }
             }
-        }
+        }  // end if (outerrelids != nullptr)
     }
 
     // Create Hash child node wrapping inner plan (matching old optimizer: make_hash)
@@ -896,17 +958,15 @@ Plan* ExprToPlanConverter::translate_merge_join(OptExpression* expr) {
         return nullptr;
     }
 
-    // Get paths from child operators
-    PhysicalOptExprOp* left_op = static_cast<PhysicalOptExprOp*>(expr->input_at(0)->get_op());
-    PhysicalOptExprOp* right_op = static_cast<PhysicalOptExprOp*>(expr->input_at(1)->get_op());
-    Path* left_path = left_op->get_path();
-    Path* right_path = right_op->get_path();
+    // Get paths from child operators (creates synthetic paths if needed)
+    Path* left_path = get_or_create_path(expr->input_at(0));
+    Path* right_path = get_or_create_path(expr->input_at(1));
     if (left_path == nullptr || right_path == nullptr) {
         ereport(WARNING, (errmsg("[CASCADES] translate_merge_join: child path is null")));
         return nullptr;
     }
 
-    // Translate children
+    // Translate children (already translated inside get_or_create_path for missing-path ops)
     Plan* left_plan = translate_expression(expr->input_at(0));
     if (left_plan == nullptr) {
         ereport(WARNING, (errmsg("[CASCADES] translate_merge_join: left plan is null")));
@@ -1005,11 +1065,9 @@ Plan* ExprToPlanConverter::translate_nestloop_join(OptExpression* expr) {
         return nullptr;
     }
 
-    // Get paths from child operators (before translation, paths are already set)
-    PhysicalOptExprOp* left_op = static_cast<PhysicalOptExprOp*>(expr->input_at(0)->get_op());
-    PhysicalOptExprOp* right_op = static_cast<PhysicalOptExprOp*>(expr->input_at(1)->get_op());
-    Path* left_path = left_op->get_path();
-    Path* right_path = right_op->get_path();
+    // Get paths from child operators (creates synthetic paths if needed)
+    Path* left_path = get_or_create_path(expr->input_at(0));
+    Path* right_path = get_or_create_path(expr->input_at(1));
     if (left_path == nullptr || right_path == nullptr) {
         ereport(WARNING, (errmsg("[CASCADES] translate_nestloop_join: child path is null")));
         return nullptr;
@@ -1027,10 +1085,11 @@ Plan* ExprToPlanConverter::translate_nestloop_join(OptExpression* expr) {
     // Set curOuterRels before translating inner child, matching old optimizer:
     // create_join_plan: root->curOuterRels = bms_union(root->curOuterRels,
     //     best_path->outerjoinpath->parent->relids);
-    // This ensures replace_nestloop_params can identify outer Vars when
-    // processing the inner plan's index quals.
     Relids saveOuterRels = root_->curOuterRels;
-    root_->curOuterRels = bms_union(root_->curOuterRels, left_path->parent->relids);
+    Relids outer_relids = get_child_relids(expr->input_at(0), left_path);
+    if (outer_relids != nullptr) {
+        root_->curOuterRels = bms_union(root_->curOuterRels, bms_copy(outer_relids));
+    }
     root_->curOuterParams = NIL;
     root_->plan_params = NIL;
 

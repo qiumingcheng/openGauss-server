@@ -55,6 +55,11 @@ static bool is_sort_enforcement_impossible_for_scan(GroupExpression* expr, const
     return false;  // All orderings match, enforcement is possible
 }
 
+static inline bool is_enforcement_impossible_for_expr(GroupExpression* expr, const PhysicalPropertySet& required)
+{
+    return is_sort_enforcement_impossible_for_scan(expr, required);
+}
+
 static double get_group_best_cost(Group* group, const PhysicalPropertySet& required_property) {
     double cost = group->get_cost_lower_bound(required_property);
     return cost > 0 ? cost : std::numeric_limits<double>::max();
@@ -101,9 +106,9 @@ void EnforceAndCostTask::execute() {
 
         // Early skip: if required sort has a specific table_id that conflicts with this
         // expression's table, sort enforcement is impossible — skip to avoid wasted work.
-        if (is_sort_enforcement_impossible_for_scan(expr, required_property_)) {
+        if (is_enforcement_impossible_for_expr(expr, required_property_)) {
             expr->set_implement(required_property_, PhysicalPropertySet());
-            ereport(WARNING, (errmsg("[CASCADES] EnforceAndCostTask: skipped, expr table_id conflicts with required sort table_id")));
+            ereport(WARNING, (errmsg("[CASCADES] EnforceAndCostTask: skipped, expression can't support enforcement by required property")));
             continue;
         }
 
@@ -359,9 +364,8 @@ PhysicalPropertySet EnforceAndCostTask::derive_output_property(
 
         case OptExprOpType::PHYSICAL_HASH_JOIN:
         case OptExprOpType::PHYSICAL_NESTLOOP_JOIN: {
-            // Joins don't guarantee sort order
-            // Pass through distribution
-            return PhysicalPropertySet(child_property.get_distribution());
+            // Pass through left child property
+            return child_property;
         }
 
         case OptExprOpType::PHYSICAL_LIMIT: {
