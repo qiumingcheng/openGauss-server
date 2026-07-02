@@ -101,7 +101,7 @@ declare INSTALL_TOOLS_DIR=${binarylib_dir}/install_tools
 declare UNIX_ODBC="${BINARYLIBS_PATH}/unixodbc"
 
 # Comment 编译相关
-if [ -d "${USE_CCACHE}$BUILD_TOOLS_PATH/gcc10.3" ]; then
+if [ -d "$BUILD_TOOLS_PATH/gcc10.3" ]; then
     gcc_version="10.3"
 else
     gcc_version="7.3"
