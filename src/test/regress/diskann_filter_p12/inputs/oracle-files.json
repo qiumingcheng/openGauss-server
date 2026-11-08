@@ -1,0 +1,41 @@
+{
+  "description": "Immutable Oracle exports and reference results, copied byte-for-byte; filenames normalized only.",
+  "files": [
+    {
+      "path": "oracle/documents.csv",
+      "sha256": "06f7c57782cb8140595990efdfb9e8ef445faeed6e088b54b0c70fb249aae3c4",
+      "bytes": 4374099,
+      "source": "evidence/J-07/oracle-static-vectors-current.log"
+    },
+    {
+      "path": "oracle/business.csv",
+      "sha256": "4a2647a9bc617f9923a689c8bfd58ca0d17cccc6373168be14e56cfe130dcfed",
+      "bytes": 9162,
+      "source": "evidence/J-07/oracle-static-business-current.log"
+    },
+    {
+      "path": "oracle/oracle-semantic-original.json",
+      "sha256": "0d7c5d75d33edc5ae895c71537ad9ad1d71a9fe11273c32903fd9ff11e3c039c",
+      "bytes": 32867,
+      "source": "evidence/J-07/oracle-semantic-original/results.json"
+    },
+    {
+      "path": "oracle/oracle-post-join-back-original.json",
+      "sha256": "698fce6b1edb4658276eb328a6b44b3b0d2ac94585dc6385a24d9031f4e3f1d2",
+      "bytes": 8733,
+      "source": "evidence/J-07/oracle-post-join-back-original/results.json"
+    },
+    {
+      "path": "oracle/oracle-multisets-original.json",
+      "sha256": "a488701afa52febf64f108f01e3bf8dcf5b6a9875a77c76f975ff1ef7ab49114",
+      "bytes": 27581,
+      "source": "evidence/J-07/oracle-multisets-original/results.json"
+    },
+    {
+      "path": "oracle/oracle-nl-original.json",
+      "sha256": "7d5177adef36963728a381a544d770238628ba01e3ce839769e4f9c364d5f9b5",
+      "bytes": 23068,
+      "source": "evidence/J-07/oracle-nl-original/results.json"
+    }
+  ]
+}

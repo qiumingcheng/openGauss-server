@@ -1,0 +1,1146 @@
+[
+  {
+    "case": "global_business",
+    "mode": "exact",
+    "sql": "SELECT /*+ gather_plan_statistics qb_name(J6_0_exact)  leading(a d) use_nl(d) */ d.id,d.bucket_id,a.acl_group FROM hjbm_documents d JOIN hjbm_allowed_buckets a ON a.bucket_id=d.bucket_id WHERE d.tenant_id=7 AND a.bucket_id IN(626,286) ORDER BY vector_distance(d.embedding,to_vector('[1,3,5,7,11,13,17,19]'),cosine) FETCH EXACT FIRST 10 ROWS ONLY;",
+    "rows": [
+      [
+        31626,
+        626,
+        3
+      ],
+      [
+        31626,
+        626,
+        1
+      ],
+      [
+        31626,
+        626,
+        5
+      ],
+      [
+        31626,
+        626,
+        4
+      ],
+      [
+        33286,
+        286,
+        5
+      ],
+      [
+        33286,
+        286,
+        1
+      ],
+      [
+        48626,
+        626,
+        3
+      ],
+      [
+        48626,
+        626,
+        1
+      ],
+      [
+        48626,
+        626,
+        5
+      ],
+      [
+        48626,
+        626,
+        4
+      ]
+    ],
+    "observed_vector_operations": [],
+    "vector_transformed": false,
+    "exit_code": 0
+  },
+  {
+    "case": "global_business",
+    "mode": "pre",
+    "sql": "SELECT /*+ gather_plan_statistics qb_name(J6_0_pre) vector_index_transform(d hjbm_docs_hnsw pre_filter_with_join_back) leading(a d) use_nl(d) */ d.id,d.bucket_id,a.acl_group FROM hjbm_documents d JOIN hjbm_allowed_buckets a ON a.bucket_id=d.bucket_id WHERE d.tenant_id=7 AND a.bucket_id IN(626,286) ORDER BY vector_distance(d.embedding,to_vector('[1,3,5,7,11,13,17,19]'),cosine) FETCH APPROXIMATE FIRST 10 ROWS ONLY WITH TARGET ACCURACY 90;",
+    "rows": [
+      [
+        31626,
+        626,
+        3
+      ],
+      [
+        31626,
+        626,
+        1
+      ],
+      [
+        31626,
+        626,
+        5
+      ],
+      [
+        31626,
+        626,
+        4
+      ],
+      [
+        33286,
+        286,
+        5
+      ],
+      [
+        33286,
+        286,
+        1
+      ],
+      [
+        48626,
+        626,
+        3
+      ],
+      [
+        48626,
+        626,
+        1
+      ],
+      [
+        48626,
+        626,
+        5
+      ],
+      [
+        48626,
+        626,
+        4
+      ]
+    ],
+    "observed_vector_operations": [
+      "|   7 |       VECTOR INDEX HNSW SCAN PRE-FILTER| HJBM_DOCS_HNSW                                         |      6 |      1 |     60 |00:00:00.18 |   31236 |       |       |          |"
+    ],
+    "vector_transformed": true,
+    "exit_code": 0
+  },
+  {
+    "case": "global_business",
+    "mode": "in_filter",
+    "sql": "SELECT /*+ gather_plan_statistics qb_name(J6_0_in_filter) vector_index_transform(d hjbm_docs_hnsw in_filter_with_join_back) leading(a d) use_nl(d) */ d.id,d.bucket_id,a.acl_group FROM hjbm_documents d JOIN hjbm_allowed_buckets a ON a.bucket_id=d.bucket_id WHERE d.tenant_id=7 AND a.bucket_id IN(626,286) ORDER BY vector_distance(d.embedding,to_vector('[1,3,5,7,11,13,17,19]'),cosine) FETCH APPROXIMATE FIRST 10 ROWS ONLY WITH TARGET ACCURACY 90;",
+    "rows": [
+      [
+        31626,
+        626,
+        3
+      ],
+      [
+        31626,
+        626,
+        1
+      ],
+      [
+        31626,
+        626,
+        5
+      ],
+      [
+        31626,
+        626,
+        4
+      ],
+      [
+        33286,
+        286,
+        5
+      ],
+      [
+        33286,
+        286,
+        1
+      ],
+      [
+        48626,
+        626,
+        3
+      ],
+      [
+        48626,
+        626,
+        1
+      ],
+      [
+        48626,
+        626,
+        5
+      ],
+      [
+        48626,
+        626,
+        4
+      ]
+    ],
+    "observed_vector_operations": [
+      "|   7 |       VECTOR INDEX HNSW SCAN IN-FILTER| HJBM_DOCS_HNSW       |      6 |      1 |     60 |00:00:12.60 |    2097K|       |       |          |"
+    ],
+    "vector_transformed": true,
+    "exit_code": 0
+  },
+  {
+    "case": "global_business",
+    "mode": "post",
+    "sql": "SELECT /*+ gather_plan_statistics qb_name(J6_0_post) vector_index_transform(d hjbm_docs_hnsw post_filter_with_join_back) leading(a d) use_nl(d) */ d.id,d.bucket_id,a.acl_group FROM hjbm_documents d JOIN hjbm_allowed_buckets a ON a.bucket_id=d.bucket_id WHERE d.tenant_id=7 AND a.bucket_id IN(626,286) ORDER BY vector_distance(d.embedding,to_vector('[1,3,5,7,11,13,17,19]'),cosine) FETCH APPROXIMATE FIRST 10 ROWS ONLY WITH TARGET ACCURACY 90;",
+    "rows": [
+      [
+        31626,
+        626,
+        3
+      ],
+      [
+        31626,
+        626,
+        1
+      ],
+      [
+        31626,
+        626,
+        5
+      ],
+      [
+        31626,
+        626,
+        4
+      ],
+      [
+        33286,
+        286,
+        5
+      ],
+      [
+        33286,
+        286,
+        1
+      ],
+      [
+        48626,
+        626,
+        3
+      ],
+      [
+        48626,
+        626,
+        1
+      ],
+      [
+        48626,
+        626,
+        5
+      ],
+      [
+        48626,
+        626,
+        4
+      ]
+    ],
+    "observed_vector_operations": [
+      "|   7 |       VECTOR INDEX HNSW SCAN POST-FILTER| HJBM_DOCS_HNSW       |      6 |      1 |     60 |00:00:00.79 |     128K|       |       |          |"
+    ],
+    "vector_transformed": true,
+    "exit_code": 0
+  },
+  {
+    "case": "global_target",
+    "mode": "exact",
+    "sql": "SELECT /*+ gather_plan_statistics qb_name(J6_1_exact)  leading(a d) use_nl(d) */ d.id,d.bucket_id FROM hjbm_documents d JOIN hjbm_allowed_buckets a ON a.bucket_id=d.bucket_id WHERE d.tenant_id=7 AND a.bucket_id IN(626,286) ORDER BY vector_distance(d.embedding,to_vector('[1,3,5,7,11,13,17,19]'),cosine) FETCH EXACT FIRST 10 ROWS ONLY;",
+    "rows": [
+      [
+        31626,
+        626
+      ],
+      [
+        31626,
+        626
+      ],
+      [
+        31626,
+        626
+      ],
+      [
+        31626,
+        626
+      ],
+      [
+        33286,
+        286
+      ],
+      [
+        33286,
+        286
+      ],
+      [
+        48626,
+        626
+      ],
+      [
+        48626,
+        626
+      ],
+      [
+        48626,
+        626
+      ],
+      [
+        48626,
+        626
+      ]
+    ],
+    "observed_vector_operations": [],
+    "vector_transformed": false,
+    "exit_code": 0
+  },
+  {
+    "case": "global_target",
+    "mode": "pre",
+    "sql": "SELECT /*+ gather_plan_statistics qb_name(J6_1_pre) vector_index_transform(d hjbm_docs_hnsw pre_filter_with_join_back) leading(a d) use_nl(d) */ d.id,d.bucket_id FROM hjbm_documents d JOIN hjbm_allowed_buckets a ON a.bucket_id=d.bucket_id WHERE d.tenant_id=7 AND a.bucket_id IN(626,286) ORDER BY vector_distance(d.embedding,to_vector('[1,3,5,7,11,13,17,19]'),cosine) FETCH APPROXIMATE FIRST 10 ROWS ONLY WITH TARGET ACCURACY 90;",
+    "rows": [
+      [
+        31626,
+        626
+      ],
+      [
+        31626,
+        626
+      ],
+      [
+        31626,
+        626
+      ],
+      [
+        31626,
+        626
+      ],
+      [
+        33286,
+        286
+      ],
+      [
+        33286,
+        286
+      ],
+      [
+        48626,
+        626
+      ],
+      [
+        48626,
+        626
+      ],
+      [
+        48626,
+        626
+      ],
+      [
+        48626,
+        626
+      ]
+    ],
+    "observed_vector_operations": [
+      "|   7 |       VECTOR INDEX HNSW SCAN PRE-FILTER| HJBM_DOCS_HNSW                                         |      6 |      1 |     60 |00:00:00.18 |   31236 |       |       |          |"
+    ],
+    "vector_transformed": true,
+    "exit_code": 0
+  },
+  {
+    "case": "global_target",
+    "mode": "in_filter",
+    "sql": "SELECT /*+ gather_plan_statistics qb_name(J6_1_in_filter) vector_index_transform(d hjbm_docs_hnsw in_filter_with_join_back) leading(a d) use_nl(d) */ d.id,d.bucket_id FROM hjbm_documents d JOIN hjbm_allowed_buckets a ON a.bucket_id=d.bucket_id WHERE d.tenant_id=7 AND a.bucket_id IN(626,286) ORDER BY vector_distance(d.embedding,to_vector('[1,3,5,7,11,13,17,19]'),cosine) FETCH APPROXIMATE FIRST 10 ROWS ONLY WITH TARGET ACCURACY 90;",
+    "rows": [
+      [
+        31626,
+        626
+      ],
+      [
+        31626,
+        626
+      ],
+      [
+        31626,
+        626
+      ],
+      [
+        31626,
+        626
+      ],
+      [
+        33286,
+        286
+      ],
+      [
+        33286,
+        286
+      ],
+      [
+        48626,
+        626
+      ],
+      [
+        48626,
+        626
+      ],
+      [
+        48626,
+        626
+      ],
+      [
+        48626,
+        626
+      ]
+    ],
+    "observed_vector_operations": [
+      "|   7 |       VECTOR INDEX HNSW SCAN IN-FILTER| HJBM_DOCS_HNSW       |      6 |      1 |     60 |00:00:12.96 |    2097K|       |       |          |"
+    ],
+    "vector_transformed": true,
+    "exit_code": 0
+  },
+  {
+    "case": "global_target",
+    "mode": "post",
+    "sql": "SELECT /*+ gather_plan_statistics qb_name(J6_1_post) vector_index_transform(d hjbm_docs_hnsw post_filter_with_join_back) leading(a d) use_nl(d) */ d.id,d.bucket_id FROM hjbm_documents d JOIN hjbm_allowed_buckets a ON a.bucket_id=d.bucket_id WHERE d.tenant_id=7 AND a.bucket_id IN(626,286) ORDER BY vector_distance(d.embedding,to_vector('[1,3,5,7,11,13,17,19]'),cosine) FETCH APPROXIMATE FIRST 10 ROWS ONLY WITH TARGET ACCURACY 90;",
+    "rows": [
+      [
+        31626,
+        626
+      ],
+      [
+        31626,
+        626
+      ],
+      [
+        31626,
+        626
+      ],
+      [
+        31626,
+        626
+      ],
+      [
+        33286,
+        286
+      ],
+      [
+        33286,
+        286
+      ],
+      [
+        48626,
+        626
+      ],
+      [
+        48626,
+        626
+      ],
+      [
+        48626,
+        626
+      ],
+      [
+        48626,
+        626
+      ]
+    ],
+    "observed_vector_operations": [
+      "|   7 |       VECTOR INDEX HNSW SCAN POST-FILTER| HJBM_DOCS_HNSW       |      6 |      1 |     60 |00:00:00.88 |     128K|       |       |          |"
+    ],
+    "vector_transformed": true,
+    "exit_code": 0
+  },
+  {
+    "case": "independent_top3",
+    "mode": "exact",
+    "sql": "SELECT /*+ gather_plan_statistics leading(a v) use_nl(v) no_merge(v) */ v.id,v.bucket_id,a.acl_group FROM hjbm_allowed_buckets a JOIN (SELECT /*+ qb_name(J6_2_exact)  */ d.id,d.bucket_id FROM hjbm_documents d WHERE d.tenant_id=7 AND d.bucket_id=626 ORDER BY vector_distance(d.embedding,to_vector('[1,3,5,7,11,13,17,19]'),cosine) FETCH EXACT FIRST 3 ROWS ONLY) v ON v.bucket_id=a.bucket_id WHERE a.bucket_id=626 ORDER BY a.bucket_id,a.acl_group,v.id;",
+    "rows": [
+      [
+        31626,
+        626,
+        1
+      ],
+      [
+        41626,
+        626,
+        1
+      ],
+      [
+        48626,
+        626,
+        1
+      ],
+      [
+        31626,
+        626,
+        3
+      ],
+      [
+        41626,
+        626,
+        3
+      ],
+      [
+        48626,
+        626,
+        3
+      ],
+      [
+        31626,
+        626,
+        4
+      ],
+      [
+        41626,
+        626,
+        4
+      ],
+      [
+        48626,
+        626,
+        4
+      ],
+      [
+        31626,
+        626,
+        5
+      ],
+      [
+        41626,
+        626,
+        5
+      ],
+      [
+        48626,
+        626,
+        5
+      ]
+    ],
+    "observed_vector_operations": [],
+    "vector_transformed": false,
+    "exit_code": 0
+  },
+  {
+    "case": "independent_top3",
+    "mode": "pre",
+    "sql": "SELECT /*+ gather_plan_statistics leading(a v) use_nl(v) no_merge(v) */ v.id,v.bucket_id,a.acl_group FROM hjbm_allowed_buckets a JOIN (SELECT /*+ qb_name(J6_2_pre) vector_index_transform(d hjbm_docs_hnsw pre_filter_with_join_back) */ d.id,d.bucket_id FROM hjbm_documents d WHERE d.tenant_id=7 AND d.bucket_id=626 ORDER BY vector_distance(d.embedding,to_vector('[1,3,5,7,11,13,17,19]'),cosine) FETCH APPROXIMATE FIRST 3 ROWS ONLY WITH TARGET ACCURACY 90) v ON v.bucket_id=a.bucket_id WHERE a.bucket_id=626 ORDER BY a.bucket_id,a.acl_group,v.id;",
+    "rows": [
+      [
+        31626,
+        626,
+        1
+      ],
+      [
+        41626,
+        626,
+        1
+      ],
+      [
+        48626,
+        626,
+        1
+      ],
+      [
+        31626,
+        626,
+        3
+      ],
+      [
+        41626,
+        626,
+        3
+      ],
+      [
+        48626,
+        626,
+        3
+      ],
+      [
+        31626,
+        626,
+        4
+      ],
+      [
+        41626,
+        626,
+        4
+      ],
+      [
+        48626,
+        626,
+        4
+      ],
+      [
+        31626,
+        626,
+        5
+      ],
+      [
+        41626,
+        626,
+        5
+      ],
+      [
+        48626,
+        626,
+        5
+      ]
+    ],
+    "observed_vector_operations": [
+      "|   9 |         VECTOR INDEX HNSW SCAN PRE-FILTER     | HJBM_DOCS_HNSW                                         |      1 |      1 |      3 |00:00:00.03 |     242 |       |       |          |"
+    ],
+    "vector_transformed": true,
+    "exit_code": 0
+  },
+  {
+    "case": "independent_top3",
+    "mode": "in_filter",
+    "sql": "SELECT /*+ gather_plan_statistics leading(a v) use_nl(v) no_merge(v) */ v.id,v.bucket_id,a.acl_group FROM hjbm_allowed_buckets a JOIN (SELECT /*+ qb_name(J6_2_in_filter) vector_index_transform(d hjbm_docs_hnsw in_filter_with_join_back) */ d.id,d.bucket_id FROM hjbm_documents d WHERE d.tenant_id=7 AND d.bucket_id=626 ORDER BY vector_distance(d.embedding,to_vector('[1,3,5,7,11,13,17,19]'),cosine) FETCH APPROXIMATE FIRST 3 ROWS ONLY WITH TARGET ACCURACY 90) v ON v.bucket_id=a.bucket_id WHERE a.bucket_id=626 ORDER BY a.bucket_id,a.acl_group,v.id;",
+    "rows": [
+      [
+        31626,
+        626,
+        1
+      ],
+      [
+        41626,
+        626,
+        1
+      ],
+      [
+        48626,
+        626,
+        1
+      ],
+      [
+        31626,
+        626,
+        3
+      ],
+      [
+        41626,
+        626,
+        3
+      ],
+      [
+        48626,
+        626,
+        3
+      ],
+      [
+        31626,
+        626,
+        4
+      ],
+      [
+        41626,
+        626,
+        4
+      ],
+      [
+        48626,
+        626,
+        4
+      ],
+      [
+        31626,
+        626,
+        5
+      ],
+      [
+        41626,
+        626,
+        5
+      ],
+      [
+        48626,
+        626,
+        5
+      ]
+    ],
+    "observed_vector_operations": [
+      "|   9 |         VECTOR INDEX HNSW SCAN IN-FILTER| HJBM_DOCS_HNSW       |      1 |      1 |      3 |00:00:00.08 |   49893 |       |       |          |"
+    ],
+    "vector_transformed": true,
+    "exit_code": 0
+  },
+  {
+    "case": "independent_top3",
+    "mode": "post",
+    "sql": "SELECT /*+ gather_plan_statistics leading(a v) use_nl(v) no_merge(v) */ v.id,v.bucket_id,a.acl_group FROM hjbm_allowed_buckets a JOIN (SELECT /*+ qb_name(J6_2_post) vector_index_transform(d hjbm_docs_hnsw post_filter_with_join_back) */ d.id,d.bucket_id FROM hjbm_documents d WHERE d.tenant_id=7 AND d.bucket_id=626 ORDER BY vector_distance(d.embedding,to_vector('[1,3,5,7,11,13,17,19]'),cosine) FETCH APPROXIMATE FIRST 3 ROWS ONLY WITH TARGET ACCURACY 90) v ON v.bucket_id=a.bucket_id WHERE a.bucket_id=626 ORDER BY a.bucket_id,a.acl_group,v.id;",
+    "rows": [
+      [
+        31626,
+        626,
+        1
+      ],
+      [
+        41626,
+        626,
+        1
+      ],
+      [
+        48626,
+        626,
+        1
+      ],
+      [
+        31626,
+        626,
+        3
+      ],
+      [
+        41626,
+        626,
+        3
+      ],
+      [
+        48626,
+        626,
+        3
+      ],
+      [
+        31626,
+        626,
+        4
+      ],
+      [
+        41626,
+        626,
+        4
+      ],
+      [
+        48626,
+        626,
+        4
+      ],
+      [
+        31626,
+        626,
+        5
+      ],
+      [
+        41626,
+        626,
+        5
+      ],
+      [
+        48626,
+        626,
+        5
+      ]
+    ],
+    "observed_vector_operations": [
+      "|   9 |         VECTOR INDEX HNSW SCAN POST-FILTER| HJBM_DOCS_HNSW       |      1 |      1 |      3 |00:00:00.01 |     886 |       |       |          |"
+    ],
+    "vector_transformed": true,
+    "exit_code": 0
+  },
+  {
+    "case": "correlated_top3",
+    "mode": "exact",
+    "sql": "SELECT /*+ gather_plan_statistics leading(a v) use_nl(v) no_merge(v) */ v.id,v.bucket_id,a.acl_group FROM hjbm_allowed_buckets a CROSS APPLY (SELECT /*+ qb_name(J6_3_exact)  */ d.id,d.bucket_id FROM hjbm_documents d WHERE d.tenant_id=7 AND d.bucket_id=a.bucket_id ORDER BY vector_distance(d.embedding,to_vector('[1,3,5,7,11,13,17,19]'),cosine) FETCH EXACT FIRST 3 ROWS ONLY) v WHERE a.bucket_id IN(626,286) ORDER BY a.bucket_id,a.acl_group,v.id;",
+    "rows": [
+      [
+        4286,
+        286,
+        1
+      ],
+      [
+        33286,
+        286,
+        1
+      ],
+      [
+        46286,
+        286,
+        1
+      ],
+      [
+        4286,
+        286,
+        5
+      ],
+      [
+        33286,
+        286,
+        5
+      ],
+      [
+        46286,
+        286,
+        5
+      ],
+      [
+        31626,
+        626,
+        1
+      ],
+      [
+        41626,
+        626,
+        1
+      ],
+      [
+        48626,
+        626,
+        1
+      ],
+      [
+        31626,
+        626,
+        3
+      ],
+      [
+        41626,
+        626,
+        3
+      ],
+      [
+        48626,
+        626,
+        3
+      ],
+      [
+        31626,
+        626,
+        4
+      ],
+      [
+        41626,
+        626,
+        4
+      ],
+      [
+        48626,
+        626,
+        4
+      ],
+      [
+        31626,
+        626,
+        5
+      ],
+      [
+        41626,
+        626,
+        5
+      ],
+      [
+        48626,
+        626,
+        5
+      ]
+    ],
+    "observed_vector_operations": [],
+    "vector_transformed": false,
+    "exit_code": 0
+  },
+  {
+    "case": "correlated_top3",
+    "mode": "pre",
+    "sql": "SELECT /*+ gather_plan_statistics leading(a v) use_nl(v) no_merge(v) */ v.id,v.bucket_id,a.acl_group FROM hjbm_allowed_buckets a CROSS APPLY (SELECT /*+ qb_name(J6_3_pre) vector_index_transform(d hjbm_docs_hnsw pre_filter_with_join_back) */ d.id,d.bucket_id FROM hjbm_documents d WHERE d.tenant_id=7 AND d.bucket_id=a.bucket_id ORDER BY vector_distance(d.embedding,to_vector('[1,3,5,7,11,13,17,19]'),cosine) FETCH APPROXIMATE FIRST 3 ROWS ONLY WITH TARGET ACCURACY 90) v WHERE a.bucket_id IN(626,286) ORDER BY a.bucket_id,a.acl_group,v.id;",
+    "rows": [
+      [
+        4286,
+        286,
+        1
+      ],
+      [
+        33286,
+        286,
+        1
+      ],
+      [
+        46286,
+        286,
+        1
+      ],
+      [
+        4286,
+        286,
+        5
+      ],
+      [
+        33286,
+        286,
+        5
+      ],
+      [
+        46286,
+        286,
+        5
+      ],
+      [
+        31626,
+        626,
+        1
+      ],
+      [
+        41626,
+        626,
+        1
+      ],
+      [
+        48626,
+        626,
+        1
+      ],
+      [
+        31626,
+        626,
+        3
+      ],
+      [
+        41626,
+        626,
+        3
+      ],
+      [
+        48626,
+        626,
+        3
+      ],
+      [
+        31626,
+        626,
+        4
+      ],
+      [
+        41626,
+        626,
+        4
+      ],
+      [
+        48626,
+        626,
+        4
+      ],
+      [
+        31626,
+        626,
+        5
+      ],
+      [
+        41626,
+        626,
+        5
+      ],
+      [
+        48626,
+        626,
+        5
+      ]
+    ],
+    "observed_vector_operations": [
+      "|   9 |         VECTOR INDEX HNSW SCAN PRE-FILTER| HJBM_DOCS_HNSW                                         |      6 |      1 |     18 |00:00:00.16 |    6150 |       |       |          |"
+    ],
+    "vector_transformed": true,
+    "exit_code": 0
+  },
+  {
+    "case": "correlated_top3",
+    "mode": "in_filter",
+    "sql": "SELECT /*+ gather_plan_statistics leading(a v) use_nl(v) no_merge(v) */ v.id,v.bucket_id,a.acl_group FROM hjbm_allowed_buckets a CROSS APPLY (SELECT /*+ qb_name(J6_3_in_filter) vector_index_transform(d hjbm_docs_hnsw in_filter_with_join_back) */ d.id,d.bucket_id FROM hjbm_documents d WHERE d.tenant_id=7 AND d.bucket_id=a.bucket_id ORDER BY vector_distance(d.embedding,to_vector('[1,3,5,7,11,13,17,19]'),cosine) FETCH APPROXIMATE FIRST 3 ROWS ONLY WITH TARGET ACCURACY 90) v WHERE a.bucket_id IN(626,286) ORDER BY a.bucket_id,a.acl_group,v.id;",
+    "rows": [
+      [
+        4286,
+        286,
+        1
+      ],
+      [
+        33286,
+        286,
+        1
+      ],
+      [
+        46286,
+        286,
+        1
+      ],
+      [
+        4286,
+        286,
+        5
+      ],
+      [
+        33286,
+        286,
+        5
+      ],
+      [
+        46286,
+        286,
+        5
+      ],
+      [
+        31626,
+        626,
+        1
+      ],
+      [
+        41626,
+        626,
+        1
+      ],
+      [
+        48626,
+        626,
+        1
+      ],
+      [
+        31626,
+        626,
+        3
+      ],
+      [
+        41626,
+        626,
+        3
+      ],
+      [
+        48626,
+        626,
+        3
+      ],
+      [
+        31626,
+        626,
+        4
+      ],
+      [
+        41626,
+        626,
+        4
+      ],
+      [
+        48626,
+        626,
+        4
+      ],
+      [
+        31626,
+        626,
+        5
+      ],
+      [
+        41626,
+        626,
+        5
+      ],
+      [
+        48626,
+        626,
+        5
+      ]
+    ],
+    "observed_vector_operations": [
+      "|   9 |         VECTOR INDEX HNSW SCAN IN-FILTER| HJBM_DOCS_HNSW       |      6 |      1 |     18 |00:00:00.43 |     299K|       |       |          |"
+    ],
+    "vector_transformed": true,
+    "exit_code": 0
+  },
+  {
+    "case": "correlated_top3",
+    "mode": "post",
+    "sql": "SELECT /*+ gather_plan_statistics leading(a v) use_nl(v) no_merge(v) */ v.id,v.bucket_id,a.acl_group FROM hjbm_allowed_buckets a CROSS APPLY (SELECT /*+ qb_name(J6_3_post) vector_index_transform(d hjbm_docs_hnsw post_filter_with_join_back) */ d.id,d.bucket_id FROM hjbm_documents d WHERE d.tenant_id=7 AND d.bucket_id=a.bucket_id ORDER BY vector_distance(d.embedding,to_vector('[1,3,5,7,11,13,17,19]'),cosine) FETCH APPROXIMATE FIRST 3 ROWS ONLY WITH TARGET ACCURACY 90) v WHERE a.bucket_id IN(626,286) ORDER BY a.bucket_id,a.acl_group,v.id;",
+    "rows": [
+      [
+        4286,
+        286,
+        1
+      ],
+      [
+        33286,
+        286,
+        1
+      ],
+      [
+        46286,
+        286,
+        1
+      ],
+      [
+        4286,
+        286,
+        5
+      ],
+      [
+        33286,
+        286,
+        5
+      ],
+      [
+        46286,
+        286,
+        5
+      ],
+      [
+        31626,
+        626,
+        1
+      ],
+      [
+        41626,
+        626,
+        1
+      ],
+      [
+        48626,
+        626,
+        1
+      ],
+      [
+        31626,
+        626,
+        3
+      ],
+      [
+        41626,
+        626,
+        3
+      ],
+      [
+        48626,
+        626,
+        3
+      ],
+      [
+        31626,
+        626,
+        4
+      ],
+      [
+        41626,
+        626,
+        4
+      ],
+      [
+        48626,
+        626,
+        4
+      ],
+      [
+        31626,
+        626,
+        5
+      ],
+      [
+        41626,
+        626,
+        5
+      ],
+      [
+        48626,
+        626,
+        5
+      ]
+    ],
+    "observed_vector_operations": [
+      "|   9 |         VECTOR INDEX HNSW SCAN POST-FILTER| HJBM_DOCS_HNSW       |      6 |      1 |     18 |00:00:00.06 |    5762 |       |       |          |"
+    ],
+    "vector_transformed": true,
+    "exit_code": 0
+  }
+]
