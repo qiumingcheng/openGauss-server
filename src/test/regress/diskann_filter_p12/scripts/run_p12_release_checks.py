@@ -51,6 +51,8 @@ def main():
     p.add_argument('--database', default=os.environ.get('DISKANN_FILTER_DATABASE', 'vf_p12_baseline'))
     p.add_argument('--gcc-lib-dir', type=Path, help='optional compiler runtime directory for native child processes only')
     p.add_argument('--inputs', type=Path, help='source file hash manifest; default: bundled inputs/source-files.json')
+    p.add_argument('--fixture-timeout-ms', type=int, default=300000,
+                   help='statement timeout for Oracle fixture preparation only; default: 300000')
     p.add_argument('--start-at', help='continue from a group; does not certify the complete suite')
     a = p.parse_args()
     a.output = a.output.resolve()
@@ -59,9 +61,11 @@ def main():
     data = runtime / 'data'
     host = (a.host or runtime / 'socket').resolve()
     report = dict(result='FAIL', scope='continuation' if a.start_at else 'all groups',
-                  historical_core_check_count=1439, checks=[], prerequisites=[], skipped_groups=[])
+                  historical_core_check_count=1439, fixture_timeout_ms=a.fixture_timeout_ms,
+                  checks=[], prerequisites=[], skipped_groups=[])
     try:
         require(1 <= a.port <= 65535, 'invalid port')
+        require(a.fixture_timeout_ms > 0, '--fixture-timeout-ms must be positive')
         require('diskann-vector-filter' in runtime.name and data.is_dir(),
                 'use an existing dedicated diskann-vector-filter runtime/data directory')
         require(host.is_dir(), 'Unix socket directory is missing: ' + str(host))
@@ -156,7 +160,8 @@ def main():
             return record
         if not a.start_at:
             prerequisites = [
-                ('oracle-fixture', 'prepare_oracle_join_fixture.py', '--documents', oracle / 'documents.csv', '--business', oracle / 'business.csv'),
+                ('oracle-fixture', 'prepare_oracle_join_fixture.py', '--documents', oracle / 'documents.csv',
+                 '--business', oracle / 'business.csv', '--setup-timeout-ms', a.fixture_timeout_ms),
                 ('join-registration', 'verify_join_registration.py', '--routes-connected'),
                 ('join-cost-fixture', 'inspect_join_width.py'),
             ]

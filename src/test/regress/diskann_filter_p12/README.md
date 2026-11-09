@@ -65,7 +65,7 @@ env GAUSSHOME="$I" LD_LIBRARY_PATH="$NATIVE_LIB" \
   "$I/bin/gs_initdb" -D "$D" --nodename=vf_p12_replay -U "$DB_USER" -A trust
 cat >> "$D/postgresql.conf" <<EOF
 port = $PORT
-listen_addresses = ''
+listen_addresses = '127.0.0.1'
 unix_socket_directory = '$S'
 EOF
 
@@ -79,7 +79,7 @@ for db in regression vf_p12_baseline; do
 done
 ```
 
-需要认证时通过本机 `.pgpass`/libpq 私有配置提供，不把密码写进命令、文档或仓库。示例 trust 只用于上述私有 socket、无 TCP 的独立测试实例。
+当前 openGauss 不接受空的 `listen_addresses`；实例只监听本机回环地址，测试连接统一使用上述私有 Unix socket。需要认证时通过本机 `.pgpass`/libpq 私有配置提供，不把密码写进命令、文档或仓库。示例 trust 仅用于本机独立测试实例。
 
 ## 4. 执行完整回归
 
@@ -94,6 +94,8 @@ env -u LD_LIBRARY_PATH python3 "$P/scripts/run_p12_release_checks.py" \
 ```
 
 入口先核对输入 SHA256、源码文件、数据库实际 `data_directory`、PID 对应可执行文件及 Release 模式，再串行准备 fixture，执行原生八项和十五组核心检查。默认检查本包的源码指纹；后续有意修改源码时，需审查变更并提供独立的 `--inputs` 文件，记录本轮文件哈希与实际提交，不覆盖历史记录或把未运行项写成通过。
+
+Oracle 数据准备默认使用 300000 毫秒语句超时。在磁盘较慢的环境中，5 万条向量的索引构建可能超过该时间；可显式追加 `--fixture-timeout-ms 1800000`。该参数只传给 Oracle fixture 导入与建索引步骤，实际值记录在汇总中，核心用例的超时、断言及固定预期均保持不变。准备失败时保留输出和现场；部分建成的 fixture 不能当作完整准备成功，新一轮应使用新实例。
 
 `summary.json` 记录逐组执行结果、实际核心检查数量与失败情况；查看各组 `summary.json`、原始输出及 native-eight 的 `run/regression.diffs`。退出码为零才表示本轮入口完成。任何一项失败都保留原断言、原输入和失败记录，查明原因，不自动改 expected、删掉检查或降低比较标准。
 

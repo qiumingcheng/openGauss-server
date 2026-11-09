@@ -12,7 +12,12 @@ OWNER='Owned by DiskANN query filter P2 Oracle static compatibility tests'
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--documents',type=Path,required=True);p.add_argument('--business',type=Path,required=True)
-    p.add_argument('--output',type=Path,required=True);a=p.parse_args();a.output.mkdir(parents=True,exist_ok=False)
+    p.add_argument('--output',type=Path,required=True)
+    p.add_argument('--setup-timeout-ms',type=int,default=300000,
+                   help='statement timeout for fixture import and index creation only')
+    a=p.parse_args()
+    if a.setup_timeout_ms <= 0:p.error('--setup-timeout-ms must be positive')
+    a.output.mkdir(parents=True,exist_ok=False)
     docs=[];business=[]
     for r in csv.DictReader(a.documents.read_text().splitlines()):
         v=json.loads(r['EMBEDDING_TEXT']);assert len(v)==8 and all(math.isfinite(x) for x in v)
@@ -24,7 +29,7 @@ def main():
     def sql(q):
         cur.execute(q);rows=cur.fetchall() if cur.description else [];commands.append(dict(sql=q,rows=rows));return rows
     try:
-        sql('SET enable_diskann_filter=off;SET enable_opfusion=off;SET statement_timeout=300000')
+        sql('SET enable_diskann_filter=off;SET enable_opfusion=off;SET statement_timeout='+str(a.setup_timeout_ms))
         found=sql("SELECT obj_description(oid,'pg_namespace') FROM pg_namespace WHERE nspname='"+SCHEMA+"'")
         if found and found!=[(OWNER,)]:raise RuntimeError('refuse unrelated fixture schema')
         if not found:
