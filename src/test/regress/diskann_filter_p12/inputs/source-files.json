@@ -1,0 +1,171 @@
+{
+  "description": "Current packaged feature input fingerprints. Product source is preserved; the native test runner has portable connection/library options. Record actual HEAD per run; this is not build or test-success evidence.",
+  "source_snapshot": "72778fe2aae139cfade1abe7396e3e085869ee22",
+  "published_before_test_package": "f50a21152dc39813365892a6253a4b5d0821b86b",
+  "base": "ba1e4ad2f99295b1b0f65e3880a05cb75a1121d4",
+  "files": [
+    {
+      "file": "src/common/backend/nodes/copyfuncs.cpp",
+      "sha256": "4b84347c1d764bdbca351b75b3b8187d32d82068a23c5d9cd3dfd5f3ac27959e"
+    },
+    {
+      "file": "src/common/backend/nodes/outfuncs.cpp",
+      "sha256": "9982d1f5f6d13948b04c061fe0158618df3034d1c900d1117d73f31350296f1a"
+    },
+    {
+      "file": "src/common/backend/nodes/readfuncs.cpp",
+      "sha256": "73245b586dbf70847a151a7cad52c25d57c7d281cd3421c727194cab8c8345e4"
+    },
+    {
+      "file": "src/common/backend/utils/misc/guc/guc_sql.cpp",
+      "sha256": "f537e4f7c7fa84fceb202fa0a9465f225e1afbeec820992f6f58e956e41c7299"
+    },
+    {
+      "file": "src/gausskernel/optimizer/commands/explain.cpp",
+      "sha256": "6aa9242f1237f5ef0f0f895651e48456d43bccd99a9b963124b872b5568b0788"
+    },
+    {
+      "file": "src/gausskernel/optimizer/path/Makefile",
+      "sha256": "1ca5b4352f569c4a2d09722690833dc75e3be37aa450eb4e685687f5701e5dbf"
+    },
+    {
+      "file": "src/gausskernel/optimizer/path/costsize.cpp",
+      "sha256": "7597bc42b9fc7877b7c6277ed4568ff6ec92065fe6301ef774ab797e3553962c"
+    },
+    {
+      "file": "src/gausskernel/optimizer/path/diskannFilterPath.cpp",
+      "sha256": "2e923f4cc8b56fc2c80c8b54f26482c3d0635480f3d7c78e48a90a7da56f9bcb"
+    },
+    {
+      "file": "src/gausskernel/optimizer/path/indxpath.cpp",
+      "sha256": "157603614ade8be2b0ce11fb40b4e06364997876e9e3294facb18d9bce2fd56d"
+    },
+    {
+      "file": "src/gausskernel/optimizer/path/joinpath.cpp",
+      "sha256": "89ca84c32857d8dad7582c3f31cecc9e1256a35979698ddac7f416b72c7e770d"
+    },
+    {
+      "file": "src/gausskernel/optimizer/plan/createplan.cpp",
+      "sha256": "0f3ba6b64898f76475f9ad10c4611ac6804ed8123b83fb92ac9f3dc6a54a2c83"
+    },
+    {
+      "file": "src/gausskernel/optimizer/plan/planmain.cpp",
+      "sha256": "927c7b4e7c8e1ed7a5d514ecc4afd91a92ec570fdb04b64b43fb29748f934c22"
+    },
+    {
+      "file": "src/gausskernel/optimizer/plan/planner.cpp",
+      "sha256": "5ef1f49846bbfe3c6dc17567d8af084fbd05ca4984ae2b26584c0f3c33c95ffe"
+    },
+    {
+      "file": "src/gausskernel/optimizer/plan/setrefs.cpp",
+      "sha256": "36d8cf665b0d4a3492bfec82741f19efb5a4f6115734565c09f0d90da862a8d4"
+    },
+    {
+      "file": "src/gausskernel/optimizer/plan/subselect.cpp",
+      "sha256": "2f55cdcacefdd7464c45a495b5a54a23b21afe3e350c4421477d486061bfdd30"
+    },
+    {
+      "file": "src/gausskernel/optimizer/util/pathnode.cpp",
+      "sha256": "9594ab4dca42f3c4a73485955d6cc35b5d253abff2c413a28d5ed176da61c547"
+    },
+    {
+      "file": "src/gausskernel/optimizer/util/planmem_walker.cpp",
+      "sha256": "d2f5b66c37661b241c74165bb768545180953bee1fc13bf5c99a917d72729014"
+    },
+    {
+      "file": "src/gausskernel/runtime/executor/nodeAnnIndexscan.cpp",
+      "sha256": "09543c101870a597afa5fee8ba9903d5748b67326215ea7ea2cbab8fe24214c3"
+    },
+    {
+      "file": "src/gausskernel/runtime/executor/nodeHashjoin.cpp",
+      "sha256": "5be8600501b4aecbf8caa3bc287d55fcb0da14c29e0aa840c78261f373fee8dd"
+    },
+    {
+      "file": "src/gausskernel/runtime/opfusion/opfusion_util.cpp",
+      "sha256": "586a5b5ed0ed02e1d72c9f533a10c44f1ebfbcdef95d0e850776674f084af65e"
+    },
+    {
+      "file": "src/gausskernel/storage/access/datavec/diskann.cpp",
+      "sha256": "0f8f8ac416c7552a3d67c90b8ee9acea895a8a765aa358a77d5c39d4d41b0ea5"
+    },
+    {
+      "file": "src/gausskernel/storage/access/datavec/diskannscan.cpp",
+      "sha256": "99c6d3ff0b64d4bc5d365ea1a71599eb60439b6d0da41a4b8fb251a4c35848fb"
+    },
+    {
+      "file": "src/gausskernel/storage/access/datavec/diskannutils.cpp",
+      "sha256": "c586809ef3814faecb66fc85cf636411665e11d191dd4b454ac33a35752c07cb"
+    },
+    {
+      "file": "src/include/access/datavec/diskann.h",
+      "sha256": "392895c322e6f5a154e257676bae98b00487601f424efe2757a790381f221a2a"
+    },
+    {
+      "file": "src/include/access/datavec/diskannqueryfilter.h",
+      "sha256": "0ffcbb70055d8f94e9dffc403c2fc526a7a0a4aadcb38e9981a492ad1f5f2a1e"
+    },
+    {
+      "file": "src/include/executor/node/nodeAnnIndexscan.h",
+      "sha256": "ac6fb458f7d6dab8f371bb47e7b4e5b534583454c29c4d25a75893ff18ba060d"
+    },
+    {
+      "file": "src/include/knl/knl_session.h",
+      "sha256": "988a847c8f85eae8606175759ef149bfd89cb4f4b72a6a5ae15c976e3929c3fd"
+    },
+    {
+      "file": "src/include/miscadmin.h",
+      "sha256": "2aada591e674203c317eba6cda66f5a47ce855987eb0d3ec48a31206ea9a44d8"
+    },
+    {
+      "file": "src/include/nodes/execnodes.h",
+      "sha256": "9974ce69c37fa04217de11e033c159ac88ba6e5b3782d560025031cd1eab05aa"
+    },
+    {
+      "file": "src/include/nodes/plannodes.h",
+      "sha256": "9bbd6abbf3e438e18334959f78a23debb7dc4193e3d37d4354a683cc5f4c67da"
+    },
+    {
+      "file": "src/include/nodes/relation.h",
+      "sha256": "e0a09861e66155c56ee98c795dc2c3cdba5c083b54007c4779fc0e584a9bc6cd"
+    },
+    {
+      "file": "src/include/optimizer/diskann_filter_path.h",
+      "sha256": "52c3c6c57e4204e0a9273097aa5e3f4ec5a410e887cdaa3e938625b201cbecef"
+    },
+    {
+      "file": "src/include/optimizer/subselect.h",
+      "sha256": "49d66eebd2ad2395cd0a4203c5548e2a2681e43dce0d35edeb0a1f3ac57e47fc"
+    },
+    {
+      "file": "src/test/regress/GNUmakefile",
+      "sha256": "eb7dd6d2d4df05dcb649d80a72021cc684000867efad83d6e2dfb8f0e517d11c"
+    },
+    {
+      "file": "src/test/regress/expected/ann_orderby_distance_reuse_1.out",
+      "sha256": "90cd6faabf5f714287812e073946e811f8c0165891bc31978cffdbf96f4d29a9"
+    },
+    {
+      "file": "src/test/regress/expected/ann_orderby_distance_reuse_2.out",
+      "sha256": "d02a6fa393521ebddde539c4edf497f5ce1518b4873b382873e8fe5d3d043103"
+    },
+    {
+      "file": "src/test/regress/expected/ann_orderby_distance_reuse_3.out",
+      "sha256": "cbb06e9ba1cca479cb28b2e1ea472978b30b866020a42b62a0470c194e47efd9"
+    },
+    {
+      "file": "src/test/regress/expected/diskann_filter_baseline.out",
+      "sha256": "855ce717b3ad45650d464b701bad2b9e403dc36f416cdd8c567decc8652cb033"
+    },
+    {
+      "file": "src/test/regress/run_diskann_filter_tests.py",
+      "sha256": "1e8b9b75dc8fcbc59de5e00535c207ea35405312fccb0d0d8572e8dd4df1a303"
+    },
+    {
+      "file": "src/test/regress/sql/diskann_filter_baseline.sql",
+      "sha256": "97591e6cbf45003c4154a154c98e709ac2d9cc9db99a052dd9c2571159d4023b"
+    }
+  ],
+  "adapted_test_files": [
+    "src/test/regress/run_diskann_filter_tests.py"
+  ]
+}

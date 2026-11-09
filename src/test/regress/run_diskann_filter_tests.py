@@ -22,7 +22,7 @@ TESTS = (
 
 
 def verify_instance(args):
-    with psycopg2.connect(host=args.host, port=args.port, dbname="regression") as conn:
+    with psycopg2.connect(host=args.host, port=args.port, user=args.user, dbname="regression") as conn:
         with conn.cursor() as cursor:
             cursor.execute("SELECT current_setting('data_directory'), version()")
             data, version = cursor.fetchone()
@@ -38,8 +38,8 @@ def verify_instance(args):
 
 def cancellation_check(args):
     """Exercise statement cancellation and connection reuse on the ordinary executor."""
-    conn = psycopg2.connect(host=args.host, port=args.port, dbname="regression")
-    monitor = psycopg2.connect(host=args.host, port=args.port, dbname="regression")
+    conn = psycopg2.connect(host=args.host, port=args.port, user=args.user, dbname="regression")
+    monitor = psycopg2.connect(host=args.host, port=args.port, user=args.user, dbname="regression")
     conn.autocommit = monitor.autocommit = True
     with conn.cursor() as cursor:
         cursor.execute("SELECT pg_backend_pid()")
@@ -106,11 +106,15 @@ def main():
     parser.add_argument("--data", type=Path, required=True)
     parser.add_argument("--host", required=True)
     parser.add_argument("--port", type=int, required=True)
+    parser.add_argument("--user", default=os.environ.get("PGUSER", getpass.getuser()))
+    parser.add_argument("--gcc-lib-dir", type=Path, help="optional compiler runtime for native child processes")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     args.install, args.data, args.output = (p.resolve() for p in (args.install, args.data, args.output))
     if args.data.name != "data" or "diskann-vector-filter" not in args.data.parent.name:
         parser.error("use a dedicated diskann-vector-filter data directory")
+    if args.gcc_lib_dir and not args.gcc_lib_dir.is_dir():
+        parser.error("--gcc-lib-dir does not exist")
     # Native diskann_vector creates/drops test and returns to regression.
     # Never point this runner at an existing user instance.
     args.output.mkdir(parents=True, exist_ok=False)
@@ -136,13 +140,17 @@ def main():
         command = [str(regress / "pg_regress"), "--use-existing", "--single_node",
                    "-r", "1", "-c", "0", "-d", "1", "-p", str(args.port),
                    "--top-builddir=" + str(source), "--host=" + args.host,
-                   "--port=" + str(args.port), "--user=" + getpass.getuser(),
+                   "--port=" + str(args.port), "--user=" + args.user,
                    "--psqldir=" + str(args.install / "bin"), "--inputdir=" + str(inputs),
                    "--outputdir=" + str(run), "--dbname=regression", "--schedule=" + str(schedule)]
         env = dict(os.environ)
+        libraries = [str(args.install / "lib")]
+        if args.gcc_lib_dir:
+            libraries.append(str(args.gcc_lib_dir.resolve()))
+        libraries.extend(value for value in env.get("LD_LIBRARY_PATH", "").split(os.pathsep) if value)
         env.update(GAUSSHOME=str(args.install), CODE_BASE_SRC=str(source),
                    SSL_LIB_PATH=str(args.install / "lib"),
-                   LD_LIBRARY_PATH=str(args.install / "lib") + os.pathsep + env.get("LD_LIBRARY_PATH", ""))
+                   PGUSER=args.user, LD_LIBRARY_PATH=os.pathsep.join(libraries))
         report["native_command"] = command
         report["native_exit_code"] = subprocess.run(command, cwd=regress, env=env).returncode
         if report["native_exit_code"] != 0:
