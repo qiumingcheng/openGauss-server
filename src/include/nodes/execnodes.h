@@ -2186,6 +2186,23 @@ typedef struct AnnIndexScanState {
     Relation iss_CurrentIndexPartition;
     double annCount; // limitValue/selectvity
     int64 limitCount;
+    /*
+     * [P1-7] Index-only branch state (design doc 14/17): pinned visibility
+     * map buffer and heap-fetch counter, mirroring IndexOnlyScanState.
+     */
+    Buffer iss_VMBuffer;
+    long iss_HeapFetches;
+    bool iss_IndexOnly;
+    /*
+     * [P2-2] In-filter runtime (design doc 15.1/15.2): the descriptor is a
+     * scan-lifetime object - FmgrInfo lives in iss_FilterFnCtx, parameter
+     * Datums in iss_FilterArgCtx (reset+rebuilt on every rescan). Never
+     * serialized into a Plan.
+     */
+    struct DiskAnnFilterDesc* iss_FilterDesc;
+    MemoryContext iss_FilterFnCtx;
+    MemoryContext iss_FilterArgCtx;
+    List* iss_FilterArgStates; /* ExprState per key, re-evaluated on rescan */
 } AnnIndexScanState;
 
 /* ----------------

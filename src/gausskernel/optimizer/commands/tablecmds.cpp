@@ -24,6 +24,7 @@
 #include "access/genam.h"
 #include "access/heapam.h"
 #include "access/reloptions.h"
+#include "access/datavec/diskann.h"
 #include "access/relscan.h"
 #include "access/sysattr.h"
 #include "access/transam.h"
@@ -20489,6 +20490,29 @@ static void ATExecSetRelOptions(Relation rel, List* defList, AlterTableType oper
                 ereport(ERROR, (errcode(ERRCODE_INVALID_OPERATION),
                     errmsg("table under Shared Storage cannot add or modify hasuids by ALTER TABLE command.")));
             }
+            /*
+             * [P1-3b] Enabling immediate_delete on a table that already has a
+             * format-v2 (INCLUDE) DiskANN index would route that index into
+             * immediate edge-breaking, which v2 explicitly forbids (design
+             * doc 8.1: check both CREATE INDEX time and later ALTERs).
+             */
+            if (CheckDefListContainsOption(defList, "immediate_delete")) {
+                ListCell* indexCell = NULL;
+                foreach (indexCell, RelationGetIndexList(rel)) {
+                    Oid idxOid = lfirst_oid(indexCell);
+                    Relation idxRel = index_open(idxOid, AccessShareLock);
+                    bool deferred = (idxRel->rd_rel->relam == DISKANN_AM_OID &&
+                                     DiskAnnIndexUsesDeferredDelete(idxRel));
+                    index_close(idxRel, AccessShareLock);
+                    if (deferred) {
+                        ereport(ERROR,
+                            (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                                errmsg("cannot enable immediate_delete: table \"%s\" has a DiskANN index with INCLUDE columns",
+                                    RelationGetRelationName(rel)),
+                                errhint("Drop or rebuild the INCLUDE index without INCLUDE columns first.")));
+                    }
+                }
+            }
             if (RelationIsColStore(rel)) {
                 /* un-supported options. dont care its values */
                 ForbidToSetOptionsForColTbl(defList);
@@ -20535,6 +20559,15 @@ static void ATExecSetRelOptions(Relation rel, List* defList, AlterTableType oper
                 ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
                     errmsg("ALTER INDEX SET/RESET for bm25 option \"dict_path\" is not supported"),
                     errhint("Please run REINDEX to rebuild the bm25 index with the new dict_path.")));
+            }
+            /* [P1-2] max_inline_payload is a build-time format parameter:
+             * changing it in place would let existing and new tuples disagree
+             * on the payload budget (design doc section 6.1). */
+            if (strcmp(rel->rd_am->amname.data, "diskann") == 0 &&
+                CheckDefListContainsOption(defList, "max_inline_payload")) {
+                ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                    errmsg("ALTER INDEX SET/RESET for diskann option \"max_inline_payload\" is not supported"),
+                    errhint("Please run REINDEX to rebuild the diskann index with the new max_inline_payload.")));
             }
             ForbidUserToSetDefinedIndexOptions(rel, defList);
             Assert(oldRelHasUids == false);

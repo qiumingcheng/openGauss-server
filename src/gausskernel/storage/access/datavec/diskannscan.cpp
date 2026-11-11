@@ -23,6 +23,7 @@
 
 #include <algorithm>
 #include "access/datavec/diskann.h"
+#include "access/datavec/diskannfilter.h"
 #include "utils/memutils.h"
 
 static Datum GetScanValue(IndexScanDesc scan)
@@ -62,7 +63,42 @@ void diskannrescan_internal(IndexScanDesc scan, ScanKey keys, int nkeys, ScanKey
         securec_check(rc, "\0", "\0");
     }
     DiskAnnScanOpaque so = (DiskAnnScanOpaque)scan->opaque;
+    /*
+     * [P0-2] Full per-query reset. Baseline only reset curpos, so candidates,
+     * the visited set and iteration state leaked across rescans (prepared
+     * statements, nested-loop inner scans): a second execution with different
+     * parameters returned stale candidates from the previous query first.
+     */
     so->curpos = 0;
+    /*
+     * VectorList::clear() is destructive (frees the backing array and nulls
+     * the pointer), so reuse resize(0) which only pops elements and keeps
+     * the buffer valid for later push_back in this scan.
+     */
+    so->candidates.resize(0);
+    so->ncandidates = 0;
+    so->curIterNum = 0;
+    so->nexpextedCandidates = 0;
+    blockhash_reset(so->blocks);
+    /* [P1-7] the previous xs_itup copy is per-query state */
+    if (scan->xs_itup != NULL) {
+        scan->xs_itup = NULL;
+    }
+    MemoryContextReset(so->returnTupleCtx);
+    /*
+     * [P2-4] KNOWN_ISSUES #7: filter verdicts depend on the parameter values
+     * the executor just refreshed; stale verdicts from the previous query
+     * would mis-admit/mis-reject (recheck kept results correct but the
+     * filter degraded). Reset the cache and counters per rescan.
+     */
+    if (so->filter != NULL) {
+        if (so->filterCache != NULL) {
+            filterhash_reset(so->filterCache);
+        }
+        so->filterEvaluated = 0;
+        so->filterRejected = 0;
+        so->qualifiedResults = 0;
+    }
 }
 
 IndexScanDesc diskannbeginscan_internal(Relation index, int nkeys, int norderbys)
@@ -90,6 +126,13 @@ IndexScanDesc diskannbeginscan_internal(Relation index, int nkeys, int norderbys
     DiskPQParams *tmpDiskPQParams = InitDiskPQParamsOnDisk(index, so->procinfo, metapage.dimensions, so->enablePQ);
     if (tmpDiskPQParams != NULL) {
         so->params = *tmpDiskPQParams;
+        /*
+         * [P0-3] The wrapper struct is all we own: pqTable/tablesTransposed/
+         * centroids/offsets point into Relation-owned rd_indexcxt memory and
+         * must not (and need not) be freed here. Freeing the wrapper per scan
+         * bounds growth for scans driven in one long-lived context.
+         */
+        pfree_ext(tmpDiskPQParams);
     }
     so->normprocinfo = NULL;
     if (OidIsValid(index_getprocid(index, 1, DISKANN_NORM_PROC)))
@@ -109,6 +152,30 @@ IndexScanDesc diskannbeginscan_internal(Relation index, int nkeys, int norderbys
 
     scan->opaque = so;
 
+    /*
+     * [P1-7] Index-only support (design doc 16.2): publish the full index
+     * TupleDesc; the executor decides via xs_want_itup whether complete
+     * IndexTuples are requested. returnTupleCtx owns the per-candidate
+     * xs_itup copy. The AM (not the core) owns xs_orderbyvals/nulls
+     * storage - gist allocates them in beginscan, diskann must too, or
+     * gettuple's exact-distance fill would write through a NULL pointer.
+     */
+    /* [P2-3] in-filter runtime initialized empty; executor installs via
+     * diskann_set_filter() after beginscan (design doc 17.1 ordering) */
+    so->filter = NULL;
+    so->filterCache = NULL;
+    so->filterEvaluated = 0;
+    so->filterRejected = 0;
+    so->qualifiedResults = 0;
+
+    scan->xs_itupdesc = RelationGetDescr(index);
+    if (norderbys > 0) {
+        scan->xs_orderbyvals = (Datum*)palloc0(sizeof(Datum) * norderbys);
+        scan->xs_orderbynulls = (bool*)palloc0(sizeof(bool) * norderbys);
+    }
+    so->returnTupleCtx = AllocSetContextCreate(CurrentMemoryContext,
+        "DiskANN return tuple context", ALLOCSET_DEFAULT_SIZES);
+
     return scan;
 }
 
@@ -117,9 +184,40 @@ void diskannendscan_internal(IndexScanDesc scan)
     DiskAnnScanOpaque so = (DiskAnnScanOpaque)scan->opaque;
     so->candidates.clear();
     so->frozenBlks.clear();
+    if (scan->xs_itup != NULL) {
+        scan->xs_itup = NULL;
+    }
+    so->filter = NULL; /* [P2-3] cache dies with tmpCtx below */
+    MemoryContextDelete(so->returnTupleCtx);
     MemoryContextDelete(so->tmpCtx);
     pfree(so);
     scan->opaque = NULL;
+}
+
+/*
+ * [P2-4] Global exact-distance comparator for strict-batch output (design
+ * doc 16.3): ties broken by Heap TID for stability.
+ */
+static int DiskAnnCandidateDistanceCmp(const void* a, const void* b)
+{
+    const DiskAnnCandidatesData* ca = (const DiskAnnCandidatesData*)a;
+    const DiskAnnCandidatesData* cb = (const DiskAnnCandidatesData*)b;
+
+    if (ca->distance < cb->distance) {
+        return -1;
+    }
+    if (ca->distance > cb->distance) {
+        return 1;
+    }
+    /* stable tie-break on TID */
+    if (ca->heapTid.ip_blkid.bi_hi != cb->heapTid.ip_blkid.bi_hi) {
+        return ca->heapTid.ip_blkid.bi_hi < cb->heapTid.ip_blkid.bi_hi ? -1 : 1;
+    }
+    if (ca->heapTid.ip_blkid.bi_lo != cb->heapTid.ip_blkid.bi_lo) {
+        return ca->heapTid.ip_blkid.bi_lo < cb->heapTid.ip_blkid.bi_lo ? -1 : 1;
+    }
+    return ca->heapTid.ip_posid < cb->heapTid.ip_posid ? -1 :
+           (ca->heapTid.ip_posid > cb->heapTid.ip_posid ? 1 : 0);
 }
 
 /*
@@ -139,7 +237,40 @@ bool diskanngettuple_internal(IndexScanDesc scan, ScanDirection dir)
     value = GetScanValue(scan);
     so->value = value;
 
-    if ((so->curpos == 0 || so->curpos == so->ncandidates) && so->curIterNum < MAX_SEARCH_ITERATION) {
+    /*
+     * [P2-4] Strict batch (design doc 16.3): with an installed in-filter,
+     * complete ALL needed expansion rounds BEFORE the first output and sort
+     * the full accumulated candidate list by exact distance once - a later,
+     * wider round must never append a closer candidate behind rows already
+     * returned (ORDER BY monotonicity). Rounds continue while fewer than
+     * limitk qualified results exist, the iteration cap holds, and the last
+     * round still produced new candidates (frontier not exhausted).
+     */
+    if (so->filter != NULL && scan->limitk > 0) {
+        while (so->qualifiedResults < (uint64)scan->limitk && so->curIterNum < MAX_SEARCH_ITERATION) {
+            size_t before = so->candidates.size();
+            uint64 qualifiedBefore = so->qualifiedResults;
+
+            if (so->curIterNum == 0) {
+                so->nexpextedCandidates = (uint32_t)DEFAULT_CADIDATES_NUMBER;
+            } else {
+                so->nexpextedCandidates *= SEARCH_DOUBLE;
+            }
+            diskannsearch(so);
+            so->ncandidates = (uint32_t)so->candidates.size();
+            so->curIterNum++;
+
+            /* frontier exhausted: no new candidates and no new qualifiers */
+            if (so->candidates.size() == before && so->qualifiedResults == qualifiedBefore) {
+                break;
+            }
+        }
+        /* one global exact-distance sort over the strict batch */
+        if (so->ncandidates > 1) {
+            qsort(&(so->candidates[0]), so->ncandidates, sizeof(DiskAnnCandidatesData),
+                DiskAnnCandidateDistanceCmp);
+        }
+    } else if ((so->curpos == 0 || so->curpos == so->ncandidates) && so->curIterNum < MAX_SEARCH_ITERATION) {
         if (so->curIterNum == 0) {
             so->nexpextedCandidates = (uint32_t)DEFAULT_CADIDATES_NUMBER;
         } else {
@@ -154,8 +285,46 @@ bool diskanngettuple_internal(IndexScanDesc scan, ScanDirection dir)
 
     bool found = false;
     if (so->curpos < so->ncandidates) {
-        scan->xs_ctup.t_self = so->candidates[so->curpos].heapTid;
+        DiskAnnCandidatesData* cand = &so->candidates[so->curpos];
+        scan->xs_ctup.t_self = cand->heapTid;
         scan->xs_recheck = false;
+        /* [P1-7] exact distance for ORDER BY consumers (non-lossy rerank) */
+        if (scan->numberOfOrderBys > 0) {
+            scan->xs_orderbyvals[0] = Float8GetDatum(cand->distance);
+            scan->xs_orderbynulls[0] = false;
+            scan->xs_recheckorderby = false;
+        }
+
+        if (scan->xs_want_itup) {
+            /*
+             * [P1-7] Index-only: copy the complete IndexTuple into
+             * returnTupleCtx after re-checking the node page (state/TID
+             * may have changed since the candidate was formed - design
+             * doc 16.2). The copy stays valid until the next call.
+             */
+            scan->xs_itup = NULL;
+            MemoryContextReset(so->returnTupleCtx);
+            Buffer nodeBuf = ReadBuffer(so->rel, cand->id);
+            LockBuffer(nodeBuf, BUFFER_LOCK_SHARE);
+            Page nodePage = BufferGetPage(nodeBuf);
+            IndexTuple pageItup = DiskAnnPageGetIndexTuple(nodePage);
+            bool valid = (DiskAnnPageGetOpaque(nodePage)->pageId == DISKANN_PAGE_ID) &&
+                         ItemPointerEquals(&pageItup->t_tid, &cand->heapTid) &&
+                         !ItemIdIsDead(PageGetItemId(nodePage, FirstOffsetNumber));
+            if (valid) {
+                MemoryContext retCtx = MemoryContextSwitchTo(so->returnTupleCtx);
+                scan->xs_itup = CopyIndexTuple(pageItup);
+                (void)MemoryContextSwitchTo(retCtx);
+            }
+            UnlockReleaseBuffer(nodeBuf);
+            if (!valid) {
+                /* stale candidate (concurrent VACUUM/DML): skip it */
+                so->curpos++;
+                MemoryContextSwitchTo(oldCtx);
+                return diskanngettuple_internal(scan, dir);
+            }
+        }
+
         so->curpos++;
         found = true;
     }
@@ -173,6 +342,15 @@ void diskannsearch(DiskAnnScanOpaque so)
     int16 dim = DatumGetVector(so->value)->dim;
 
     queue->clear();
+    /*
+     * [P0-2] The visited set is per-round state for the full-research MVP:
+     * each expansion round restarts from the frozen point with a wider beam.
+     * Retaining the previous round's visited marks left the frozen point
+     * already-visited and prevented wider rounds from actually expanding
+     * (design doc section 4.13). Cross-round result dedup stays with the
+     * candidates VectorList below.
+     */
+    blockhash_reset(so->blocks);
     so->querySqrSum = VectorSquareNorm(query, dim);
 
     SearchFixedPoint(so);
@@ -192,10 +370,30 @@ void diskannsearch(DiskAnnScanOpaque so)
             continue;
         }
 
+        /*
+         * [P2-3] In-filter (design doc 16.1): evaluate the INCLUDE payload
+         * of each frontier node before it becomes a result candidate.
+         * Non-matching nodes still navigated the graph during the search -
+         * they simply never enter the candidate list. The verdict is cached
+         * per node page across rounds (DiskAnnFilterNode).
+         */
+        if (so->filter != NULL) {
+            bool admitted = false;
+            if (!DiskAnnFilterNode(so->rel, so, queue->_data[i].id, &admitted) || !admitted) {
+                continue;
+            }
+        }
+
         for (size_t j = 0; j < queue->_data[i].heaptidsLength; j++) {
-            DiskAnnCandidatesData candidate = {.id = queue->_data[i].id, .heapTid = queue->_data[i].heaptids[j]};
+            /* [P1-7] carry the exact distance for ORDER BY consumers */
+            DiskAnnCandidatesData candidate = {.id = queue->_data[i].id,
+                                               .heapTid = queue->_data[i].heaptids[j],
+                                               .distance = (double)queue->_data[i].distance};
             if (!searchedResults->contains(candidate)) {
                 searchedResults->push_back(candidate);
+                if (so->filter != NULL) {
+                    so->qualifiedResults++;
+                }
             }
         }
     }

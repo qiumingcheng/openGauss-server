@@ -26,6 +26,7 @@
 #include "knl/knl_variable.h"
 #include "storage/freespace.h"
 #include "access/datavec/diskann.h"
+#include "access/datavec/diskannpagecheck.h"
 #include "access/generic_xlog.h"
 #include "access/tableam.h"
 #include "postmaster/bgworker.h"
@@ -136,6 +137,12 @@ static void FreeBuildState(DiskAnnBuildState* buildstate, bool parallel)
         FreeDiskPQParams(buildstate->params);
         pfree(buildstate->params);
     }
+    if (buildstate->enablePQ && parallel) {
+        /* [P0-4] parallel workers now allocate their own PQ wrapper (see
+         * DiskAnnParallelScanAndInsert); free the shell, not the
+         * Relation-owned arrays it points to. */
+        pfree_ext(buildstate->metaPage.params);
+    }
 
     if (buildstate->graphStore) {
         delete buildstate->graphStore;
@@ -144,12 +151,12 @@ static void FreeBuildState(DiskAnnBuildState* buildstate, bool parallel)
     MemoryContextDelete(buildstate->tmpCtx);
 }
 
-static BlockNumber CreateRelationLockPage(Relation index)
+static BlockNumber CreateRelationLockPage(Relation index, ForkNumber forkNum)
 {
     Buffer buf;
     Page page;
     BlockNumber blk;
-    buf = ReadBufferExtended(index, MAIN_FORKNUM, P_NEW, RBM_NORMAL, NULL);
+    buf = ReadBufferExtended(index, forkNum, P_NEW, RBM_NORMAL, NULL);
     LockBuffer(buf, BUFFER_LOCK_EXCLUSIVE);
     page = DiskAnnInitRegisterPage(index, buf);
     ((PageHeader)page)->pd_lower = MAXALIGN(GetPageHeaderSize(page)) + MaxHeapTupleSize;
@@ -159,27 +166,34 @@ static BlockNumber CreateRelationLockPage(Relation index)
     return blk;
 }
 
+static bool DiskAnnIndexHasInclude(Relation index);
+
 static void CreateMetaPage(Relation index, DiskAnnBuildState* buildstate, ForkNumber forkNum)
 {
     Buffer buf;
     Page page;
     DiskAnnMetaPage metap;
 
-    buf = ReadBufferExtended(index, MAIN_FORKNUM, P_NEW, RBM_NORMAL, NULL);
+    buf = ReadBufferExtended(index, forkNum, P_NEW, RBM_NORMAL, NULL);
     LockBuffer(buf, BUFFER_LOCK_EXCLUSIVE);
     page = DiskAnnInitRegisterPage(index, buf);
 
     /* Set metapage data */
     metap = DiskAnnPageGetMeta(page);
     metap->magicNumber = DISKANN_MAGIC_NUMBER;
-    metap->version = DISKANN_VERSION;
+    /*
+     * [P1-3b] INCLUDE indexes are stamped on-disk format v2 (v1 image +
+     * appended tail, design doc 9.2). Legacy vector-only indexes stay v1.
+     */
+    bool hasInclude = DiskAnnIndexHasInclude(index);
+    metap->version = hasInclude ? DISKANN_VERSION_V2 : DISKANN_VERSION;
     metap->indexSize = buildstate->indexSize;
     metap->dimensions = buildstate->dimensions;
     metap->nodeSize = buildstate->nodeSize;
     metap->edgeSize = buildstate->edgeSize;
     metap->itemSize = metap->nodeSize + metap->edgeSize;
     metap->insertPage = InvalidBlockNumber;
-    metap->extendPageLocker = CreateRelationLockPage(index);
+    metap->extendPageLocker = CreateRelationLockPage(index, forkNum);
 
     /* set PQ info */
     metap->enablePQ = buildstate->enablePQ;
@@ -204,7 +218,20 @@ static void CreateMetaPage(Relation index, DiskAnnBuildState* buildstate, ForkNu
         metap->pqOffsetblk = 0;
     }
     metap->params = buildstate->params;
-    ((PageHeader)page)->pd_lower = ((char*)metap + sizeof(DiskAnnMetaPageData)) - (char*)page;
+    Size metaLen = sizeof(DiskAnnMetaPageData);
+    if (hasInclude) {
+        /* [P1-3b] append the v2 tail after the pinned v1 image */
+        DiskAnnMetaV2Tail* tail = (DiskAnnMetaV2Tail*)(((char*)metap) + DISKANN_META_V1_DISK_LENGTH);
+        DiskAnnOptions* opts = (DiskAnnOptions*)index->rd_options;
+        tail->metaBytes = (uint32)(DISKANN_META_V1_DISK_LENGTH + sizeof(DiskAnnMetaV2Tail));
+        tail->formatFlags = DISKANN_META_HAS_INCLUDE;
+        tail->nIndexAttrs = (uint16)RelationGetNumberOfAttributes(index);
+        tail->nKeyAttrs = (uint16)IndexRelationGetNumberOfKeyAttributes(index);
+        tail->maxInlinePayload =
+            (opts != NULL) ? (uint32)opts->maxInlinePayload : (uint32)DISKANN_DEFAULT_MAX_INLINE_PAYLOAD;
+        metaLen = tail->metaBytes;
+    }
+    ((PageHeader)page)->pd_lower = ((char*)metap + metaLen) - (char*)page;
 
     MarkBufferDirty(buf);
     UnlockReleaseBuffer(buf);
@@ -257,25 +284,93 @@ VectorArray CreateVectorForExistingData(float *data, int dim, int len = 1)
 }
 
 /*
- * Insert vector into page, reserve and initialize node & edge page
+ * [P1-3a] True when the index carries INCLUDE columns (payload attributes
+ * beyond the single vector key). Read straight from pg_index — no on-disk
+ * flag needed for this runtime decision.
  */
-static BlockNumber InsertVectorIntoPage(Relation index, Vector* vec, double sqrSum, ItemPointer heaptid,
-                                        DiskAnnMetaPage metaPage, bool building)
+static bool DiskAnnIndexHasInclude(Relation index)
+{
+    return index->rd_index != NULL &&
+        RelationGetNumberOfAttributes(index) > IndexRelationGetNumberOfKeyAttributes(index);
+}
+
+/*
+ * [P1-3a] Enforce the max_inline_payload product limit (design doc 9.3):
+ * payload bytes = aligned full-tuple size - aligned key-only-tuple size,
+ * where the key-only tuple is formed from the same normalized vector.
+ * The real page capacity check in InsertVectorIntoPage applies on top of
+ * this. The option value comes from the index's parsed reloptions.
+ */
+static void DiskAnnCheckInlinePayload(Relation index, Datum keyValue, IndexTuple fullItup)
+{
+    if (!DiskAnnIndexHasInclude(index)) {
+        return;
+    }
+    DiskAnnOptions* opts = (DiskAnnOptions*)index->rd_options;
+    if (opts == NULL) {
+        return; /* defaults only bound the DDL surface; page check still guards */
+    }
+
+    TupleDesc keyDesc = CreateTupleDescCopy(RelationGetDescr(index));
+    keyDesc->natts = 1;
+    bool keyNull[1] = {false};
+    IndexTuple keyItup = index_form_tuple(keyDesc, &keyValue, keyNull);
+    Size payloadBytes = MAXALIGN(IndexTupleSize(fullItup)) - MAXALIGN(IndexTupleSize(keyItup));
+    pfree(keyItup);
+    FreeTupleDesc(keyDesc);
+
+    if (payloadBytes > (Size)opts->maxInlinePayload) {
+        ereport(ERROR,
+                (errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
+                 errmsg("DiskANN included columns exceed max_inline_payload"),
+                 errdetail("included columns require %lu bytes, max_inline_payload is %d bytes; "
+                           "reduce the INCLUDE list or REINDEX with a larger limit",
+                           (unsigned long)payloadBytes, opts->maxInlinePayload)));
+    }
+}
+
+/*
+ * Insert vector into page, reserve and initialize node & edge page.
+ * [P1-3a] indexValues/indexNulls carry ALL index attributes (key first,
+ * then INCLUDE columns); the vector key has already been normalized by
+ * the caller and stored at indexValues[0].
+ */
+static BlockNumber InsertVectorIntoPage(Relation index, Datum* indexValues, const bool* indexNulls,
+                                        double sqrSum, ItemPointer heaptid, DiskAnnMetaPage metaPage, bool building)
 {
     Buffer buf;
     Page page;
     GenericXLogState *state;
     IndexTuple itup;
-    Datum value = PointerGetDatum(vec);
-    bool isnull[1] = {false};
 
-    /* form index tuple */
-    itup = index_form_tuple(RelationGetDescr(index), &value, isnull);
+    /* form index tuple with the full attribute set */
+    itup = index_form_tuple(RelationGetDescr(index), indexValues, indexNulls);
     itup->t_tid = *heaptid;
 
+    Vector* vec = DatumGetVector(indexValues[0]);
+    DiskAnnCheckInlinePayload(index, indexValues[0], itup);
+
     Size itemsz = MAXALIGN(IndexTupleSize(itup));
-    Assert(itemsz <=
-           BLCKSZ - MAXALIGN(SizeOfPageHeaderData) - MAXALIGN(sizeof(DiskAnnPageOpaqueData)) - sizeof(ItemIdData));
+
+    /*
+     * Full page capacity accounting (design doc §9.3): the aligned index tuple,
+     * the reserved node+edge area (metaPage->nodeSize/edgeSize), the line
+     * pointer and the page opaque must all fit below/above the page header.
+     * Use ereport instead of Assert so release builds reject oversized tuples
+     * as well, and check before DiskAnnPageExtension() so a rejected tuple does
+     * not leave behind an extended but unused page.
+     */
+    Size requiredBytes = diskann_page_required_bytes(itemsz, MAXALIGN(metaPage->nodeSize),
+                                                     MAXALIGN(metaPage->edgeSize), sizeof(ItemIdData),
+                                                     MAXALIGN(sizeof(DiskAnnPageOpaqueData)));
+    if (!diskann_page_fits(requiredBytes, BLCKSZ - MAXALIGN(SizeOfPageHeaderData))) {
+        ereport(ERROR,
+                (errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
+                 errmsg("DiskANN index tuple is too large"),
+                 errdetail("index tuple with node and edge metadata requires %lu bytes, page capacity is %d bytes",
+                           (unsigned long)requiredBytes,
+                           (int)(BLCKSZ - MAXALIGN(SizeOfPageHeaderData)))));
+    }
 
     /* initialize page */
     DiskAnnPageExtension(index, metaPage->extendPageLocker, buf);
@@ -312,7 +407,7 @@ static BlockNumber InsertVectorIntoPage(Relation index, Vector* vec, double sqrS
     if (metaPage->enablePQ) {
         Size codesize = metaPage->params->pqChunks * sizeof(uint8);
         uint8 *pqcode = (uint8*)palloc(codesize);
-        VectorArray arr = CreateVectorForExistingData(DatumGetVector(value)->x, metaPage->params->dim);
+        VectorArray arr = CreateVectorForExistingData(vec->x, metaPage->params->dim);
         int ret = ComputeVectorPQCode(arr, metaPage->params, pqcode);
         if (ret != 0) {
             ereport(WARNING, (ret, errmsg("ComputeVectorPQCode failed.")));
@@ -343,8 +438,22 @@ static BlockNumber InsertVectorIntoPage(Relation index, Vector* vec, double sqrS
     return blkno;
 }
 
-BlockNumber InsertTuple(Relation index, Datum* values, ItemPointer heaptid, DiskAnnMetaPage metaPage, bool building)
+/*
+ * [P1-3a] InsertTuple now takes the full values/isnull arrays for ALL index
+ * attributes. The normalized navigation vector replaces attribute 0 in a
+ * private copy; INCLUDE payload Datums (attributes 1..natts) are copied by
+ * value/pointer only — the caller's memory (callback tmpCtx or the
+ * executor's per-tuple context) owns them until index_form_tuple copies
+ * the bytes (done synchronously inside InsertVectorIntoPage).
+ */
+BlockNumber InsertTuple(Relation index, Datum* values, const bool* isnull, ItemPointer heaptid,
+                        DiskAnnMetaPage metaPage, bool building)
 {
+    int natts = RelationGetNumberOfAttributes(index);
+    if (natts > INDEX_MAX_KEYS) {
+        natts = INDEX_MAX_KEYS;
+    }
+
     Datum value = PointerGetDatum(PG_DETOAST_DATUM(values[0]));
     /* Normalize if needed */
     FmgrInfo* normprocinfo = DiskAnnOptionalProcInfo(index, DISKANN_NORM_PROC);
@@ -364,8 +473,18 @@ BlockNumber InsertTuple(Relation index, Datum* values, ItemPointer heaptid, Disk
                           metaPage->dimensions * sizeof(float));
     securec_check_c(rc, "\0", "\0");
 
+    /* private full-attribute arrays: replace key with the normalized vector */
+    Datum indexValues[INDEX_MAX_KEYS];
+    bool indexNulls[INDEX_MAX_KEYS];
+    rc = memcpy_s(indexValues, natts * sizeof(Datum), values, natts * sizeof(Datum));
+    securec_check_c(rc, "\0", "\0");
+    rc = memcpy_s(indexNulls, natts * sizeof(bool), isnull, natts * sizeof(bool));
+    securec_check_c(rc, "\0", "\0");
+    indexValues[0] = PointerGetDatum(vec);
+    indexNulls[0] = false;
+
     /* insert into page */
-    BlockNumber blkno = InsertVectorIntoPage(index, vec,
+    BlockNumber blkno = InsertVectorIntoPage(index, indexValues, indexNulls,
                                              -1,  // calculate sqrSum by VectorSquareNorm
                                              heaptid, metaPage, building);
 
@@ -378,21 +497,18 @@ BlockNumber InsertTuple(Relation index, Datum* values, ItemPointer heaptid, Disk
     return blkno;
 }
 
-static void AddTupleToSort(Relation index, ItemPointer tid, Datum* values, DiskAnnBuildState* buildstate)
+static void AddTupleToSort(Relation index, ItemPointer tid, Datum* values, const bool* isnull,
+                           DiskAnnBuildState* buildstate)
 {
-    BlockNumber blkno;
-    Datum dst = PointerGetDatum(PG_DETOAST_DATUM(values[0]));
-    Vector* value = (Vector*)DatumGetPointer(dst);
-    float* data = value->x;
-
-    Datum insertValue[1];
-    int dim = buildstate->dimensions;
-    Vector* insertVector = InitVector(dim);
-    errno_t rc = memcpy_s(&insertVector->x[0], dim * sizeof(float), data, dim * sizeof(float));
-    securec_check_c(rc, "\0", "\0");
-    insertValue[0] = PointerGetDatum(insertVector);
-
-    blkno = InsertTuple(index, insertValue, tid, &buildstate->metaPage, true);
+    BlockNumber blkno = InsertTuple(index, values, isnull, tid, &buildstate->metaPage, true);
+    /*
+     * [P1-3a] Only valid blocks enter the list and the tuple count (design
+     * doc 11.2): NULL keys are skipped earlier by BuildCallback, but a
+     * failed norm check returns InvalidBlockNumber here.
+     */
+    if (!BlockNumberIsValid(blkno)) {
+        return;
+    }
     // parallel build
     if (buildstate->diskannleader) {
         DiskAnnShared *shared = buildstate->diskannleader->diskannshared;
@@ -404,7 +520,6 @@ static void AddTupleToSort(Relation index, ItemPointer tid, Datum* values, DiskA
         buildstate->blocksList.push_back(blkno);
     }
     buildstate->indtuples++;
-    pfree(insertVector);
 }
 
 static void BuildCallback(Relation index, CALLBACK_ITEM_POINTER, Datum* values, const bool* isnull, bool tupleIsAlive,
@@ -424,7 +539,7 @@ static void BuildCallback(Relation index, CALLBACK_ITEM_POINTER, Datum* values, 
     oldCtx = MemoryContextSwitchTo(buildstate->tmpCtx);
 
     /* Add tuple to sort */
-    AddTupleToSort(index, tid, values, buildstate);
+    AddTupleToSort(index, tid, values, isnull, buildstate);
 
     /* Reset memory context */
     MemoryContextSwitchTo(oldCtx);
@@ -445,6 +560,16 @@ static void DiskAnnParallelScanAndInsert(Relation heapRel, Relation indexRel, Di
     indexInfo = BuildIndexInfo(indexRel);
     InitBuildState(&buildstate, heapRel, indexRel, indexInfo, true);
     DiskANNGetMetaPageInfo(indexRel, &buildstate.metaPage);
+    /*
+     * [P0-4] The metapage read no longer resurrects the persisted params
+     * pointer (which was the leader process' address — undefined in this
+     * worker). Rebuild PQ params from the relation's cached PQ pages.
+     */
+    if (buildstate.metaPage.enablePQ) {
+        FmgrInfo *workerProcinfo = index_getprocinfo(indexRel, 1, DISKANN_DISTANCE_PROC);
+        buildstate.metaPage.params =
+            InitDiskPQParamsOnDisk(indexRel, workerProcinfo, buildstate.metaPage.dimensions, true, false);
+    }
     DiskAnnLeader tmpLeader;
     tmpLeader.diskannshared = diskannshared;
     buildstate.diskannleader = &tmpLeader;
@@ -635,6 +760,15 @@ static void CreateEntryPages(DiskAnnBuildState* buildstate)
     DiskAnnBench("DiskAnn assign tuples", AssignTuples(buildstate));
 }
 
+/*
+ * [P1-3a] The frozen point is a navigation-only node. For INCLUDE indexes
+ * (one row per node, no duplicate merging) it must NOT carry a real heap
+ * TID or a real payload: with merging disabled there is no master/slave
+ * collapse hiding the duplicate, so a real TID here would return that heap
+ * row twice (reproduced by the T2 phase-1 evidence). Legacy vector-only
+ * indexes keep the historical behavior (the duplicate-merge path relies on
+ * the sampled TID; design doc 10.2).
+ */
 static BlockNumber GenerateFrozenPoint(DiskAnnBuildState* buildstate)
 {
     /* select frozen point randomly */
@@ -652,8 +786,29 @@ static BlockNumber GenerateFrozenPoint(DiskAnnBuildState* buildstate)
         memcpy_s(&vector->x[0], buildstate->dimensions * sizeof(float), vec, buildstate->dimensions * sizeof(float));
     securec_check_c(rc, "\0", "\0");
 
+    Relation index = buildstate->index;
+    int natts = Min(RelationGetNumberOfAttributes(index), INDEX_MAX_KEYS);
+
+    Datum frozenValues[INDEX_MAX_KEYS];
+    bool frozenNulls[INDEX_MAX_KEYS];
+    frozenValues[0] = PointerGetDatum(vector);
+    frozenNulls[0] = false;
+    if (DiskAnnIndexHasInclude(index)) {
+        /* navigation-only: invalid TID, all-NULL payload */
+        ItemPointerSetInvalid(&hctid);
+        for (int i = 1; i < natts; i++) {
+            frozenValues[i] = (Datum)0;
+            frozenNulls[i] = true;
+        }
+    } else {
+        for (int i = 1; i < natts; i++) {
+            frozenValues[i] = (Datum)0;
+            frozenNulls[i] = true;
+        }
+    }
+
     /* insert into page */
-    BlockNumber blkno = InsertVectorIntoPage(buildstate->index, vector,
+    BlockNumber blkno = InsertVectorIntoPage(index, frozenValues, frozenNulls,
                                              sqrSum,  // use vec sqrsum
                                              &hctid, &buildstate->metaPage, true);
 
@@ -794,6 +949,10 @@ static void BuildIndex(Relation heap, Relation index, IndexInfo* indexInfo, Disk
                        ForkNumber forkNum)
 {
     InitBuildState(buildstate, heap, index, indexInfo, false);
+    /* [P0-5] record the target fork once; all build-time page creation
+     * (metapage, lock page, PQ pages) must write here so the unlogged
+     * init-fork template matches the main-fork format. */
+    buildstate->forkNum = forkNum;
 
     if (buildstate->enablePQ) {
         GeneratePQData(buildstate);
@@ -808,6 +967,12 @@ static void BuildIndex(Relation heap, Relation index, IndexInfo* indexInfo, Disk
 
     buildstate->graphStore = New(CurrentMemoryContext) DiskAnnGraphStore(index);
     DiskANNGetMetaPageInfo(index, &buildstate->metaPage);
+    /*
+     * [P0-4] The metapage reader now forces params=NULL (the persisted slot
+     * is not a valid address to hand out). The serial build reattaches the
+     * in-process PQ object that CreateMetaPage serialized.
+     */
+    buildstate->metaPage.params = buildstate->params;
     CreateEntryPages(buildstate);
 
     BuildVamanaIndex(buildstate);

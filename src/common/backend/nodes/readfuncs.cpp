@@ -4461,6 +4461,26 @@ static AnnIndexScan* _readAnnIndexScan(AnnIndexScan* local_node)
     IF_EXIST(is_partial) {
         READ_BOOL_FIELD(is_partial);
     }
+    /*
+     * [P1-6] IF_EXIST gives older plans the safe defaults (makeNode zeroed:
+     * index_only_scan=false, indextlist=NIL - join-back semantics).
+     */
+    IF_EXIST(index_only_scan) {
+        READ_BOOL_FIELD(index_only_scan);
+    }
+    IF_EXIST(indextlist) {
+        READ_NODE_FIELD(indextlist);
+    }
+    /* [P2-1] in-filter fields; older plans keep NIL/NONE (join-back) */
+    IF_EXIST(filterMode) {
+        READ_ENUM_FIELD(filterMode, AnnFilterMode);
+    }
+    IF_EXIST(infilterqual) {
+        READ_NODE_FIELD(infilterqual);
+    }
+    IF_EXIST(infilterqualorig) {
+        READ_NODE_FIELD(infilterqualorig);
+    }
     READ_DONE();
 }
 

@@ -18,6 +18,7 @@
 #include "postgres.h"
 #include "knl/knl_variable.h"
 
+#include "access/amapi.h"
 #include "access/cstore_delta.h"
 #include "access/nbtree.h"
 #include "access/reloptions.h"
@@ -447,6 +448,112 @@ static List *ExtractSubPartitionIdf(IndexStmt* stmt, List *subPartitionOidList, 
 
     list_free_ext(backupIdxdef);
     return subPartitionIdf;
+}
+
+/*
+ * [P1-1] DiskANN-specific restrictions for CREATE INDEX ... USING diskann
+ * with INCLUDE columns (design doc section 8.1, V1 scope): non-partitioned
+ * Astore, exactly one vector(n) key column, plain INCLUDE columns of
+ * supported types only.
+ */
+static bool DiskAnnIndexHasInclude(Relation index);
+static void CheckDiskAnnIncludeRestrictions(IndexStmt* stmt, Relation rel)
+{
+    ListCell* cell = NULL;
+
+    if (list_length(stmt->indexParams) != 1) {
+        ereport(ERROR,
+            (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                errmsg("DiskANN index supports only one key column")));
+    }
+
+    if (stmt->isPartitioned || stmt->isGlobal || stmt->crossbucket) {
+        ereport(ERROR,
+            (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                errmsg("DiskANN included columns are not supported on partitioned or cross-bucket indexes")));
+    }
+
+    if (rel->rd_tam_ops == TableAmUstore) {
+        ereport(ERROR,
+            (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                errmsg("DiskANN included columns are not supported on ustore tables")));
+    }
+
+    if (RelationImmediateDelete(rel)) {
+        ereport(ERROR,
+            (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                errmsg("DiskANN included columns are not supported on tables with immediate_delete enabled")));
+    }
+
+    TupleDesc tupdesc = RelationGetDescr(rel);
+    IndexElem* keyElem = (IndexElem*)linitial(stmt->indexParams);
+    Form_pg_attribute keyAttr = NULL;
+    for (int i = 0; i < tupdesc->natts; i++) {
+        Form_pg_attribute attr = &tupdesc->attrs[i];
+        if (keyElem->name != NULL && strncmp(NameStr(attr->attname), keyElem->name, NAMEDATALEN) == 0) {
+            keyAttr = attr;
+            break;
+        }
+    }
+    if (keyAttr == NULL || keyAttr->atttypid != VECTOROID || keyAttr->atttypmod <= 0) {
+        ereport(ERROR,
+            (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                errmsg("DiskANN index key must be a vector column with explicit dimensions")));
+    }
+
+    foreach (cell, stmt->indexIncludingParams) {
+        IndexElem* elem = (IndexElem*)lfirst(cell);
+        if (elem->name == NULL) {
+            ereport(ERROR,
+                (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                    errmsg("DiskANN included columns must be plain columns, not expressions")));
+        }
+        Form_pg_attribute attr = NULL;
+        for (int i = 0; i < tupdesc->natts; i++) {
+            Form_pg_attribute candidate = &tupdesc->attrs[i];
+            if (strncmp(NameStr(candidate->attname), elem->name, NAMEDATALEN) == 0) {
+                attr = candidate;
+                break;
+            }
+        }
+        if (attr == NULL) {
+            ereport(ERROR,
+                (errcode(ERRCODE_INVALID_COLUMN_DEFINITION),
+                    errmsg("column \"%s\" named in included columns does not exist", elem->name)));
+        }
+        bool typeOk = false;
+        switch (attr->atttypid) {
+            case BOOLOID:
+            case INT2OID:
+            case INT4OID:
+            case INT8OID:
+            case FLOAT4OID:
+            case FLOAT8OID:
+            case DATEOID:
+            case TIMEOID:
+            case TIMESTAMPOID:
+            case TIMESTAMPTZOID:
+            case UUIDOID:
+                typeOk = true;
+                break;
+            /* bounded-length varlena / fixed-precision numeric only (V1) */
+            case NUMERICOID:
+            case BPCHAROID:
+            case VARCHAROID:
+            case NVARCHAR2OID:
+                typeOk = (attr->atttypmod > 0);
+                break;
+            default:
+                typeOk = false;
+                break;
+        }
+        if (!typeOk) {
+            ereport(ERROR,
+                (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                    errmsg("column \"%s\" of type %s is not supported in DiskANN included columns",
+                        elem->name, format_type_be(attr->atttypid))));
+        }
+    }
 }
 
 static bool CheckIndexIncludingParams(IndexStmt* stmt)
@@ -1009,11 +1116,13 @@ ObjectAddress DefineIndex(Oid relationId, IndexStmt* stmt, Oid indexRelationId, 
         AddIndexColumnForCbi(stmt);
     }
 
-    if (strcmp(stmt->accessMethod, "ubtree") != 0 && CheckIndexIncludingParams(stmt)) {
-        ereport(ERROR,
-            (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-                errmsg("create a index with include columns is only supported in ubtree")));
-    }
+    /*
+     * [P1-1] INCLUDE capability is now checked against the access method's
+     * IndexAmRoutine after pg_am is looked up below (amcaninclude flag), and
+     * DiskANN-specific restrictions are enforced by
+     * CheckDiskAnnIncludeRestrictions(). The historical ubtree name
+     * whitelist is removed (design doc section 8.1).
+     */
 
     if ((u_sess->attr.attr_sql.dolphin && listIntersectionIncludeIndex(stmt->indexParams, stmt->indexIncludingParams) != NIL) ||
         (list_intersection(stmt->indexParams, stmt->indexIncludingParams) != NIL)) {
@@ -1299,10 +1408,41 @@ ObjectAddress DefineIndex(Oid relationId, IndexStmt* stmt, Oid indexRelationId, 
             (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
                 errmsg("access method \"%s\" does not support unique indexes", accessMethodName)));
 
-    if (numberOfAttributes > 1 && !accessMethodForm->amcanmulticol)
+    /*
+     * [P1-1] Multicolumn capability applies to *key* columns only: INCLUDE
+     * columns are payloads, not searchable keys, and must not trip this
+     * check for single-key AMs like DiskANN (design doc section 4.10).
+     */
+    if (numberOfKeyAttributes > 1 && !accessMethodForm->amcanmulticol)
         ereport(ERROR,
             (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
                 errmsg("access method \"%s\" does not support multicolumn indexes", accessMethodName)));
+
+    /*
+     * [P1-1] INCLUDE-column capability (design doc section 8.1): ask the AM
+     * handler instead of the historical name whitelist. pg_am has no
+     * amcaninclude column; the flag lives in the handler's IndexAmRoutine.
+     * AMs without a handler keep the legacy-compatible result (ubtree only).
+     */
+    if (CheckIndexIncludingParams(stmt)) {
+        Oid amhandlerId = accessMethodForm->amhandler; /* copy before syscache release */
+        bool amCanInclude = false;
+        if (OidIsValid(amhandlerId)) {
+            IndexAmRoutine* amroutine = get_index_amroutine(amhandlerId, accessMethodName);
+            amCanInclude = amroutine->amcaninclude;
+            pfree_ext(amroutine);
+        } else {
+            amCanInclude = (accessMethodId == UBTREE_AM_OID);
+        }
+        if (!amCanInclude) {
+            ereport(ERROR,
+                (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                    errmsg("access method \"%s\" does not support included columns", accessMethodName)));
+        }
+        if (accessMethodId == DISKANN_AM_OID) {
+            CheckDiskAnnIncludeRestrictions(stmt, rel);
+        }
+    }
     if (stmt->excludeOpNames && !OidIsValid(accessMethodForm->amgettuple))
         ereport(ERROR,
             (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),

@@ -2520,6 +2520,10 @@ IndexPath* create_index_path(PlannerInfo* root, IndexOptInfo* index, List* index
 
     pathnode->is_ustore = rel->is_ustore;
     pathnode->isAnnIndex = isAnnIndex;
+    /* [P1-5] carry the index-only verdict to createplan (baseline dropped
+     * it here; design doc 13.4). ANN pathtype stays T_AnnIndexScan either
+     * way - the executor branch (P1-7) reads this flag. */
+    pathnode->indexOnly = indexonly;
 
     pathnode->path.pathtype = isAnnIndex ? T_AnnIndexScan : (indexonly ? T_IndexOnlyScan : T_IndexScan);
     pathnode->path.parent = rel;

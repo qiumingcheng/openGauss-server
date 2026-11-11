@@ -327,6 +327,9 @@ void GetPlanNodePlainText(
             *pt_operation = "INDEX";
             if (((AnnIndexScan*)plan)->scan.isPartTbl) {
                 *pname = *sname = *pt_options = "Partitioned Ann Index Scan";
+            } else if (((AnnIndexScan*)plan)->index_only_scan) {
+                /* [P1-7] index-only ANN plan name (design doc 21) */
+                *pname = *sname = *pt_options = "Ann Index Only Scan";
             } else {
                 *pname = *sname = *pt_options = "Ann Index Scan";
             }

@@ -138,6 +138,10 @@ static Bitmapset* get_bitmap_tree_required_upper(Path* bitmapqual);
 static void find_indexpath_quals(Path* bitmapqual, List** quals, List** preds);
 static int find_list_position(Node* node, List** nodelist);
 static bool check_index_only(PlannerInfo* root, RelOptInfo* rel, IndexOptInfo* index);
+static void collect_ann_infilter_clauses(PlannerInfo* root, RelOptInfo* rel, IndexOptInfo* index,
+    List** ann_quals, List** ann_qualcols);
+static bool ann_clause_matches_include(RestrictInfo* rinfo, IndexOptInfo* index, int* indexcol_out);
+static Selectivity ann_infilter_combined_selectivity(PlannerInfo* root, RelOptInfo* rel, List* annQuals);
 static double get_loop_count(PlannerInfo* root, Relids outer_relids);
 static void match_restriction_clauses_to_index(RelOptInfo* rel, IndexOptInfo* index, IndexClauseSet* clauseset);
 static void match_join_clauses_to_index(
@@ -1066,6 +1070,17 @@ static List* build_index_paths(PlannerInfo* root, RelOptInfo* rel, IndexOptInfo*
         if ((relHasbkt && !index->crossbucket)) {
             useful_pathkeys = NIL;
         }
+        /*
+         * [P2-1] In-filter classification (design doc 13.2): whitelist-shaped
+         * predicates over INCLUDE columns annotate the path; the original
+         * clauses STAY in qpqual for the correctness recheck.
+         */
+        List* annInQuals = NIL;
+        List* annInQualCols = NIL;
+        if (index->isAnnIndex && index->relam == DISKANN_AM_OID && index->ncolumns > index->nkeycolumns &&
+            ST_BITMAPSCAN != scantype) {
+            collect_ann_infilter_clauses(root, rel, index, &annInQuals, &annInQualCols);
+        }
         ipath = create_index_path(root,
             index,
             index_clauses,
@@ -1078,6 +1093,12 @@ static List* build_index_paths(PlannerInfo* root, RelOptInfo* rel, IndexOptInfo*
             outer_relids,
             upper_params,
             loop_count);
+        ipath->annQuals = annInQuals;
+        ipath->annQualCols = annInQualCols;
+        if (annInQuals != NIL) {
+            /* [P2-5] combined filter selectivity for the AM cost estimator */
+            ipath->annQualSelectivity = ann_infilter_combined_selectivity(root, rel, annInQuals);
+        }
         result = lappend(result, ipath);
         if (can_parallel) {
             ipath = create_index_path(root,
@@ -1093,6 +1114,8 @@ static List* build_index_paths(PlannerInfo* root, RelOptInfo* rel, IndexOptInfo*
                 upper_params,
                 loop_count,
                 u_sess->opt_cxt.query_dop);
+            ipath->annQuals = annInQuals;
+            ipath->annQualCols = annInQualCols;
             result = lappend(result, ipath);
         }
     }
@@ -2046,6 +2069,190 @@ static int find_list_position(Node* node, List** nodelist)
     return i;
 }
 
+
+/*
+ * [P2-1] Classify restriction clauses for DiskANN in-index filtering
+ * (design doc 13.2). Whitelist shapes over INCLUDE columns only; the
+ * clauses are NOT removed from the baserestrictinfo - they stay in qpqual
+ * as the correctness recheck. Output: ann_quals (RestrictInfos) and
+ * ann_qualcols (zero-based index positions of the INCLUDE columns).
+ */
+static void collect_ann_infilter_clauses(PlannerInfo* root, RelOptInfo* rel, IndexOptInfo* index,
+    List** ann_quals, List** ann_qualcols)
+{
+    ListCell* lc = NULL;
+
+    *ann_quals = NIL;
+    *ann_qualcols = NIL;
+
+    foreach (lc, rel->baserestrictinfo) {
+        RestrictInfo* rinfo = (RestrictInfo*)lfirst(lc);
+        int indexcol = -1;
+
+        if (!ann_clause_matches_include(rinfo, index, &indexcol)) {
+            continue;
+        }
+        *ann_quals = lappend(*ann_quals, rinfo);
+        *ann_qualcols = lappend_int(*ann_qualcols, indexcol);
+    }
+}
+
+/*
+ * [P2-5] Combined selectivity of the classified in-filter clauses (AND of
+ * independent estimates; clauselist_selectivity over the subset). Consumed
+ * by the DiskANN AM cost estimator via IndexPath.annQualSelectivity.
+ */
+static Selectivity ann_infilter_combined_selectivity(PlannerInfo* root, RelOptInfo* rel, List* annQuals)
+{
+    Selectivity sel = 1.0;
+    ListCell* lc = NULL;
+
+    foreach (lc, annQuals) {
+        RestrictInfo* rinfo = (RestrictInfo*)lfirst(lc);
+        sel *= rinfo->norm_selec > 0 ? rinfo->norm_selec : 0.001;
+    }
+    if (sel < 0.0) {
+        sel = 0.0;
+    }
+    if (sel > 1.0) {
+        sel = 1.0;
+    }
+    return sel;
+}
+
+/*
+ * [P2-1] Whitelist shape check (design doc 13.2):
+ *   included_col op Const / Const op included_col (commuted)
+ *   included_col op PARAM_EXTERN   (PARAM_EXEC deferred - V1)
+ *   included_col IS [NOT] NULL
+ *   included_col IN (Const/Param ...)        [ScalarArrayOpExpr]
+ *   BooleanTest over an included boolean column
+ * A clause qualifies only when every Var it references is a plain column of
+ * this single base relation that lives in the index INCLUDE section, and
+ * every operator function is immutable. OR / NOT / LIKE / regex / volatile
+ * or user-defined functions stay in qpqual (post-filter semantics).
+ */
+static bool ann_clause_matches_include(RestrictInfo* rinfo, IndexOptInfo* index, int* indexcol_out)
+{
+    Expr* clause = rinfo->clause;
+    Var* colvar = NULL;
+    int indexcol = -1;
+    int i;
+
+    /* reject subplans/SRFs/RWs up front: clause is a bare Expr in that case */
+    if (rinfo->clause == NULL || contain_subplans((Node*)clause) ||
+        contain_mutable_functions((Node*)clause)) {
+        return false;
+    }
+
+    switch (nodeTag(clause)) {
+        case T_OpExpr: {
+            OpExpr* op = (OpExpr*)clause;
+            Node* left = NULL;
+            Node* right = NULL;
+            Expr* varside = NULL;
+            bool var_on_left = false;
+
+            if (list_length(op->args) != 2) {
+                return false;
+            }
+            left = (Node*)linitial(op->args);
+            right = (Node*)lsecond(op->args);
+            if (IsA(left, Var) && IsA(right, Const)) {
+                varside = (Expr*)left;
+                var_on_left = true;
+            } else if (IsA(left, Const) && IsA(right, Var)) {
+                varside = (Expr*)right;
+                var_on_left = false;
+            } else if (IsA(left, Var) && IsA(right, Param) &&
+                       ((Param*)right)->paramkind == PARAM_EXTERN) {
+                varside = (Expr*)left;
+                var_on_left = true;
+            } else if (IsA(left, Param) && ((Param*)left)->paramkind == PARAM_EXTERN &&
+                       IsA(right, Var)) {
+                varside = (Expr*)right;
+                var_on_left = false;
+            } else {
+                return false;
+            }
+            /* operator function must be immutable (get_opcode returns its fno) */
+            {
+                Oid opcode = get_opcode(op->opno);
+                if (!OidIsValid(opcode) || func_volatile(opcode) != PROVOLATILE_IMMUTABLE) {
+                    return false;
+                }
+            }
+            (void)var_on_left;
+            colvar = (Var*)varside;
+            break;
+        }
+        case T_NullTest: {
+            NullTest* nt = (NullTest*)clause;
+            if (!IsA(nt->arg, Var)) {
+                return false;
+            }
+            colvar = (Var*)nt->arg;
+            break;
+        }
+        case T_ScalarArrayOpExpr: {
+            ScalarArrayOpExpr* saop = (ScalarArrayOpExpr*)clause;
+            Node* left = NULL;
+            ListCell* acell = NULL;
+
+            if (!saop->useOr || list_length(saop->args) < 2) {
+                return false;
+            }
+            left = (Node*)linitial(saop->args);
+            if (!IsA(left, Var)) {
+                return false;
+            }
+            /* every array element must be Const or PARAM_EXTERN */
+            for (i = 1; i < list_length(saop->args); i++) {
+                Node* elem = (Node*)list_nth(saop->args, i);
+                if (!(IsA(elem, Const) ||
+                      (IsA(elem, Param) && ((Param*)elem)->paramkind == PARAM_EXTERN))) {
+                    return false;
+                }
+            }
+            (void)acell;
+            {
+                Oid opcode = get_opcode(saop->opno);
+                if (!OidIsValid(opcode) || func_volatile(opcode) != PROVOLATILE_IMMUTABLE) {
+                    return false;
+                }
+            }
+            colvar = (Var*)left;
+            break;
+        }
+        case T_BooleanTest: {
+            BooleanTest* bt = (BooleanTest*)clause;
+            if (!IsA(bt->arg, Var)) {
+                return false;
+            }
+            colvar = (Var*)bt->arg;
+            break;
+        }
+        default:
+            return false;
+    }
+
+    /* the single referenced column must live in the INCLUDE section */
+    if (colvar->varno != index->rel->relid || colvar->varlevelsup != 0) {
+        return false;
+    }
+    for (i = index->nkeycolumns; i < index->ncolumns; i++) {
+        if (index->indexkeys[i] == colvar->varattno) {
+            indexcol = i;
+            break;
+        }
+    }
+    if (indexcol < 0) {
+        return false;
+    }
+    *indexcol_out = indexcol;
+    return true;
+}
+
 /*
  * check_index_only
  *		Determine whether an index-only scan is possible for this index.
@@ -2084,7 +2291,26 @@ static bool check_index_only(PlannerInfo* root, RelOptInfo* rel, IndexOptInfo* i
      * look at rel's targetlist, not the attr_needed data, because attr_needed
      * isn't computed for inheritance child rels.
      */
-    pull_varattnos((Node*)rel->reltarget->exprs, rel->relid, &attrs_used);
+    if (index->returnableHeapAttrs != NULL) {
+        /*
+         * [P1-7] DiskANN (design doc 13.4 point 2): the vector key referenced
+         * solely by the resjunk ORDER BY distance expression is consumed by
+         * the AM itself and must not count as a column that has to be
+         * returnable. Collect attributes from non-junk targetlist entries
+         * (via the parse targetList, which still carries resjunk markers)
+         * plus the restriction clauses.
+         */
+        foreach (lc, root->parse->targetList) {
+            TargetEntry* tle = (TargetEntry*)lfirst(lc);
+
+            if (tle->resjunk) {
+                continue;
+            }
+            pull_varattnos((Node*)tle->expr, rel->relid, &attrs_used);
+        }
+    } else {
+        pull_varattnos((Node*)rel->reltarget->exprs, rel->relid, &attrs_used);
+    }
 
     /* Add all the attributes used by restriction clauses. */
     foreach (lc, rel->baserestrictinfo) {
@@ -2094,17 +2320,29 @@ static bool check_index_only(PlannerInfo* root, RelOptInfo* rel, IndexOptInfo* i
     }
 
     /* Construct a bitmapset of columns stored in the index. */
-    for (i = 0; i < index->ncolumns; i++) {
-        int attno = index->indexkeys[i];
-
+    if (index->returnableHeapAttrs != NULL) {
         /*
-         * For the moment, we just ignore index expressions.  It might be nice
-         * to do something with them, later.
+         * [P1-5] DiskANN (design doc 13.1): only INCLUDE columns are
+         * returnable - the vector key may be stored normalized and must
+         * never be returned as the heap column value. Use the per-column
+         * bitmap built in plancat instead of treating every index column
+         * as returnable. (Dispatch-in-place instead of a separate
+         * check_ann_index_only: identical semantics, less call-site churn.)
          */
-        if (attno == 0)
-            continue;
+        index_attrs = bms_copy(index->returnableHeapAttrs);
+    } else {
+        for (i = 0; i < index->ncolumns; i++) {
+            int attno = index->indexkeys[i];
 
-        index_attrs = bms_add_member(index_attrs, attno - FirstLowInvalidHeapAttributeNumber);
+            /*
+             * For the moment, we just ignore index expressions.  It might be nice
+             * to do something with them, later.
+             */
+            if (attno == 0)
+                continue;
+
+            index_attrs = bms_add_member(index_attrs, attno - FirstLowInvalidHeapAttributeNumber);
+        }
     }
 
     /* Do we have all the necessary attributes? */

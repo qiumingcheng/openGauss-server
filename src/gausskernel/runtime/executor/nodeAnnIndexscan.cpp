@@ -21,15 +21,20 @@
  *		ExecAnnIndexRestrPos		restores scan position.
  */
 #include "postgres.h"
+
 #include "knl/knl_variable.h"
 
 #include "access/relscan.h"
+#include "access/datavec/diskannfilter.h"
+#include "access/datavec/diskann.h"
+#include "access/visibilitymap.h"
 #include "access/tableam.h"
 #include "catalog/pg_partition_fn.h"
 #include "commands/cluster.h"
 #include "executor/exec/execdebug.h"
 #include "executor/node/nodeIndexscan.h"
 #include "optimizer/clauses.h"
+#include "storage/predicate.h"
 #include "storage/tcap.h"
 #include "utils/array.h"
 #include "utils/lsyscache.h"
@@ -53,6 +58,89 @@ static void ExecInitNextPartitionForAnnIndexScan(AnnIndexScanState* node);
  *		using the index specified in the IndexScanState information.
  * ----------------------------------------------------------------
  */
+static TupleTableSlot* AnnIndexNext(AnnIndexScanState* node);
+
+/*
+ * [P1-7] Index-only ANN next (design doc 17): fetch TIDs from the DiskANN AM,
+ * check heap visibility via the visibility map (Astore only - V1 scope),
+ * and fill the scan slot from the complete IndexTuple the AM copied for us.
+ * Modeled on IndexOnlyNext's Astore path; GPI/CBI/Ustore/partition forms are
+ * excluded from index-only ANN by DDL and planner gating.
+ */
+static TupleTableSlot* AnnIndexOnlyNext(AnnIndexScanState* node)
+{
+    EState* estate = node->ss.ps.state;
+    ScanDirection direction = estate->es_direction;
+    ExprContext* econtext = node->ss.ps.ps_ExprContext;
+    TupleTableSlot* slot = node->ss.ss_ScanTupleSlot;
+    IndexScanDesc scandesc = node->iss_ScanDesc;
+    ItemPointer tid = NULL;
+
+    if (ScanDirectionIsBackward(((AnnIndexScan*)node->ss.ps.plan)->indexorderdir)) {
+        if (ScanDirectionIsForward(direction))
+            direction = BackwardScanDirection;
+        else if (ScanDirectionIsBackward(direction))
+            direction = ForwardScanDirection;
+    }
+
+    scandesc->count = 0;
+    scandesc->limitk = (int64_t)node->limitCount;
+
+    while ((tid = scan_handler_idx_getnext_tid(scandesc, direction)) != NULL) {
+        IndexScanDesc indexScan = GetIndexScanDesc(scandesc);
+        HeapTuple tuple = NULL;
+
+        CHECK_FOR_INTERRUPTS();
+
+        /*
+         * The AM skips stale candidates internally; a NULL xs_itup means the
+         * entry was dropped (concurrent VACUUM/DML) - getnext_tid returns
+         * non-NULL only for entries it emitted, so treat missing tuples as
+         * skipped and loop.
+         */
+        if (indexScan->xs_itup == NULL) {
+            continue;
+        }
+
+        /*
+         * Skip the heap fetch when the page is all-visible; otherwise visit
+         * the heap just to confirm visibility - output values still come
+         * from the index tuple.
+         */
+        if (!visibilitymap_test(indexScan->heapRelation, ItemPointerGetBlockNumber(tid), &node->iss_VMBuffer)) {
+            node->iss_HeapFetches++;
+            if (!IndexFetchSlot(indexScan, slot, false, &node->ss.ps.state->have_current_xact_date)) {
+                continue; /* no visible tuple at this TID, try the next */
+            }
+            if (indexScan->xs_continue_hot) {
+                ereport(ERROR,
+                    (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                        errmsg("non-MVCC snapshots are not supported in index-only scans")));
+            }
+            tuple = (HeapTuple)slot->tts_tuple;
+        }
+
+        StoreIndexTuple(slot, indexScan->xs_itup, indexScan->xs_itupdesc);
+
+        if (indexScan->xs_recheck) {
+            econtext->ecxt_scantuple = slot;
+            ResetExprContext(econtext);
+            if (!ExecQual(node->indexqualorig, econtext, false)) {
+                InstrCountFiltered2(node, 1);
+                continue;
+            }
+        }
+
+        /* page-level predicate lock when the heap was not visited */
+        if (tuple == NULL)
+            PredicateLockPage(indexScan->heapRelation, ItemPointerGetBlockNumber(tid), estate->es_snapshot);
+
+        return slot;
+    }
+
+    return ExecClearTuple(slot);
+}
+
 static TupleTableSlot* AnnIndexNext(AnnIndexScanState* node)
 {
     EState* estate = NULL;
@@ -189,6 +277,10 @@ static TupleTableSlot* ExecAnnIndexScan(PlanState* state)
         ExecIndexEvalRuntimeKeys(econtext, node->iss_RuntimeKeys, node->iss_NumRuntimeKeys);
     }
 
+    if (node->iss_IndexOnly) {
+        /* [P1-7] index-only access path (design doc 17) */
+        return ExecScan(&node->ss, (ExecScanAccessMtd)AnnIndexOnlyNext, (ExecScanRecheckMtd)AnnIndexRecheck);
+    }
     return ExecScan(&node->ss, (ExecScanAccessMtd)AnnIndexNext, (ExecScanRecheckMtd)AnnIndexRecheck);
 }
 
@@ -203,8 +295,21 @@ static TupleTableSlot* ExecAnnIndexScan(PlanState* state)
  *		rescans of indices and relations/general streams more uniform.
  * ----------------------------------------------------------------
  */
+static void AnnIndexRefreshFilterArgs(AnnIndexScanState* node);
+
 void ExecReScanAnnIndexScan(AnnIndexScanState* node)
 {
+    /* [P1-7] drop the VM pin across rescans (redone on demand) */
+    if (node->iss_VMBuffer != InvalidBuffer) {
+        ReleaseBuffer(node->iss_VMBuffer);
+        node->iss_VMBuffer = InvalidBuffer;
+    }
+
+    /* [P2-2] re-evaluate filter arguments with fresh param values */
+    if (node->iss_FilterDesc != NULL) {
+        AnnIndexRefreshFilterArgs(node);
+    }
+
     /*
      * For recursive-stream rescan, if number of RuntimeKeys not euqal zero,
      * just return without rescan.
@@ -286,6 +391,20 @@ void ExecEndAnnIndexScan(AnnIndexScanState* node)
     index_relation_desc = node->iss_RelationDesc;
     index_scan_desc = node->iss_ScanDesc;
     relation = node->ss.ss_currentRelation;
+
+    /* [P2-2] filter contexts: arg ctx is a child of fn ctx, one delete both */
+    if (node->iss_FilterFnCtx != NULL) {
+        MemoryContextDelete(node->iss_FilterFnCtx);
+        node->iss_FilterFnCtx = NULL;
+        node->iss_FilterArgCtx = NULL;
+        node->iss_FilterDesc = NULL;
+    }
+
+    /* [P1-7] release the visibility-map pin before closing relations */
+    if (node->iss_VMBuffer != InvalidBuffer) {
+        ReleaseBuffer(node->iss_VMBuffer);
+        node->iss_VMBuffer = InvalidBuffer;
+    }
 
     /*
      * Free the exprcontext(s) ... now dead code, see ExecFreeExprContext
@@ -501,6 +620,166 @@ void ExecInitAnnIndexRelation(AnnIndexScanState* node, EState* estate, int eflag
     return;
 }
 
+
+/*
+ * [P2-2] Compile the runtime filter descriptor from infilterqualorig
+ * (design doc 15.1, compiled from orig per D-016). Validates operator
+ * types/collation/strictness rather than trusting the planner, maps heap
+ * attnos to index attnos via the full index tlist, installs FmgrInfo into
+ * the long-lived filterFnCtx and current argument Datums into filterArgCtx.
+ * Params are evaluated through the scan's ExprContext and re-evaluated on
+ * every rescan by AnnIndexRefreshFilterArgs().
+ */
+static AttrNumber AnnIndexFilterMapAttno(AnnIndexScan* node, AttrNumber heapAttno)
+{
+    ListCell* lc = NULL;
+    AttrNumber pos = 1;
+
+    foreach (lc, node->indextlist) {
+        TargetEntry* tle = (TargetEntry*)lfirst(lc);
+        if (IsA(tle->expr, Var) && ((Var*)tle->expr)->varattno == heapAttno) {
+            return pos;
+        }
+        pos++;
+    }
+    return InvalidAttrNumber;
+}
+
+static bool AnnIndexBuildFilterDesc(AnnIndexScanState* node)
+{
+    AnnIndexScan* plan = (AnnIndexScan*)node->ss.ps.plan;
+    ListCell* lc = NULL;
+    int nkeys = list_length(plan->infilterqualorig);
+    int k = 0;
+
+    if (nkeys <= 0) {
+        node->iss_FilterDesc = NULL;
+        return true;
+    }
+    node->iss_FilterDesc = (DiskAnnFilterDesc*)MemoryContextAllocZero(
+        node->iss_FilterFnCtx, sizeof(DiskAnnFilterDesc) + nkeys * sizeof(DiskAnnFilterKey));
+    node->iss_FilterDesc->keys = (DiskAnnFilterKey*)((char*)node->iss_FilterDesc + sizeof(DiskAnnFilterDesc));
+    node->iss_FilterDesc->nkeys = nkeys;
+    node->iss_FilterDesc->maxExpansions = 0; /* P2-4 selects the expansion bound */
+
+    foreach (lc, plan->infilterqualorig) {
+        Expr* clause = (Expr*)lfirst(lc);
+        DiskAnnFilterKey* key = &node->iss_FilterDesc->keys[k];
+        Var* colvar = NULL;
+        Expr* argExpr = NULL;
+
+        errno_t rc = memset_s(key, sizeof(DiskAnnFilterKey), 0, sizeof(DiskAnnFilterKey));
+        securec_check(rc, "\0", "\0");
+
+        /* shape re-validation (design doc 15.1: do not trust planner OIDs) */
+        if (IsA(clause, OpExpr) && list_length(((OpExpr*)clause)->args) == 2) {
+            OpExpr* op = (OpExpr*)clause;
+            Node* left = (Node*)linitial(op->args);
+            Node* right = (Node*)lsecond(op->args);
+            if (IsA(left, Var) && (IsA(right, Const) || IsA(right, Param))) {
+                colvar = (Var*)left;
+                argExpr = (Expr*)right;
+            } else if (IsA(right, Var) && (IsA(left, Const) || IsA(left, Param))) {
+                colvar = (Var*)right;
+                argExpr = (Expr*)left;
+            } else {
+                return false;
+            }
+            key->kind = DISKANN_FILTER_OP;
+            key->operatorOid = op->opno;
+            key->functionOid = get_opcode(op->opno);
+            key->collation = op->opcollid;
+            key->leftType = op->opresulttype;
+            key->rightType = exprType((Node*)argExpr);
+        } else if (IsA(clause, NullTest) && IsA(((NullTest*)clause)->arg, Var)) {
+            NullTest* nt = (NullTest*)clause;
+            colvar = (Var*)nt->arg;
+            key->kind = nt->nulltesttype == IS_NOT_NULL ? DISKANN_FILTER_IS_NOT_NULL : DISKANN_FILTER_IS_NULL;
+        } else if (IsA(clause, ScalarArrayOpExpr)) {
+            ScalarArrayOpExpr* saop = (ScalarArrayOpExpr*)clause;
+            Node* left = (Node*)linitial(saop->args);
+            if (!saop->useOr || !IsA(left, Var)) {
+                return false;
+            }
+            colvar = (Var*)left;
+            key->kind = DISKANN_FILTER_ARRAY_ANY;
+            key->operatorOid = saop->opno;
+            key->functionOid = get_opcode(saop->opno);
+            key->collation = saop->inputcollid;
+            key->leftType = exprType(left);
+            key->rightType = BOOLOID; /* element compare result */
+        } else {
+            return false;
+        }
+
+        if (key->functionOid != InvalidOid) {
+            if (!OidIsValid(key->functionOid) || func_volatile(key->functionOid) != PROVOLATILE_IMMUTABLE) {
+                return false;
+            }
+            key->functionStrict = func_strict(key->functionOid);
+            fmgr_info_cxt(key->functionOid, &key->function, node->iss_FilterFnCtx);
+        }
+
+        /* map heap attno -> index attno (D-016: compile from orig form) */
+        key->indexAttno = AnnIndexFilterMapAttno(plan, colvar->varattno);
+        if (!AttributeNumberIsValid(key->indexAttno)) {
+            return false;
+        }
+
+        /* evaluate the Const/Param argument into filterArgCtx via a saved
+         * ExprState so rescans can re-evaluate with fresh param values */
+        if (argExpr != NULL) {
+            ExprState* argState = ExecInitExpr(argExpr, (PlanState*)node);
+            node->iss_FilterArgStates = lappend(node->iss_FilterArgStates, argState);
+        } else {
+            node->iss_FilterArgStates = lappend(node->iss_FilterArgStates, NULL);
+        }
+        k++;
+    }
+    return true;
+}
+
+
+/*
+ * [P2-2] (Re-)evaluate filter arguments (Consts recompute trivially, Params
+ * pick up new values) - called at init and after every rescan. Arguments
+ * are deep-copied into filterArgCtx; by-reference values must never point
+ * at a per-tuple context.
+ */
+static void AnnIndexRefreshFilterArgs(AnnIndexScanState* node)
+{
+    DiskAnnFilterDesc* desc = node->iss_FilterDesc;
+    ListCell* lc = NULL;
+    int k = 0;
+
+    if (desc == NULL) {
+        return;
+    }
+    MemoryContextReset(node->iss_FilterArgCtx);
+    foreach (lc, node->iss_FilterArgStates) {
+        ExprState* argState = (ExprState*)lfirst(lc);
+        DiskAnnFilterKey* key = &desc->keys[k];
+
+        key->argument = (Datum)0;
+        key->argumentIsNull = true;
+        if (argState != NULL) {
+            MemoryContext oldCtx = MemoryContextSwitchTo(node->iss_FilterArgCtx);
+            ExprDoneCond isDone = ExprSingleResult;
+            Datum val = ExecEvalExpr(argState, node->ss.ps.ps_ExprContext, &key->argumentIsNull, &isDone);
+            (void)MemoryContextSwitchTo(oldCtx);
+            if (!key->argumentIsNull) {
+                int16 typlen;
+                bool typbyval;
+                get_typlenbyval(exprType((Node*)argState->expr), &typlen, &typbyval);
+                key->argumentByVal = typbyval;
+                key->argumentLen = typlen;
+                key->argument = val;
+            }
+        }
+        k++;
+    }
+}
+
 AnnIndexScanState* ExecInitAnnIndexScan(AnnIndexScan* node, EState* estate, int eflags)
 {
     AnnIndexScanState* index_state = NULL;
@@ -564,8 +843,16 @@ AnnIndexScanState* ExecInitAnnIndexScan(AnnIndexScan* node, EState* estate, int 
 
     /*
      * get the scan type from the relation descriptor.
+     * [P1-7] index-only: the scan slot carries the FULL index TupleDesc
+     * (StoreIndexTuple asserts slot natts == xs_itupdesc->natts, so
+     * indextlist must describe every index attribute - design doc 17.1).
      */
-    ExecAssignScanType(&index_state->ss, CreateTupleDescCopy(RelationGetDescr(current_relation)));
+    index_state->iss_IndexOnly = node->index_only_scan;
+    if (node->index_only_scan) {
+        ExecAssignScanType(&index_state->ss, ExecTypeFromTL(node->indextlist, false, false));
+    } else {
+        ExecAssignScanType(&index_state->ss, CreateTupleDescCopy(RelationGetDescr(current_relation)));
+    }
     index_state->ss.ss_ScanTupleSlot->tts_tupleDescriptor->td_tam_ops = current_relation->rd_tam_ops;
 
     /*
@@ -576,7 +863,18 @@ AnnIndexScanState* ExecInitAnnIndexScan(AnnIndexScan* node, EState* estate, int 
     index_state->ss.ps.ps_ResultTupleSlot->tts_tupleDescriptor->td_tam_ops =
             index_state->ss.ss_ScanTupleSlot->tts_tupleDescriptor->td_tam_ops;
 
-    ExecAssignScanProjectionInfo(&index_state->ss);
+    if (index_state->iss_IndexOnly) {
+        /*
+         * [P1-7] The index-only targetlist references INDEX_VAR positions;
+         * tlist_matches_tupdesc() asserts plain scan-rel Vars and would
+         * fail on them. Build the projection directly against the full
+         * index-tuple slot (same descriptor ExecTypeFromTL(indextlist)
+         * produced above).
+         */
+        ExecAssignProjectionInfo(&index_state->ss.ps, index_state->ss.ss_ScanTupleSlot->tts_tupleDescriptor);
+    } else {
+        ExecAssignScanProjectionInfo(&index_state->ss);
+    }
 
     Assert(index_state->ss.ps.ps_ResultTupleSlot->tts_tupleDescriptor->td_tam_ops);
 
@@ -658,6 +956,55 @@ AnnIndexScanState* ExecInitAnnIndexScan(AnnIndexScan* node, EState* estate, int 
 
     /* deal with partition info */
     ExecInitAnnIndexRelation(index_state, estate, eflags);
+
+    /*
+     * [P1-7] Request complete IndexTuples from the AM (order matters:
+     * beginscan has run, rescan follows below - design doc 17.1), and
+     * initialize the visibility-map state for the index-only branch.
+     */
+    index_state->iss_VMBuffer = InvalidBuffer;
+    index_state->iss_HeapFetches = 0;
+    if (node->index_only_scan && index_state->iss_ScanDesc != NULL) {
+        GetIndexScanDesc(index_state->iss_ScanDesc)->xs_want_itup = true;
+    }
+
+    /*
+     * [P2-2] Compile the in-filter descriptor for classified plans. The AM
+     * consumes it from P2-3 on; compiling here already exercises shape
+     * re-validation and param evaluation on every IN-classified query.
+     */
+    index_state->iss_FilterDesc = NULL;
+    index_state->iss_FilterArgStates = NIL;
+    index_state->iss_FilterFnCtx = NULL;
+    index_state->iss_FilterArgCtx = NULL;
+    if (node->filterMode == ANN_FILTER_IN) {
+        index_state->iss_FilterFnCtx = AllocSetContextCreate(CurrentMemoryContext,
+            "DiskANN filter function context", ALLOCSET_DEFAULT_SIZES);
+        index_state->iss_FilterArgCtx = AllocSetContextCreate(index_state->iss_FilterFnCtx,
+            "DiskANN filter argument context", ALLOCSET_DEFAULT_SIZES);
+        if (!AnnIndexBuildFilterDesc(index_state)) {
+            /* shape failed re-validation: degrade to plain scan (P2-3 will
+             * ERROR instead once the AM trusts the descriptor) */
+            index_state->iss_FilterDesc = NULL;
+        } else {
+            AnnIndexRefreshFilterArgs(index_state);
+            /*
+             * [P2-3] Install into the AM, gated on the index reloption
+             * (in_filter=false disables the whole path per design doc 6.3;
+             * default on). The descriptor pointer stays valid across
+             * rescans - params are refreshed in place.
+             */
+            if (index_state->iss_ScanDesc != NULL) {
+                DiskAnnOptions* opts = (DiskAnnOptions*)index_state->iss_RelationDesc->rd_options;
+                if (opts != NULL && !opts->inFilter) {
+                    /* runtime off: keep the compiled desc for stats only */
+                } else {
+                    diskann_set_filter(GetIndexScanDesc(index_state->iss_ScanDesc),
+                        index_state->iss_FilterDesc);
+                }
+            }
+        }
+    }
 
     /*
      * If no run-time keys to calculate, go ahead and pass the scankeys to the

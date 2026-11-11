@@ -938,6 +938,13 @@ static AnnIndexScan* _copyAnnIndexScan(const AnnIndexScan* from)
     COPY_SCALAR_FIELD(selectivity);
     COPY_SCALAR_FIELD(is_partial);
     COPY_SCALAR_FIELD(annCount);
+    /* [P1-6] paired with out/read behind DISKANN_INCLUDE_VERSION_NUM */
+    COPY_SCALAR_FIELD(index_only_scan);
+    COPY_NODE_FIELD(indextlist);
+    /* [P2-1] in-filter classification fields */
+    COPY_NODE_FIELD(infilterqual);
+    COPY_NODE_FIELD(infilterqualorig);
+    COPY_SCALAR_FIELD(filterMode);
 
     return newnode;
 }
@@ -7833,6 +7840,8 @@ static IndexOptInfo *_copyPartialIndexOptInfo(const IndexOptInfo *from)
     COPY_SCALAR_FIELD(immediate);
     COPY_SCALAR_FIELD(hypothetical);
     COPY_SCALAR_FIELD(canreturn);
+    /* [P1-5] keep coverage info across plan-management copies */
+    COPY_BITMAPSET_FIELD(returnableHeapAttrs);
     COPY_SCALAR_FIELD(amcanorderbyop);
     COPY_SCALAR_FIELD(amoptionalkey);
     COPY_SCALAR_FIELD(amsearcharray);

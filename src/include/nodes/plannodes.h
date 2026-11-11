@@ -888,6 +888,17 @@ typedef struct CStoreIndexOr : public BitmapOr {
  *     Vector ann index scan node
  * use vector index scan and list of qual expressions to scan data.
  */
+/*
+ * [P1-2/P2-1] Filter-path selection for DiskANN INCLUDE indexes (design doc
+ * 13.1). ANN_FILTER_PRE is deliberately absent: pre-filter is out of V1
+ * scope and a value with no producer/consumer would be a half-feature.
+ */
+typedef enum AnnFilterMode {
+    ANN_FILTER_NONE, /* no pushed-down filtering (join-back / post-filter) */
+    ANN_FILTER_IN,   /* INCLUDE-column predicates pushed into the index scan */
+    ANN_FILTER_POST  /* all predicates stay in the executor (qpqual) */
+} AnnFilterMode;
+
 typedef struct AnnIndexScan {
     Scan scan;
     Oid indexid;                 /* OID of index to scan */
@@ -908,6 +919,25 @@ typedef struct AnnIndexScan {
     bool is_partial;
     double annCount;
     int64 limitCount;
+    /*
+     * [P1-6] Full index column description for the index-only branch
+     * (design doc 14): same content as IndexOnlyScan.indextlist - every
+     * index attribute in order, heap-Vars, used by setrefs/EXPLAIN and to
+     * build the index scan slot. Serialized behind
+     * DISKANN_INCLUDE_VERSION_NUM; older plans read back with
+     * index_only_scan=false and indextlist=NIL.
+     */
+    List* indextlist;
+    /*
+     * [P2-1] In-filter classification (design doc 14). infilterqual holds
+     * the index-attno form the AM compiler (P2-3) consumes; infilterqualorig
+     * the original heap expressions for EXPLAIN. The original predicates
+     * STAY in scan.plan.qual as the correctness recheck. Serialized behind
+     * DISKANN_INCLUDE_VERSION_NUM; older plans read back NIL/NONE.
+     */
+    List* infilterqual;
+    List* infilterqualorig;
+    AnnFilterMode filterMode;
 } AnnIndexScan;
 
 /* ----------------

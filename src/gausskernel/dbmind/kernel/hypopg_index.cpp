@@ -997,6 +997,10 @@ static void hypo_injectHypotheticalIndex(PlannerInfo *root, Oid relationObjectId
     index->amcostestimate_oid = entry->amcostestimate;
     index->immediate = entry->immediate;
     index->canreturn = entry->canreturn;
+    /* [P1-5] hypothetical DiskANN indexes do not announce per-column
+     * returnability (hypopg has no INCLUDE metadata); keep NULL so the
+     * coarse canreturn semantics apply, exactly like non-DiskANN AMs */
+    index->returnableHeapAttrs = NULL;
     index->amcanorderbyop = entry->amcanorderbyop;
     index->amoptionalkey = entry->amoptionalkey;
     index->amsearcharray = entry->amsearcharray;

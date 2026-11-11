@@ -41,6 +41,45 @@
 #define DISKANN_MAGIC_NUMBER 0x14FF1A7
 #define DISKANN_PAGE_ID 0xFF84
 
+/*
+ * [P1-3b] On-disk format version 2 = the pinned v1 image plus an appended
+ * tail (below). INCLUDE indexes are stamped v2; legacy indexes stay v1 so
+ * old binaries keep working on them (and are rejected on v2 by the reader).
+ * The v1 image length is the full struct sizeof as written by the v1
+ * writer (includes the params slot and trailing padding).
+ */
+#define DISKANN_VERSION_V2 2
+#define DISKANN_META_V1_DISK_LENGTH ((Size)sizeof(DiskAnnMetaPageData))
+
+/* v2 metapage format flags */
+#define DISKANN_META_HAS_INCLUDE (1U << 0)
+
+/*
+ * [P1-3b] Tail appended after the v1 image. Never insert fields into
+ * DiskAnnMetaPageData; new on-disk metapage state goes here.
+ */
+typedef struct DiskAnnMetaV2Tail {
+    uint32 metaBytes;        /* total metapage bytes: v1 image + this tail */
+    uint32 formatFlags;      /* DiskAnnMeta v2 flags */
+    uint16 nIndexAttrs;      /* total index attributes (key + INCLUDE) */
+    uint16 nKeyAttrs;        /* key attributes (1 for diskann) */
+    uint32 maxInlinePayload; /* build-time max_inline_payload commitment */
+} DiskAnnMetaV2Tail;
+
+/* [P1-3b] Deferred deletion for format-v2 indexes (design doc 4.12/12.2). */
+bool DiskAnnIndexUsesDeferredDelete(Relation index);
+
+/*
+ * [P2-3] In-filter plumbing (design doc 15.3, V1 shape per D-017: the
+ * descriptor lives in the scan opaque instead of a new relscan.h field,
+ * which would shift SizeofIndexScanDescData offsets for every AM).
+ */
+void diskann_set_filter(struct IndexScanDescData* scan, struct DiskAnnFilterDesc* filter);
+void diskann_get_filter_stats(struct IndexScanDescData* scan, uint64* evaluated, uint64* rejected);
+/* AM-internal: evaluate one node page's INCLUDE payload against the filter */
+struct DiskAnnScanOpaqueData;
+bool DiskAnnFilterNode(Relation index, struct DiskAnnScanOpaqueData* so, BlockNumber blkno, bool* admitted);
+
 /* Support functions */
 #define DISKANN_DISTANCE_PROC 1
 #define DISKANN_NORM_PROC 2
@@ -82,6 +121,27 @@ typedef struct BlockNumberHashEntry {
 #define SH_DECLARE
 #include "lib/simplehash.h"
 #define DISKANN_PQ_SO_NAME "libdisksearch_opgs.so"
+
+/*
+ * [P2-3] Per-node in-filter result cache (design doc 16.4): candidates can
+ * reappear across search rounds; cache the payload-filter verdict per node
+ * page to avoid re-reading and re-comparing INCLUDE columns.
+ */
+typedef struct FilterCacheHashEntry {
+    BlockNumber block;
+    char status;        /* required by simplehash bookkeeping - do not touch */
+    char filterState;   /* [P2-3] verdict: 0 = unknown, 1 = admit, 2 = reject */
+} FilterCacheHashEntry;
+
+#define SH_PREFIX filterhash
+#define SH_ELEMENT_TYPE FilterCacheHashEntry
+#define SH_KEY_TYPE BlockNumber
+#define SH_KEY block
+#define SH_HASH_KEY(tb, key) hash_block(key)
+#define SH_EQUAL(tb, a, b) ((a) == (b))
+#define SH_SCOPE extern
+#define SH_DECLARE
+#include "lib/simplehash.h"
 
 #define DISKANN_DIS_L2 1
 #define DISKANN_DIS_IP 2
@@ -291,12 +351,25 @@ typedef struct DiskAnnTypeInfo {
 } DiskAnnTypeInfo;
 
 /* DiskAnn index options */
+/* [P1-2] INCLUDE-related reloptions (design doc section 6.1). Single source
+ * of truth for defaults/bounds; reloptions.cpp registration and the
+ * amoptions parse table must both consume these. */
+#define DISKANN_DEFAULT_IN_FILTER true
+#define DISKANN_DEFAULT_MAX_INLINE_PAYLOAD 1024
+#define DISKANN_MIN_INLINE_PAYLOAD 32
+#define DISKANN_MAX_INLINE_PAYLOAD 4096
+
 typedef struct DiskAnnOptions {
     StdRdOptions* rd_options;
     int indexSize;
     bool enablePQ;
     int pqM;    /* number of subquantizer */
     int pqKsub; /* number of centroids for each subquantizer */
+    /* [P1-2] path switch: allow the planner to consider in-index filtering */
+    bool inFilter;
+    /* [P1-2] product limit on INCLUDE payload bytes; the real page capacity
+     * check (diskannpagecheck.h) applies on top of this */
+    int maxInlinePayload;
 } DiskAnnOptions;
 
 typedef struct DiskAnnEdgePageData {
@@ -422,6 +495,10 @@ typedef struct DiskAnnBuildState {
     /* Settings */
     uint16 dimensions;
     uint32 indexSize;
+    /* [P0-5] Fork this build writes to: MAIN_FORKNUM for normal builds,
+     * INIT_FORKNUM for diskannbuildempty (unlogged index template).
+     * Page-creation helpers must consume this, not hardcode MAIN. */
+    ForkNumber forkNum;
 
     /* Statistics */
     double indtuples;
@@ -471,6 +548,13 @@ struct DiskAnnIdxScanData {
 struct DiskAnnCandidatesData {
     BlockNumber id;
     ItemPointerData heapTid;
+    /*
+     * [P1-7] Exact distance carried with the candidate so gettuple can fill
+     * xs_orderbyvals and the executor can verify ORDER BY monotonicity
+     * (design doc 9.4/16.2). Stored as double; the producing GetDistance
+     * is float today - a full double rerank is a separate change.
+     */
+    double distance;
     bool operator==(const DiskAnnCandidatesData &other) const
     {
         return this->id == other.id && this->heapTid == other.heapTid;
@@ -480,6 +564,21 @@ struct DiskAnnCandidatesData {
 struct DiskAnnScanOpaqueData {
     Relation rel;
     MemoryContext tmpCtx;
+    /*
+     * [P1-7] Holds the xs_itup copy returned to the executor. Valid until
+     * the next amgettuple call; reset per candidate (design doc 16.3).
+     */
+    MemoryContext returnTupleCtx;
+    /*
+     * [P2-3] In-filter runtime (design doc 15/16.1/16.4): the executor
+     * installs the compiled descriptor via diskann_set_filter(); the cache
+     * and counters live for the scan lifetime and reset on rescan.
+     */
+    struct DiskAnnFilterDesc* filter;
+    filterhash_hash* filterCache;
+    uint64 filterEvaluated;
+    uint64 filterRejected;
+    uint64 qualifiedResults;
     uint32_t nodeSize;
     uint32_t nexpextedCandidates;
     uint32_t ncandidates;
@@ -634,7 +733,8 @@ float ComputeL2DistanceFast(const float *u, const double su, const float *v, con
 DiskAnnAliveSlaveIterator *CreateSlaveIterator(Relation index, BlockNumber vertex,
                                                float *query, uint16_t dim, double sqrsum);
 double VectorSquareNorm(const float *a, int dim);
-BlockNumber InsertTuple(Relation index, Datum* values, ItemPointer heaptid, DiskAnnMetaPage metaPage, bool building);
+BlockNumber InsertTuple(Relation index, Datum* values, const bool* isnull, ItemPointer heaptid,
+                        DiskAnnMetaPage metaPage, bool building);
 void DeleteDiskAnnIndexTuples(TupleTableSlot* slot, ItemPointer tid, EState* estate, Partition p);
 
 /* PQ related functions */

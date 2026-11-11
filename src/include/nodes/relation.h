@@ -960,6 +960,14 @@ typedef struct IndexOptInfo {
     bool immediate;      /* is uniqueness enforced immediately? */
     bool hypothetical;   /* true if index doesn't really exist */
     bool canreturn;      /* can index return IndexTuples? */
+    /*
+     * [P1-5] Per-heap-attribute returnable bitmap for AMs where "canreturn"
+     * is only true for some columns (DiskANN: INCLUDE columns yes, the
+     * possibly-normalized vector key no - design doc 13.1). Members use the
+     * same heap-attno encoding as check_index_only()'s attrs_used. NULL for
+     * AMs where the coarse canreturn bool is exact.
+     */
+    Bitmapset* returnableHeapAttrs;
     bool amcanorderbyop; /* does AM support order by operator result? */
     bool amoptionalkey;  /* can query omit key for the first column? */
     bool amsearcharray;  /* can AM handle ScalarArrayOpExpr quals? */
@@ -1259,6 +1267,9 @@ typedef struct IndexPath {
     double annCount; // restore limitValue/sel
     Cost allcost; // index cost + qual cost
     bool is_ustore;
+    /* [P1-5] index-only verdict carried to createplan (baseline received an
+     * indexonly argument but never stored it - design doc 13.4). */
+    bool indexOnly;
 } IndexPath;
 
 typedef struct PartIteratorPath {

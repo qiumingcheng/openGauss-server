@@ -401,15 +401,44 @@ static Plan* set_plan_refs(PlannerInfo* root, Plan* plan, int rtoffset)
             AnnIndexScan* splan = (AnnIndexScan*)plan;
 
             splan->scan.scanrelid += rtoffset;
+            if (splan->index_only_scan) {
+                /*
+                 * [P1-7] Index-only ANN: identical shape to
+                 * set_indexonlyscan_references (design doc 14), including
+                 * the early return - the remaining common fixups below are
+                 * for join-back plans.
+                 */
+                indexed_tlist* indexItlist = build_tlist_index(splan->indextlist);
+                splan->scan.plan.targetlist = (List*)fix_upper_expr(root,
+                    (Node*)splan->scan.plan.targetlist, indexItlist, INDEX_VAR, rtoffset);
+                splan->scan.plan.qual = (List*)fix_upper_expr(root,
+                    (Node*)splan->scan.plan.qual, indexItlist, INDEX_VAR, rtoffset);
+                splan->indexqual = fix_scan_list(root, splan->indexqual, rtoffset);
+                splan->indexorderby = fix_scan_list(root, splan->indexorderby, rtoffset);
+                splan->indextlist = fix_scan_list(root, splan->indextlist, rtoffset);
+                if (splan->scan.plan.distributed_keys != NIL) {
+                    splan->scan.plan.distributed_keys = fix_scan_list(root, splan->scan.plan.distributed_keys, rtoffset);
+                }
+                pfree_ext(indexItlist);
+                /* [P2-1] in-filter quals in the index-only branch too */
+                splan->infilterqual = fix_scan_list(root, splan->infilterqual, rtoffset);
+                splan->infilterqualorig = fix_scan_list(root, splan->infilterqualorig, rtoffset);
+                return (Plan*)splan;
+            }
             splan->scan.plan.targetlist = fix_scan_list(root, splan->scan.plan.targetlist, rtoffset);
+            splan->scan.plan.qual = fix_scan_list(root, splan->scan.plan.qual, rtoffset);
             if (splan->scan.plan.distributed_keys != NIL) {
                 splan->scan.plan.distributed_keys = fix_scan_list(root, splan->scan.plan.distributed_keys, rtoffset);
             }
-            splan->scan.plan.qual = fix_scan_list(root, splan->scan.plan.qual, rtoffset);
             splan->indexqual = fix_scan_list(root, splan->indexqual, rtoffset);
             splan->indexqualorig = fix_scan_list(root, splan->indexqualorig, rtoffset);
             splan->indexorderby = fix_scan_list(root, splan->indexorderby, rtoffset);
             splan->indexorderbyorig = fix_scan_list(root, splan->indexorderbyorig, rtoffset);
+            /* [P2-1] heap-form in-filter quals need rtoffset fixes like any
+             * other scan qual; index-attno form (P2-3) gets the same when it
+             * starts carrying Vars */
+            splan->infilterqual = fix_scan_list(root, splan->infilterqual, rtoffset);
+            splan->infilterqualorig = fix_scan_list(root, splan->infilterqualorig, rtoffset);
         } break;
         case T_CStoreIndexScan: {
             CStoreIndexScan* splan = (CStoreIndexScan*)plan;

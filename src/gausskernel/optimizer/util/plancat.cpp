@@ -771,6 +771,28 @@ void get_relation_info(PlannerInfo* root, RangeTblEntry* rte, RelOptInfo* rel)
             info->amcostestimate_oid = indexRelation->rd_am->amcostestimate;
             info->amcostestimate_func = indexRelation->rd_amroutine->amcostestimate;
             info->canreturn = index_can_return(indexRelation);
+            /*
+             * [P1-5] Per-column returnable bitmap for DiskANN (design doc
+             * 13.1): INCLUDE columns only, encoded as heap attnos. The
+             * vector key is deliberately excluded - cosine indexes store a
+             * normalized vector and must not be returned as the heap column
+             * value. Other AMs leave this NULL and keep using the coarse
+             * canreturn semantics in check_index_only().
+             */
+            info->returnableHeapAttrs = NULL;
+            if (info->canreturn && info->relam == DISKANN_AM_OID &&
+                indexRelation->rd_index != NULL &&
+                RelationGetNumberOfAttributes(indexRelation) >
+                    IndexRelationGetNumberOfKeyAttributes(indexRelation)) {
+                for (int i = IndexRelationGetNumberOfKeyAttributes(indexRelation);
+                     i < RelationGetNumberOfAttributes(indexRelation); i++) {
+                    AttrNumber heapAttno = indexRelation->rd_index->indkey.values[i];
+                    if (AttrNumberIsForUserDefinedAttr(heapAttno)) {
+                        info->returnableHeapAttrs = bms_add_member(
+                            info->returnableHeapAttrs, heapAttno - FirstLowInvalidHeapAttributeNumber);
+                    }
+                }
+            }
             info->amcanorderbyop = indexRelation->rd_am->amcanorderbyop;
             info->amoptionalkey = indexRelation->rd_am->amoptionalkey;
             info->amsearcharray = indexRelation->rd_am->amsearcharray;

@@ -47,6 +47,7 @@
 #include "access/sysattr.h"
 #include "access/transam.h"
 #include "access/tableam.h"
+#include "access/datavec/diskann.h"
 #include "catalog/index.h"
 #include "catalog/heap.h"
 #include "catalog/namespace.h"
@@ -1443,8 +1444,15 @@ void ExecOpenIndices(ResultRelInfo* resultRelInfo, bool speculative, bool checkD
             resultRelInfo->ri_ContainGPI = true;
         }
 
+        /*
+         * [P1-3b] Format-v2 (INCLUDE) DiskANN indexes use deferred deletion:
+         * immediate edge-breaking on UPDATE/DELETE would destroy both old
+         * snapshots and graph connectivity (design doc 4.12/12.2). Only the
+         * legacy format stays on the immediate-delete dispatch.
+         */
         if (unlikely(immediateDelete && !resultRelInfo->ri_hasDiskannIndex &&
-                     indexDesc->rd_rel->relam == DISKANN_AM_OID)) {
+                     indexDesc->rd_rel->relam == DISKANN_AM_OID &&
+                     !DiskAnnIndexUsesDeferredDelete(indexDesc))) {
             resultRelInfo->ri_hasDiskannIndex = true;
         }
 

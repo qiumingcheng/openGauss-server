@@ -840,6 +840,14 @@ FusionType getSelectAnnIndexType(Plan *top_plan, ParamListInfo params)
     if (annIndex->lefttree != NULL) {
         return NOBYPASS_NO_INDEXSCAN;
     }
+    /*
+     * [P1-7] The bypass path builds heap slots and knows nothing about
+     * xs_itup / visibility-map index-only scans: new-capability plans go
+     * to the standard executor (design doc 20.5).
+     */
+    if (IsA(annIndex, AnnIndexScan) && ((AnnIndexScan*)annIndex)->index_only_scan) {
+        return NOBYPASS_NO_INDEXSCAN;
+    }
     if (annIndex->qual != NULL) {
         return NOBYPASS_ANNINDEXSCAN_WITH_QUAL;
     }

@@ -868,6 +868,10 @@ extern size_t GetHashMemoryLimit(void);
 #endif
 
 #define UPSERT_ROW_STORE_VERSION_NUM 92073 /* Version control for UPSERT */
+
+/* [P1-6] Version control for DiskANN INCLUDE plan fields (index_only_scan,
+ * indextlist). 93099 follows GRAND_VERSION_NUM 93098. */
+#define DISKANN_INCLUDE_VERSION_NUM 93099
 #ifdef ENABLE_NEON
 extern void InitStandaloneProcess(const char* argv0);
 #endif

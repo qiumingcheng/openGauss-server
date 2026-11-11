@@ -184,7 +184,8 @@ static CStoreIndexHeapScan* make_cstoreindex_heapscan(PlannerInfo* root, Path* b
 static CStoreIndexAnd* make_cstoreindex_and(List* ctidplans);
 static CStoreIndexOr* make_cstoreindex_or(List* ctidplans);
 static AnnIndexScan* make_annindexscan(List* qptlist, List* qpqual, Index scanrelid, Oid indexid, List* indexqual,
-    List* indexqualorig, List* indexorderby, List* indexorderbyorig, ScanDirection indexscandir, double indexselectivity, bool is_partial,double annCount);
+    List* indexqualorig, List* indexorderby, List* indexorderbyorig, ScanDirection indexscandir, double indexselectivity,
+    bool is_partial, double annCount, bool index_only_scan, List* indextlist);
 static TidScan* make_tidscan(List* qptlist, List* qpqual, Index scanrelid, List* tidquals);
 static TidRangeScan *make_tidrangescan(List *qptlist, List *qpqual,
                                        Index scanrelid, List *tidrangequals);
@@ -3124,8 +3125,32 @@ static Scan* create_indexscan_plan(
                     best_path->indexscandir,
                     indexselectivity,
                     (best_path->indexinfo->indpred != NIL),
-                    best_path->annCount);
+                    best_path->annCount,
+                    best_path->indexOnly,
+                    best_path->indexinfo->indextlist);
                 ((AnnIndexScan*)scan_plan)->is_ustore = best_path->is_ustore;
+                /*
+                 * [P2-1] In-filter classification carried to the plan node
+                 * (design doc 14). infilterqualorig keeps the original heap
+                 * expressions for EXPLAIN; the index-attno form
+                 * (infilterqual) is compiled when the AM filter lands
+                 * (P2-3). Original predicates remain in scan.plan.qual as
+                 * the correctness recheck.
+                 */
+                {
+                    AnnIndexScan* ann = (AnnIndexScan*)scan_plan;
+                    ListCell* aqcell = NULL;
+                    ann->filterMode = ANN_FILTER_NONE;
+                    if (best_path->annQuals != NIL) {
+                        ann->filterMode = ANN_FILTER_IN;
+                    } else if (best_path->indexquals == NIL && qpqual != NIL) {
+                        ann->filterMode = ANN_FILTER_POST;
+                    }
+                    foreach (aqcell, best_path->annQuals) {
+                        RestrictInfo* aqrinfo = (RestrictInfo*)lfirst(aqcell);
+                        ann->infilterqualorig = lappend(ann->infilterqualorig, aqrinfo->clause);
+                    }
+                }
             } else {
                 scan_plan = (Scan*)make_indexscan(tlist,
                     qpqual,
@@ -6723,7 +6748,8 @@ static CStoreIndexHeapScan* make_cstoreindex_heapscan(PlannerInfo* root, Path* b
 }
 
 static AnnIndexScan* make_annindexscan(List* qptlist, List* qpqual, Index scanrelid, Oid indexid, List* indexqual,
-    List* indexqualorig, List* indexorderby, List* indexorderbyorig, ScanDirection indexscandir, double indexselectivity, bool is_partial, double annCount)
+    List* indexqualorig, List* indexorderby, List* indexorderbyorig, ScanDirection indexscandir,
+    double indexselectivity, bool is_partial, double annCount, bool index_only_scan, List* indextlist)
 {
     AnnIndexScan* node = makeNode(AnnIndexScan);
     Plan* plan = &node->scan.plan;
@@ -6743,6 +6769,9 @@ static AnnIndexScan* make_annindexscan(List* qptlist, List* qpqual, Index scanre
     node->indexorderdir = indexscandir;
     node->selectivity = indexselectivity;
     node->is_partial = is_partial;
+    /* [P1-6] index-only verdict + full index tlist (design doc 13.4/14) */
+    node->index_only_scan = index_only_scan;
+    node->indextlist = indextlist;
     return node;
 }
 

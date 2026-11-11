@@ -133,6 +133,9 @@ static relopt_bool boolRelOpts[] = {
     {{"deduplication", "Enables \"deduplication\" feature for btree index", RELOPT_KIND_BTREE}, false},
     {{"enable_pq", "Whether to enable PQ", RELOPT_KIND_HNSW | RELOPT_KIND_IVFFLAT | RELOPT_KIND_DISKANN},
      GENERIC_DEFAULT_ENABLE_PQ},
+    {{"in_filter", "Whether the planner may push suitable predicates into the DiskANN index",
+      RELOPT_KIND_DISKANN},
+     DISKANN_DEFAULT_IN_FILTER},
     {{"use_mmap", "Whether to enable use mmap during hnsw search", RELOPT_KIND_HNSW }, GENERIC_DEFAULT_USE_MMAP },
     {{"by_residual", "Whether to use residual during IVFPQ", RELOPT_KIND_IVFFLAT}, IVFPQ_DEFAULT_RESIDUAL},
     {{"enable_rabitq", "Whether to enable RabitQ", RELOPT_KIND_HNSW | RELOPT_KIND_IVFFLAT}, GENERIC_DEFAULT_ENABLE_RABITQ},
@@ -313,6 +316,11 @@ static relopt_int intRelOpts[] = {
      DISKANN_DEFAULT_INDEX_SIZE,
      DISKANN_MIN_INDEX_SIZE,
      DISKANN_MAX_INDEX_SIZE},
+    {{ "max_inline_payload", "Maximum bytes of INCLUDE-column payload inlined per DiskANN index tuple",
+     RELOPT_KIND_DISKANN },
+     DISKANN_DEFAULT_MAX_INLINE_PAYLOAD,
+     DISKANN_MIN_INLINE_PAYLOAD,
+     DISKANN_MAX_INLINE_PAYLOAD},
     {{NULL}}
 };
 

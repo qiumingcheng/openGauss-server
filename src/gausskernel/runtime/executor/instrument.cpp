@@ -1215,6 +1215,8 @@ Instrumentation* ThreadInstrumentation::allocInstrSlot(int plan_node_id, int par
         case T_AnnIndexScan:
             if (((AnnIndexScan*)plan)->scan.isPartTbl)
                 pname = "Partitioned Ann Index Scan";
+            else if (((AnnIndexScan*)plan)->index_only_scan)
+                pname = "Ann Index Only Scan"; /* [P1-7] */
             else
                 pname = "Ann Index Scan";
             plan_type = IO_OP;

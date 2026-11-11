@@ -68,6 +68,17 @@ static uint32 hash_block(BlockNumber blk)
 #define SH_DEFINE
 #include "lib/simplehash.h"
 
+/* [P2-3] in-filter verdict cache instantiation (see diskann.h) */
+#define SH_PREFIX filterhash
+#define SH_ELEMENT_TYPE FilterCacheHashEntry
+#define SH_KEY_TYPE BlockNumber
+#define SH_KEY block
+#define SH_HASH_KEY(tb, key) hash_block(key)
+#define SH_EQUAL(tb, a, b) ((a) == (b))
+#define SH_SCOPE extern
+#define SH_DEFINE
+#include "lib/simplehash.h"
+
 /*
  * Get type info
  */
@@ -151,6 +162,18 @@ Page DiskAnnInitRegisterPage(Relation index, Buffer buf)
     return page;
 }
 
+/*
+ * [P0-4] On-disk v1 metapage image length. Today's writer stamps the page
+ * with the full struct (CreateMetaPage advances pd_lower by sizeof), so the
+ * v1 image includes the runtime params pointer slot and trailing padding.
+ * frozenBlkno[] is the last named field; when a v2 tail is appended (P1),
+ * it must go after this pinned length and this constant must not change.
+ */
+/* StaticAssertStmt expands to a runtime expression in this C++ build, so use
+ * the native C++11 static_assert at file scope. */
+static_assert(offsetof(DiskAnnMetaPageData, frozenBlkno) + sizeof(((DiskAnnMetaPageData *)0)->frozenBlkno) <= DISKANN_META_V1_DISK_LENGTH,
+    "frozenBlkno must remain the last named DiskAnn metapage field");
+
 void DiskANNGetMetaPageInfo(Relation index, DiskAnnMetaPage meta)
 {
     Buffer buf;
@@ -160,10 +183,67 @@ void DiskANNGetMetaPageInfo(Relation index, DiskAnnMetaPage meta)
     buf = ReadBuffer(index, DISKANN_METAPAGE_BLKNO);
     LockBuffer(buf, BUFFER_LOCK_SHARE);
     page = BufferGetPage(buf);
-    Size itemsz = sizeof(DiskAnnMetaPageData);
     metapage = (DiskAnnMetaPage)DiskAnnPageGetMeta(page);
-    errno_t rc = memcpy_s(meta, itemsz, metapage, itemsz);
+
+    /*
+     * [P0-4] Version-aware metapage read (design doc section 9.2). The
+     * baseline blindly copied sizeof(DiskAnnMetaPageData) bytes, which
+     * (a) trusted magic/version, (b) resurrected the persisted runtime
+     * params pointer, and (c) would misread any future v2 tail. Now:
+     * validate magic, zero the destination, dispatch on version, copy
+     * only the v1 image, and force params=NULL. Callers rebuild PQ state
+     * via InitDiskPQParamsOnDisk() or reattach their in-process object.
+     */
+    if (metapage->magicNumber != DISKANN_MAGIC_NUMBER) {
+        UnlockReleaseBuffer(buf);
+        ereport(ERROR,
+                (errcode(ERRCODE_INDEX_CORRUPTED),
+                 errmsg("DiskANN index \"%s\" has an invalid metapage magic number",
+                        RelationGetRelationName(index))));
+    }
+
+    errno_t rc = memset_s(meta, sizeof(DiskAnnMetaPageData), 0, sizeof(DiskAnnMetaPageData));
     securec_check(rc, "\0", "\0");
+
+    if (metapage->version == DISKANN_VERSION || metapage->version == DISKANN_VERSION_V2) {
+        rc = memcpy_s(meta, DISKANN_META_V1_DISK_LENGTH, metapage, DISKANN_META_V1_DISK_LENGTH);
+        securec_check(rc, "\0", "\0");
+        if (metapage->version == DISKANN_VERSION_V2) {
+            /*
+             * [P1-3b] Copy the appended tail and cross-check it against the
+             * catalog before trusting the page (design doc 9.2 point 6): a
+             * mismatch means the index's TupleDesc and its pages disagree,
+             * and parsing pages with the wrong descriptor would corrupt
+             * reads silently.
+             */
+            DiskAnnMetaV2Tail tail;
+            rc = memcpy_s(&tail, sizeof(tail), ((char*)metapage) + DISKANN_META_V1_DISK_LENGTH, sizeof(tail));
+            securec_check(rc, "\0", "\0");
+            if (tail.metaBytes != (uint32)(DISKANN_META_V1_DISK_LENGTH + sizeof(DiskAnnMetaV2Tail)) ||
+                tail.nIndexAttrs != (uint16)RelationGetNumberOfAttributes(index) ||
+                tail.nKeyAttrs != (uint16)IndexRelationGetNumberOfKeyAttributes(index) ||
+                (tail.formatFlags & DISKANN_META_HAS_INCLUDE) == 0) {
+                UnlockReleaseBuffer(buf);
+                ereport(ERROR,
+                        (errcode(ERRCODE_INDEX_CORRUPTED),
+                         errmsg("DiskANN index \"%s\" has a v2 metapage inconsistent with its catalog definition",
+                                RelationGetRelationName(index)),
+                         errhint("REINDEX the index.")));
+            }
+        }
+    } else {
+        uint32 version = metapage->version;
+        UnlockReleaseBuffer(buf);
+        ereport(ERROR,
+                (errcode(ERRCODE_INDEX_CORRUPTED),
+                 errmsg("DiskANN index \"%s\" has unsupported metapage version %u",
+                        RelationGetRelationName(index), version),
+                 errhint("The index may have been created by a newer binary; upgrade the binary or REINDEX the index.")));
+    }
+
+    /* Never hand out the persisted pointer; it is not a valid address. */
+    meta->params = NULL;
+
     UnlockReleaseBuffer(buf);
     return;
 }
@@ -486,7 +566,16 @@ void DiskAnnGraph::Link(BlockNumber blk, int index_size, bool building)
     /* Find and add appropriate graph edges */
     IterateToFixedPoint(blk, index_size, frozen, &pool, false);
 
-    if (FindDuplicateNeighbor(scratch->bestLNodes, blk, building)) {
+    /*
+     * [P1-3a] One row per node for INCLUDE indexes: the node's single
+     * IndexTuple payload belongs to exactly one heap row, so duplicate
+     * vectors must NOT be merged into a shared node (design doc 10.1).
+     * Legacy vector-only indexes keep the historical merge behavior.
+     */
+    if (graphStore->m_rel->rd_index != NULL &&
+        RelationGetNumberOfAttributes(graphStore->m_rel) > IndexRelationGetNumberOfKeyAttributes(graphStore->m_rel)) {
+        /* INCLUDE index: skip duplicate merging */
+    } else if (FindDuplicateNeighbor(scratch->bestLNodes, blk, building)) {
         scratch->bestLNodes->clear();
         pool.clear();
         return;
@@ -1208,7 +1297,7 @@ void DiskAnnCreatePQPages(DiskAnnBuildState *buildstate)
 
     /* create pq table transposed page */
     for (uint16 i = 0; i < pqTableNblk; i++) {
-        buf = DiskAnnNewBuffer(index, MAIN_FORKNUM);
+        buf = DiskAnnNewBuffer(index, buildstate->forkNum);
         page = DiskAnnInitRegisterPage(index, buf);
         MarkBufferDirty(buf);
         UnlockReleaseBuffer(buf);
@@ -1216,7 +1305,7 @@ void DiskAnnCreatePQPages(DiskAnnBuildState *buildstate)
 
     /* create pq centroids page */
     for (uint16 i = 0; i < pqCentroidsblk; i++) {
-        buf = DiskAnnNewBuffer(index, MAIN_FORKNUM);
+        buf = DiskAnnNewBuffer(index, buildstate->forkNum);
         page = DiskAnnInitRegisterPage(index, buf);
         MarkBufferDirty(buf);
         UnlockReleaseBuffer(buf);
@@ -1224,7 +1313,7 @@ void DiskAnnCreatePQPages(DiskAnnBuildState *buildstate)
 
     /* create pq offset page */
     for (uint16 i = 0; i < pqOffsetblk; i++) {
-        buf = DiskAnnNewBuffer(index, MAIN_FORKNUM);
+        buf = DiskAnnNewBuffer(index, buildstate->forkNum);
         page = DiskAnnInitRegisterPage(index, buf);
         MarkBufferDirty(buf);
         UnlockReleaseBuffer(buf);
@@ -1388,3 +1477,191 @@ DiskPQParams* InitDiskPQParamsOnDisk(Relation index, FmgrInfo *procinfo, int dim
     return params;
 }
 
+
+
+/*
+ * [P2-3] In-filter payload evaluation (design doc 15.1/15.4/16.1).
+ *
+ * Lock discipline (design doc 15.4): while holding the node page's shared
+ * buffer lock we only read the IndexTuple attributes and datumCopy any
+ * by-reference value into the caller's memory context; ALL function calls
+ * (FunctionCall2Coll) happen after UnlockReleaseBuffer. Only SQL TRUE
+ * admits a candidate (three-valued helpers in diskannfilter.h).
+ *
+ * Returns tri-state admit; *admitted is true only for SQL TRUE.
+ */
+#include "access/datavec/diskannfilter.h"
+
+static DiskAnnTriState DiskAnnEvalFilterKey(DiskAnnFilterKey* key, Relation index, IndexTuple itup)
+{
+    TupleDesc tupdesc = RelationGetDescr(index);
+    Form_pg_attribute attr = &tupdesc->attrs[key->indexAttno - 1];
+    bool valueIsNull = false;
+    DiskAnnTriState result = DISKANN_TRI_NULL;
+
+    if (key->kind == DISKANN_FILTER_IS_NULL || key->kind == DISKANN_FILTER_IS_NOT_NULL) {
+        /* avoid materializing the datum: only nullness is needed */
+        (void)index_getattr(itup, key->indexAttno, tupdesc, &valueIsNull);
+        return diskann_tri_nulltest(valueIsNull, key->kind == DISKANN_FILTER_IS_NOT_NULL);
+    }
+
+    {
+        Datum value = index_getattr(itup, key->indexAttno, tupdesc, &valueIsNull);
+
+        if (key->kind == DISKANN_FILTER_OP) {
+            bool cmp = DatumGetBool(FunctionCall2Coll(&key->function, key->collation, value, key->argument));
+            result = diskann_tri_strict_op(valueIsNull, key->argumentIsNull, cmp);
+        } else if (key->kind == DISKANN_FILTER_ARRAY_ANY) {
+            /* argument is a one-dimensional array of the column type */
+            ArrayType* arr = NULL;
+            Oid elemType = attr->atttypid;
+            Datum* elems = NULL;
+            bool* nulls = NULL;
+            int nElems = 0;
+            DiskAnnTriState* elemTri = NULL;
+            int i;
+
+            if (key->argumentIsNull) {
+                return diskann_tri_array_any(0, NULL, true);
+            }
+            arr = DatumGetArrayTypeP(key->argument);
+            deconstruct_array(arr, elemType, attr->attlen, attr->attbyval, attr->attalign,
+                &elems, &nulls, &nElems);
+            if (nElems > 0) {
+                elemTri = (DiskAnnTriState*)palloc(nElems * sizeof(DiskAnnTriState));
+                for (i = 0; i < nElems; i++) {
+                    if (nulls[i] || valueIsNull) {
+                        elemTri[i] = DISKANN_TRI_NULL;
+                    } else {
+                        bool cmp = DatumGetBool(FunctionCall2Coll(&key->function, key->collation,
+                            value, elems[i]));
+                        elemTri[i] = cmp ? DISKANN_TRI_TRUE : DISKANN_TRI_FALSE;
+                    }
+                }
+            }
+            result = diskann_tri_array_any(nElems, elemTri, false);
+            pfree_ext(elemTri);
+            pfree_ext(elems);
+            pfree_ext(nulls);
+        }
+    }
+    return result;
+}
+
+/*
+ * Read one node page, evaluate the filter over its payload, cache the
+ * verdict. '*admitted' = SQL TRUE only. Dead (LP_DEAD) payloads are never
+ * results: they count as evaluated+rejected but their node stays navigable
+ * (navigation happens in SearchFixedPoint regardless of this verdict).
+ */
+bool DiskAnnFilterNode(Relation index, struct DiskAnnScanOpaqueData* so_, BlockNumber blkno, bool* admitted)
+{
+    DiskAnnScanOpaque so = so_;
+    DiskAnnFilterDesc* filter = so->filter;
+    Buffer buf;
+    Page page;
+    IndexTuple itup;
+    DiskAnnTriState total = DISKANN_TRI_TRUE;
+    int k;
+
+    *admitted = false;
+
+    /* cache lookup */
+    {
+        bool found = false;
+        FilterCacheHashEntry* entry = filterhash_insert(so->filterCache, blkno, &found);
+        if (found) {
+            so->filterEvaluated++;
+            if (entry->filterState == 2) {
+                so->filterRejected++;
+            }
+            *admitted = (entry->filterState == 1);
+            return *admitted;
+        }
+        entry->filterState = 0; /* in-progress marker; set below */
+    }
+
+    buf = ReadBufferExtended(index, MAIN_FORKNUM, blkno, RBM_NORMAL, NULL);
+    LockBuffer(buf, BUFFER_LOCK_SHARE);
+    page = BufferGetPage(buf);
+
+    if (DiskAnnPageGetOpaque(page)->pageId != DISKANN_PAGE_ID ||
+        !ItemIdIsNormal(PageGetItemId(page, FirstOffsetNumber))) {
+        UnlockReleaseBuffer(buf);
+        /* corrupt/dead entry: reject */
+        so->filterEvaluated++;
+        so->filterRejected++;
+        { bool fnd = false; filterhash_insert(so->filterCache, blkno, &fnd)->filterState = 2; }
+        return false;
+    }
+    if (ItemIdIsDead(PageGetItemId(page, FirstOffsetNumber))) {
+        UnlockReleaseBuffer(buf);
+        so->filterEvaluated++;
+        so->filterRejected++;
+        { bool fnd = false; filterhash_insert(so->filterCache, blkno, &fnd)->filterState = 2; }
+        return false;
+    }
+
+    itup = DiskAnnPageGetIndexTuple(page);
+    /*
+     * By-reference payload datums must be copied OUT of the locked page
+     * before any function call. The comparison functions run after unlock
+     * (DiskAnnEvalFilterKey callers below hold no lock). For V1 the copy
+     * target is the scan's tmpCtx (already current in diskannsearch).
+     */
+    {
+        /* materialize a private copy of the tuple's payload section: reuse
+         * the full-tuple copy - one CopyIndexTuple into tmpCtx, then
+         * evaluate on the copy with the lock released. */
+        MemoryContext oldCtx = MemoryContextSwitchTo(so->tmpCtx);
+        IndexTuple copy = CopyIndexTuple(itup);
+        (void)MemoryContextSwitchTo(oldCtx);
+        UnlockReleaseBuffer(buf);
+
+        for (k = 0; k < filter->nkeys; k++) {
+            total = diskann_tri_and(total, DiskAnnEvalFilterKey(&filter->keys[k], index, copy));
+            if (total == DISKANN_TRI_FALSE) {
+                break; /* AND short-circuit */
+            }
+        }
+    }
+
+    so->filterEvaluated++;
+    if (!diskann_tri_admits(total)) {
+        so->filterRejected++;
+    }
+    { bool fnd = false; filterhash_insert(so->filterCache, blkno, &fnd)->filterState =
+        diskann_tri_admits(total) ? 1 : 2; }
+    *admitted = diskann_tri_admits(total);
+    return *admitted;
+}
+
+/* [P2-3] executor plumbing (D-017) */
+void diskann_set_filter(struct IndexScanDescData* scan, struct DiskAnnFilterDesc* filter)
+{
+    DiskAnnScanOpaque so = (DiskAnnScanOpaque)scan->opaque;
+    if (so == NULL) {
+        return;
+    }
+    so->filter = filter;
+    so->filterEvaluated = 0;
+    so->filterRejected = 0;
+    so->qualifiedResults = 0;
+    if (so->filterCache == NULL) {
+        so->filterCache = filterhash_create(so->tmpCtx, 1024, NULL);
+    } else {
+        filterhash_reset(so->filterCache);
+    }
+}
+
+void diskann_get_filter_stats(struct IndexScanDescData* scan, uint64* evaluated, uint64* rejected)
+{
+    DiskAnnScanOpaque so = (DiskAnnScanOpaque)scan->opaque;
+    if (so == NULL) {
+        *evaluated = 0;
+        *rejected = 0;
+        return;
+    }
+    *evaluated = so->filterEvaluated;
+    *rejected = so->filterRejected;
+}

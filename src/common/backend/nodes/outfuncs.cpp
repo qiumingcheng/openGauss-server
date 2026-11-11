@@ -871,6 +871,19 @@ static void _outAnnIndexScanInfo(StringInfo str, AnnIndexScan* node)
         }
         WRITE_BOOL_FIELD(is_partial);
     }
+    /*
+     * [P1-6] Execution-semantics fields (not gated by out_plan_stat): they
+     * decide the executor branch and must survive plan shipping/cache when
+     * the working version allows (design doc 13.4).
+     */
+    if (t_thrd.proc->workingVersionNum >= DISKANN_INCLUDE_VERSION_NUM) {
+        WRITE_BOOL_FIELD(index_only_scan);
+        WRITE_NODE_FIELD(indextlist);
+        /* [P2-1] execution-semantics fields for in-filter */
+        WRITE_ENUM_FIELD(filterMode, AnnFilterMode);
+        WRITE_NODE_FIELD(infilterqual);
+        WRITE_NODE_FIELD(infilterqualorig);
+    }
 }
 
 /*

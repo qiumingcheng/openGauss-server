@@ -13,6 +13,7 @@
  * -------------------------------------------------------------------------
  */
 #include "postgres.h"
+#include "access/datavec/diskann.h"
 #include "knl/knl_variable.h"
 
 #include "access/tableam.h"
@@ -2721,9 +2722,40 @@ static void ExplainNode(
             if (((AnnIndexScan*)plan)->indexqualorig)
                 show_instrumentation_count("Rows Removed by Index Recheck", 2, planstate, es);
             show_scan_qual(((AnnIndexScan*)plan)->indexorderbyorig, "Order By", planstate, ancestors, es);
+            /*
+             * [P2-1] In-filter classification display (design doc 21): the
+             * Filter Mode line names the chosen path; Index Filter lists the
+             * pushed-down copy (original heap form). The plain Filter line
+             * stays - it is the correctness recheck (design doc 6.2).
+             */
+            if (((AnnIndexScan*)plan)->filterMode == ANN_FILTER_IN) {
+                ExplainPropertyText("Filter Mode", "In-Filter", es);
+                show_scan_qual(((AnnIndexScan*)plan)->infilterqualorig, "Index Filter", planstate, ancestors, es);
+                if (es->analyze) {
+                    /* [P2-3] AM-side rejections; the executor recheck keeps
+                     * counting in Rows Removed by Filter above (no double
+                     * counting, design doc 21.2) */
+                    uint64 feval = 0;
+                    uint64 frej = 0;
+                    if (planstate != NULL && ((AnnIndexScanState*)planstate)->iss_ScanDesc != NULL) {
+                        diskann_get_filter_stats(GetIndexScanDesc(((AnnIndexScanState*)planstate)->iss_ScanDesc),
+                            &feval, &frej);
+                    }
+                    ExplainPropertyLong("Rows Removed by Index Filter", (long)frej, es);
+                    /* [P2-6] filter-evaluation counter (design doc 21.2) */
+                    ExplainPropertyLong("Index Filter Evaluations", (long)feval, es);
+                }
+            } else if (((AnnIndexScan*)plan)->filterMode == ANN_FILTER_POST) {
+                ExplainPropertyText("Filter Mode", "Post-Filter", es);
+            }
             show_scan_qual(plan->qual, "Filter", planstate, ancestors, es);
             if (plan->qual)
                 show_instrumentation_count("Rows Removed by Filter", 1, planstate, es);
+            /* [P2-6] index-only ANN heap-fetch visibility counter (design doc
+             * 21.2); mirrors the IndexOnlyScan display */
+            if (es->analyze && ((AnnIndexScan*)plan)->index_only_scan) {
+                ExplainPropertyLong("Heap Fetches", ((AnnIndexScanState*)planstate)->iss_HeapFetches, es);
+            }
             break;
         case T_BitmapIndexScan:
             show_scan_qual(((BitmapIndexScan*)plan)->indexqualorig, "Index Cond", planstate, ancestors, es);
