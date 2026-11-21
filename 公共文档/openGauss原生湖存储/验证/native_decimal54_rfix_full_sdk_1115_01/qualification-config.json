@@ -1,0 +1,226 @@
+{
+  "actual": {
+    "C_actual": {
+      "path": "/home/qiumc/data/code/cpp/\u516c\u5171\u6587\u6863/openGauss\u539f\u751f\u6e56\u5b58\u50a8/\u9a8c\u8bc1/native_decimal54_rfix_c28_compatibility_1115_02/receipt.json",
+      "sha256": "7f8b38d0304cb3d90836d12d8f861e3d5035581343213b9ab6fcc15a47dad8ad"
+    },
+    "C_actual_review": {
+      "path": "/home/qiumc/data/code/cpp/.codex_tmp/native_lake_create_literal_default49_acceptance_review_1113_01/Decimal54-rfix02-C28-actual-review.json",
+      "sha256": "9945ab0950088a92f44eec63227854acf5b35d3dce8d64348310862546a451d1"
+    },
+    "JSON_C_actual": {
+      "path": "/home/qiumc/data/code/cpp/\u516c\u5171\u6587\u6863/openGauss\u539f\u751f\u6e56\u5b58\u50a8/\u9a8c\u8bc1/native_decimal54_rfix_jsonc2_compatibility_1115_02/execution.json",
+      "sha256": "c8aa64d352b93cf81591093d7dca9eb07711df84766f08ec9e3b7faa3527c9cb"
+    },
+    "JSON_C_actual_review": {
+      "path": "/home/qiumc/data/code/cpp/.codex_tmp/native_lake_create_literal_default49_acceptance_review_1113_01/Decimal54-rfix02-JSONC2-actual-review.json",
+      "sha256": "dd4a04204cb9f4ddbe453f5bfa876a4f4d30455849b108d635a436f10c56e1ac"
+    },
+    "JSON_interop_actual": {
+      "path": "/home/qiumc/data/code/cpp/\u516c\u5171\u6587\u6863/openGauss\u539f\u751f\u6e56\u5b58\u50a8/\u9a8c\u8bc1/native_decimal54_rfix_json8_compatibility_1115_02/execution.json",
+      "sha256": "c6cd48b9ff297fe62907122f880f7834652c9b172e41de83bc7e0a986b781b20"
+    },
+    "JSON_interop_actual_review": {
+      "path": "/home/qiumc/data/code/cpp/.codex_tmp/native_lake_create_literal_default49_acceptance_review_1113_01/Decimal54-rfix02-JSON8-actual-review.json",
+      "sha256": "cbabe6b9c002ebb1ae0e83d11b02dbd415e3f0dd4880a3997a354889aef4993e"
+    },
+    "NUM9_actual": {
+      "path": "/home/qiumc/data/code/cpp/\u516c\u5171\u6587\u6863/openGauss\u539f\u751f\u6e56\u5b58\u50a8/\u9a8c\u8bc1/native_decimal54_rfix_independent_interop_1115_01/execution.json",
+      "sha256": "1a863a1172ee1c6e050a0e00a633775bfed5819a4c440ed5a9ec425da20803b0"
+    },
+    "NUM9_actual_review": {
+      "path": "/home/qiumc/data/code/cpp/.codex_tmp/native_lake_create_literal_default49_acceptance_review_1113_01/Decimal54-rfix-NUM9-actual-review.json",
+      "sha256": "46c4f5b6da4747c8f7a599aaced29c36fe94f21c072ae90b38048be04624ae36"
+    },
+    "UUID_interop_actual": {
+      "path": "/home/qiumc/data/code/cpp/\u516c\u5171\u6587\u6863/openGauss\u539f\u751f\u6e56\u5b58\u50a8/\u9a8c\u8bc1/native_decimal54_rfix_uuid15_compatibility_1115_02/execution.json",
+      "sha256": "30a09a7ff215b3b92789c96f0e96122c95ffb12be3c8375f93f80a009c785d4b"
+    },
+    "UUID_interop_actual_review": {
+      "path": "/home/qiumc/data/code/cpp/.codex_tmp/native_lake_create_literal_default49_acceptance_review_1113_01/Decimal54-rfix02-UUID15-actual-review.json",
+      "sha256": "a5e252a6ca7058380ac5f6ffc12faea897f8ad27227cbf532b27f9fe618d88d4"
+    },
+    "gap_actual": {
+      "path": "/home/qiumc/data/code/cpp/\u516c\u5171\u6587\u6863/openGauss\u539f\u751f\u6e56\u5b58\u50a8/\u9a8c\u8bc1/native_decimal54_rfix_gap45_compatibility_1115_02/execution.json",
+      "sha256": "05785d9483f547101ced4a7424913788127dcb06bf5933f7d3909346da3d7b6e"
+    },
+    "gap_actual_review": {
+      "path": "/home/qiumc/data/code/cpp/.codex_tmp/native_lake_create_literal_default49_acceptance_review_1113_01/Decimal54-rfix02-gap45-actual-review.json",
+      "sha256": "88520d0244eb4953673b939e626bda84377939f89cf8bd61dbfed93dea5c79d6"
+    },
+    "qualifier_source_review": {
+      "path": "/home/qiumc/data/code/cpp/.codex_tmp/native_lake_create_literal_default49_acceptance_review_1113_01/Decimal54-rfix-qualifier-source-review.json",
+      "sha256": "326c45bc28c2525d4ed5c03b28b43eef08718f164b3d70d78e667f1548e03120"
+    }
+  },
+  "dependency_aliases": {
+    "/home/qiumc/data/code/cpp/.reference/opengauss-native-lake/sdk/install/arrow-20.0.0/lib/libarrow.so": {
+      "sha256": "1775534d6399bdcb018ff8483e846265c1b28c8397212be70085b0910ae4b8c6",
+      "target": {
+        "path": "/home/qiumc/data/code/cpp/.reference/opengauss-native-lake/sdk/install/arrow-20.0.0/lib/libarrow.so.2000.0.0",
+        "sha256": "1775534d6399bdcb018ff8483e846265c1b28c8397212be70085b0910ae4b8c6"
+      }
+    },
+    "/home/qiumc/data/code/cpp/.reference/opengauss-native-lake/sdk/install/arrow-20.0.0/lib/libparquet.so": {
+      "sha256": "9458f19fe84d341df5cc27005d81f47b1bdaad670f836ed0fe5c223e8d3ad465",
+      "target": {
+        "path": "/home/qiumc/data/code/cpp/.reference/opengauss-native-lake/sdk/install/arrow-20.0.0/lib/libparquet.so.2000.0.0",
+        "sha256": "9458f19fe84d341df5cc27005d81f47b1bdaad670f836ed0fe5c223e8d3ad465"
+      }
+    },
+    "/usr/bin/ninja-build": {
+      "sha256": "d842a4bdaa4cadae98e58c24cd0b7f00b01d38de4429628aef396f679fb671f6",
+      "target": {
+        "path": "/usr/bin/ninja",
+        "sha256": "d842a4bdaa4cadae98e58c24cd0b7f00b01d38de4429628aef396f679fb671f6"
+      }
+    }
+  },
+  "enabled": true,
+  "fixed": {
+    "C_driver": {
+      "path": "/home/qiumc/data/code/cpp/.codex_tmp/native_lake_decimal54_reader_repair_compatibility_source_1115_02/driver-C28/manifest.json",
+      "sha256": "2ac5197a365dae908cfc680ca1359c61bb34b19c016bf9750ba26c5ce66f3819"
+    },
+    "C_driver_review": {
+      "path": "/home/qiumc/data/code/cpp/.codex_tmp/native_lake_create_literal_default49_acceptance_review_1113_01/Decimal54-five-rfix02-driver-C28-source-peer.json",
+      "sha256": "3ad68549fb51985f06df9cff78a3fc56882f76664abe19b3433c0bd6d8835e60"
+    },
+    "JSON_C_driver": {
+      "path": "/home/qiumc/data/code/cpp/.codex_tmp/native_lake_decimal54_reader_repair_compatibility_source_1115_02/driver-JSONC2/manifest.json",
+      "sha256": "719cf15e902517ffdcb89504a81564cb8802997624539862ba46ce6f599c3065"
+    },
+    "JSON_C_driver_review": {
+      "path": "/home/qiumc/data/code/cpp/.codex_tmp/native_lake_create_literal_default49_acceptance_review_1113_01/Decimal54-five-rfix02-driver-JSONC2-source-peer.json",
+      "sha256": "dfcdc6e288389687d5198d3fe8311aad4840ede941613eba637e9e6a4795653c"
+    },
+    "JSON_C_source": {
+      "path": "/home/qiumc/data/code/cpp/.codex_tmp/native_lake_decimal54_reader_repair_compatibility_source_1115_02/source-JSONC2/manifest.json",
+      "sha256": "55a966ccd3799dd143bfd06bb5caa9793caace8fcb646a91f9c1212729fc00cb"
+    },
+    "JSON_C_source_review": {
+      "path": "/home/qiumc/data/code/cpp/.codex_tmp/native_lake_create_literal_default49_acceptance_review_1113_01/Decimal54-five-rfix02-source-JSONC2-source-peer.json",
+      "sha256": "2d5a04203c4a593f8b8739386a0fc581729e7d9ca7db5f265a0a5966bf7230e6"
+    },
+    "JSON_interop_driver": {
+      "path": "/home/qiumc/data/code/cpp/.codex_tmp/native_lake_decimal54_reader_repair_compatibility_source_1115_02/driver-JSON8/manifest.json",
+      "sha256": "1fcb6c6d21b5e6ff23acad66830ce41167a5ab4ac4eba16a3c9e5523d1ceae87"
+    },
+    "JSON_interop_driver_review": {
+      "path": "/home/qiumc/data/code/cpp/.codex_tmp/native_lake_create_literal_default49_acceptance_review_1113_01/Decimal54-five-rfix02-driver-JSON8-source-peer.json",
+      "sha256": "a77d47a53c197052548bea2a212c26c3775a0d299d857e56af56e71245233e46"
+    },
+    "JSON_interop_source": {
+      "path": "/home/qiumc/data/code/cpp/.codex_tmp/native_lake_decimal54_reader_repair_compatibility_source_1115_02/source-JSON8/manifest.json",
+      "sha256": "96ee50e04854ebe5b2c3c8dbd90543caadd85d09e40677daeed1a4badfa9d112"
+    },
+    "JSON_interop_source_review": {
+      "path": "/home/qiumc/data/code/cpp/.codex_tmp/native_lake_create_literal_default49_acceptance_review_1113_01/Decimal54-five-rfix02-source-JSON8-source-peer.json",
+      "sha256": "b60fc3b3fa9d79feaf340ece91a69142bcb00c71fe09e6a1765454d6bcd7b4bd"
+    },
+    "NUM9_driver": {
+      "path": "/home/qiumc/data/code/cpp/.codex_tmp/native_lake_decimal54_reader_repair_independent_interop_owned_driver_1115_01/revision04/manifest.json",
+      "sha256": "0c05235ea65fcdfb8fc11cbb4594c09d0ae674771e3cb4939c91de2bc1a4fc70"
+    },
+    "NUM9_driver_review": {
+      "path": "/home/qiumc/data/code/cpp/.codex_tmp/native_lake_create_literal_default49_acceptance_review_1113_01/Decimal54-rfix-independent-nine-step-owned-driver-R04-complete-source-independent-review.json",
+      "sha256": "e1f1d3d6a400a8a7fd1ae041483f21318ac36e7326a2398a510a76dca08e64f8"
+    },
+    "NUM9_source": {
+      "path": "/home/qiumc/data/code/cpp/.codex_tmp/native_lake_decimal54_reader_repair_independent_interop_source_1115_01/revision04/manifest.json",
+      "sha256": "662b0df31fb0ee653a65801d17a4f9e5ad2c45a24103bc29117b590e8611d126"
+    },
+    "NUM9_source_review": {
+      "path": "/home/qiumc/data/code/cpp/.codex_tmp/native_lake_create_literal_default49_acceptance_review_1113_01/Decimal54-rfix-independent-nine-step-interoperability-R04-complete-source-independent-review.json",
+      "sha256": "933453ece590d60d931adab06349b405220c8b67fd7d7888ee0923353b721395"
+    },
+    "SDK307_receipt": {
+      "path": "/home/qiumc/data/code/cpp/\u516c\u5171\u6587\u6863/openGauss\u539f\u751f\u6e56\u5b58\u50a8/\u9a8c\u8bc1/native_readerfix43_sdk_install_1116_01/result.json",
+      "sha256": "9bbae57ad9c7fdd758db9ca8ac3ea889c7d07a9d39cc20e698387f424cb68f03"
+    },
+    "SDK_source": {
+      "path": "/home/qiumc/data/code/cpp/.codex_tmp/native_lake_decimal54_sdk_stage_1115_01/revision04/manifest.json",
+      "sha256": "013ace7ccbaa21f5ecd167d788923cc849c399d9d85ce25ce544e1bcaa979250"
+    },
+    "UUID_interop_driver": {
+      "path": "/home/qiumc/data/code/cpp/.codex_tmp/native_lake_decimal54_reader_repair_compatibility_source_1115_02/driver-UUID15/manifest.json",
+      "sha256": "2a6dd2d40b98e597241003013c0b630c76e8889976c533e3c4bc6b9067dc625a"
+    },
+    "UUID_interop_driver_review": {
+      "path": "/home/qiumc/data/code/cpp/.codex_tmp/native_lake_create_literal_default49_acceptance_review_1113_01/Decimal54-five-rfix02-driver-UUID15-source-peer.json",
+      "sha256": "5254cdcb5ea9bea807364b20844af338dcb91788c3cc2b9a1ec0caa05bc543c0"
+    },
+    "UUID_interop_source": {
+      "path": "/home/qiumc/data/code/cpp/.codex_tmp/native_lake_decimal54_reader_repair_compatibility_source_1115_02/source-UUID15/manifest.json",
+      "sha256": "a64b19a3b8f14b7d60e90e11c69b326e90281110c2762d18bef766befd51f8bb"
+    },
+    "UUID_interop_source_review": {
+      "path": "/home/qiumc/data/code/cpp/.codex_tmp/native_lake_create_literal_default49_acceptance_review_1113_01/Decimal54-five-rfix02-source-UUID15-source-peer.json",
+      "sha256": "9ca1362d482c1f1ed84c530d66fbd62e968c2c9e7b3a6c5230829b51e56f41ed"
+    },
+    "assembly": {
+      "path": "/home/qiumc/data/code/cpp/.codex_tmp/native_lake_decimal54_reader_repair_full_qualification_source_1115_01/assembly-manifest.json",
+      "sha256": "d398531fbdf9021b280f102ff431ae7448c5f71cd09776d36a6f07651f674bc7"
+    },
+    "build": {
+      "path": "/home/qiumc/data/code/cpp/.codex_tmp/native_lake_decimal54_reader_repair_private_build_1116_01/future-owned-run01/receipt.json",
+      "sha256": "858dc8c5a403c3b16b72667f5d52a3883578d88c788fea90d8093db75a50aec8"
+    },
+    "build_review": {
+      "path": "/home/qiumc/data/code/cpp/.codex_tmp/native_lake_create_literal_default49_acceptance_review_1113_01/Decimal54-private-Debug-build04-reader-repair-actual-four-command-five-export-receipt-review.json",
+      "sha256": "ca19b72fca93c51a7a4e070c0f640311b66d664a1402da39d19bbc1e3fff35be"
+    },
+    "compatibility_review": {
+      "path": "/home/qiumc/data/code/cpp/.codex_tmp/native_lake_create_literal_default49_acceptance_review_1113_01/Decimal54-five-rfix02-source-compatibility-source-peer.json",
+      "sha256": "8ccfc14a781768cb872fead67a492399ef500692a133ddd61b74da2a017107ca"
+    },
+    "compatibility_source": {
+      "path": "/home/qiumc/data/code/cpp/.codex_tmp/native_lake_decimal54_reader_repair_compatibility_source_1115_02/source-compatibility/manifest.json",
+      "sha256": "b83d51b8a4eff761a5184c840d137b1456b48f0edad4bcd5c18ae8c9af437701"
+    },
+    "decimal_C_actual": {
+      "path": "/home/qiumc/data/code/cpp/\u516c\u5171\u6587\u6863/openGauss\u539f\u751f\u6e56\u5b58\u50a8/\u9a8c\u8bc1/native_decimal54_rfix_sdk_C_component_1115_01/execution.json",
+      "sha256": "0d8a5e095c790607cdefa30ba3e6cbedaf12e815c07e5e78f22d67a1a78046a3"
+    },
+    "decimal_C_actual_review": {
+      "path": "/home/qiumc/data/code/cpp/.codex_tmp/native_lake_create_literal_default49_acceptance_review_1113_01/Decimal54-rfix-decimalC4-actual-review.json",
+      "sha256": "557b486cca1f3b086dc1257c1629d62a8e1af5c7cca2d0585154d27b44cf5c14"
+    },
+    "decimal_C_driver": {
+      "path": "/home/qiumc/data/code/cpp/.codex_tmp/native_lake_decimal54_reader_repair_sdk_C_owned_runner_1115_01/manifest.json",
+      "sha256": "8bf26555a759f5b5134c63aeffcf77bf13b8ea154cb75649f4112d8603bf3504"
+    },
+    "decimal_C_driver_review": {
+      "path": "/home/qiumc/data/code/cpp/.codex_tmp/native_lake_create_literal_default49_acceptance_review_1113_01/Decimal54-rfix-public-C-four-command-owned-runner-independent-source-review.json",
+      "sha256": "89efbaa194385f037292f753f4e209e1901a5ce85b088493baa10698e0f1d51b"
+    },
+    "decimal_C_source": {
+      "path": "/home/qiumc/data/code/cpp/.codex_tmp/native_lake_decimal54_reader_repair_sdk_C_harness_1115_01/manifest.json",
+      "sha256": "a76c4196b2c167793697bf0ad5edecf8c722f2981e28d200b40da1cc2c8c25a2"
+    },
+    "decimal_C_source_review": {
+      "path": "/home/qiumc/data/code/cpp/.codex_tmp/native_lake_create_literal_default49_acceptance_review_1113_01/Decimal54-rfix-public-C-four-command-harness-complete-source-review.json",
+      "sha256": "05fbde052f1d475cb0d546d22b962c4ed851b27aeb30f3852d2fa7345d789b6b"
+    },
+    "gap_driver": {
+      "path": "/home/qiumc/data/code/cpp/.codex_tmp/native_lake_decimal54_reader_repair_compatibility_source_1115_02/driver-gap45/manifest.json",
+      "sha256": "1efbc373638db9a925242a44fa10345406250fa0c479f99160b722e5df31ba84"
+    },
+    "gap_driver_review": {
+      "path": "/home/qiumc/data/code/cpp/.codex_tmp/native_lake_create_literal_default49_acceptance_review_1113_01/Decimal54-five-rfix02-driver-gap45-source-peer.json",
+      "sha256": "532eda24a599a00cce8c8a30c61bf5f818aeb085a7711ad2294a9f849352800a"
+    },
+    "licenses": {
+      "licenses/apache-arrow-20.0.0/LICENSE.txt": {
+        "path": "/home/qiumc/data/code/cpp/.reference/opengauss-native-lake/sdk/install/arrow-20.0.0/share/licenses/apache-arrow-20.0.0/LICENSE.txt",
+        "sha256": "36f65c663f1c9c910af64c73cb4302667d6513c3f0a617e42bd896d767ff4604"
+      },
+      "licenses/apache-arrow-20.0.0/NOTICE.txt": {
+        "path": "/home/qiumc/data/code/cpp/.reference/opengauss-native-lake/sdk/install/arrow-20.0.0/share/licenses/apache-arrow-20.0.0/NOTICE.txt",
+        "sha256": "b62ea242642d3a18f1e29b0c1fe082415a6943fe158ee22b48cff3762f354009"
+      }
+    }
+  },
+  "schema": "Decimal54-full-original15-UUID-JSON-Decimal-exact-qualification-v1",
+  "workspace": "/home/qiumc/data/code/cpp"
+}

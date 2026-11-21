@@ -1,0 +1,65 @@
+{
+  "status": "pass_isolated_prefix_copy_only",
+  "started_at_UTC": "2026-11-15T13:41:16.586001+00:00",
+  "SDK_calls": 0,
+  "compilers": 0,
+  "current_install_or_registration": 0,
+  "Native": 0,
+  "original_build_unchanged": {
+    "path": "/home/qiumc/data/code/cpp/.codex_tmp/native_lake_decimal54_reader_repair_private_build_1116_01/future-owned-run01/receipt.json",
+    "sha256": "858dc8c5a403c3b16b72667f5d52a3883578d88c788fea90d8093db75a50aec8"
+  },
+  "new_prefix": "/home/qiumc/data/code/cpp/.install/opengauss-native-lake-sdk-decimal128/native_decimal54_rfix_full_sdk_1115_01",
+  "configuration": {
+    "path": "/home/qiumc/data/code/cpp/.codex_tmp/native_lake_decimal54_reader_repair_full_qualification_source_1115_01/config.json",
+    "sha256": "c8ad45c368eeb8fee345b8a506a42710d7515354ee778fba2e245d1fc0000c30"
+  },
+  "copies": [
+    {
+      "source": {
+        "path": "/home/qiumc/data/code/cpp/.codex_tmp/native_lake_decimal54_reader_repair_private_build_1116_01/future-owned-run01/build-owned/libog_lake_sdk_arrow.so",
+        "sha256": "b07ee911aaf81aa816c2c280bd1568871353bbd6f8af5792ac5cdf9010240c51"
+      },
+      "target": {
+        "path": "/home/qiumc/data/code/cpp/.install/opengauss-native-lake-sdk-decimal128/native_decimal54_rfix_full_sdk_1115_01/lib/libog_lake_sdk_arrow.so",
+        "sha256": "b07ee911aaf81aa816c2c280bd1568871353bbd6f8af5792ac5cdf9010240c51"
+      },
+      "bytes": 18101936
+    },
+    {
+      "source": {
+        "path": "/home/qiumc/data/code/cpp/.codex_tmp/native_lake_decimal54_reader_repair_full_qualification_source_1115_01/assembled-source/contrib/og_lake/sdk/lake_parquet_sdk.h",
+        "sha256": "6dbe78174680de7830ed45cfee957fefa38fc3d5dda0429b04e99436da28e759"
+      },
+      "target": {
+        "path": "/home/qiumc/data/code/cpp/.install/opengauss-native-lake-sdk-decimal128/native_decimal54_rfix_full_sdk_1115_01/include/og_lake/lake_parquet_sdk.h",
+        "sha256": "6dbe78174680de7830ed45cfee957fefa38fc3d5dda0429b04e99436da28e759"
+      },
+      "bytes": 16976
+    },
+    {
+      "source": {
+        "path": "/home/qiumc/data/code/cpp/.reference/opengauss-native-lake/sdk/install/arrow-20.0.0/share/licenses/apache-arrow-20.0.0/LICENSE.txt",
+        "sha256": "36f65c663f1c9c910af64c73cb4302667d6513c3f0a617e42bd896d767ff4604"
+      },
+      "target": {
+        "path": "/home/qiumc/data/code/cpp/.install/opengauss-native-lake-sdk-decimal128/native_decimal54_rfix_full_sdk_1115_01/licenses/apache-arrow-20.0.0/LICENSE.txt",
+        "sha256": "36f65c663f1c9c910af64c73cb4302667d6513c3f0a617e42bd896d767ff4604"
+      },
+      "bytes": 111773
+    },
+    {
+      "source": {
+        "path": "/home/qiumc/data/code/cpp/.reference/opengauss-native-lake/sdk/install/arrow-20.0.0/share/licenses/apache-arrow-20.0.0/NOTICE.txt",
+        "sha256": "b62ea242642d3a18f1e29b0c1fe082415a6943fe158ee22b48cff3762f354009"
+      },
+      "target": {
+        "path": "/home/qiumc/data/code/cpp/.install/opengauss-native-lake-sdk-decimal128/native_decimal54_rfix_full_sdk_1115_01/licenses/apache-arrow-20.0.0/NOTICE.txt",
+        "sha256": "b62ea242642d3a18f1e29b0c1fe082415a6943fe158ee22b48cff3762f354009"
+      },
+      "bytes": 3032
+    }
+  ],
+  "completed_at_UTC": "2026-11-15T13:41:19.287120+00:00",
+  "all_evidence_before_after_equal": true
+}

@@ -1,0 +1,16 @@
+{
+  "status": "passed_standalone_fd_scope_only",
+  "recorded_at": "2026-11-19T00:06:10.620721+00:00",
+  "candidate_elf": "/home/qiumc/data/code/cpp/.install/opengauss-native-lake-sdk-pgl2/pgl2_sdk6_standalone_build_1119_01/lib/libog_lake_sdk_arrow.so",
+  "candidate_elf_sha256": "4f2a2cd79d50f3f2c3b1350ac58b4868b20b727a5141ae49ec1033b4d3a20368",
+  "receipts": {
+    "/home/qiumc/data/code/cpp/公共文档/openGauss原生湖存储/验证/pgl2_sdk6_standalone_build_1119_01/build-result.json": "2583d666e658e12fc4196ce23898e97c99b96a6b1d5901460efb12c1eedcbba9",
+    "/home/qiumc/data/code/cpp/公共文档/openGauss原生湖存储/验证/pgl2_sdk_ordinal_probe/fd_run_01/result.json": "d694468c6ad655aa3f1d17ab94734eed3f3eed0ad49c501effe3d159c2ab02b5",
+    "/home/qiumc/data/code/cpp/公共文档/openGauss原生湖存储/验证/pgl2_sdk_ordinal_probe/sdk6_legacy_scan_01/result.json": "dc4412eb09e84ef1fd39f13a20eef608011bab153083d9a1f712cbf54d0b5082",
+    "/home/qiumc/data/code/cpp/公共文档/openGauss原生湖存储/验证/pgl2_sdk_ordinal_probe/anchor_run_01/result.json": "451d8136727eb3407715a78b7bc0bee77f32ab73ae387534f147be35d43a8baf",
+    "/home/qiumc/data/code/cpp/.codex_tmp/pgl2_sdk6_native_source_1119_01/source-origin.json": "42c9b2e0acb908c732fdbab4e0c3b1704d9242ff5b7e533d5462902c83d4e6e7"
+  },
+  "old_sdk54_elf_sha256": "b07ee911aaf81aa816c2c280bd1568871353bbd6f8af5792ac5cdf9010240c51",
+  "native_product_installed_or_tested": false,
+  "next": "Bind trusted external path admission and one authorised descriptor to a serial read-only SQL path; validate SDK lifecycle and preserve managed path behaviour."
+}

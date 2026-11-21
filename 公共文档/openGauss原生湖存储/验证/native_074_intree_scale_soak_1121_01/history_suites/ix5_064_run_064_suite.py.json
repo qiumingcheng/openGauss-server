@@ -1,0 +1,13 @@
+{
+  "status": "passed",
+  "profile": "release",
+  "ix5_only": true,
+  "enable_thread_pool": "off",
+  "thread_pool_attr": "16, 2, (nobind)",
+  "postgres_ext_version": null,
+  "stages": {
+    "stage4_ix5_background_lifecycle": 14
+  },
+  "total_checks": 14,
+  "duckdb_checks": 0
+}

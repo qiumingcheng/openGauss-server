@@ -1,0 +1,12 @@
+{
+  "profile": "release",
+  "enable_thread_pool": "off",
+  "postgres_ext_version": "0.70",
+  "stages": {
+    "stage1_upgrade_069_to_070_and_acl": 5,
+    "stage2_widening_alter_type_and_duckdb": 17,
+    "stage3_alter_type_refusals": 14,
+    "stage4_ops1_manifest_verify_retention": 10
+  },
+  "total_checks": 46
+}

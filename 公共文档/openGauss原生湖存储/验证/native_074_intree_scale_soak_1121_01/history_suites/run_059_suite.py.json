@@ -1,0 +1,27 @@
+{
+  "suite": "native_059_bind_snapshot_35",
+  "status": "passed",
+  "profile": "release",
+  "port": 55570,
+  "enable_thread_pool": "off",
+  "postmaster_start_time": "2026-11-21 18:17:47.325341+08:00",
+  "binary_path": "/home/qiumc/data/code/cpp/.install/opengauss-native-lake-release/bin/gaussdb",
+  "binary_sha256": "6b22d35b6d467a81b34bf5b29f63affa8bf879147275c50e02324772ec1d01eb",
+  "started_at": "2026-11-21T10:18:30.217667+00:00",
+  "completed_at": "2026-11-21T10:18:41.315747+00:00",
+  "check_count": 12,
+  "checks": [
+    "pre_059_gate_and_extension_upgrade_058_to_059",
+    "bind_snapshot_transaction_and_first_access_preconditions",
+    "historical_ordinary_select_multi_type_join_cte_view_cursor_heap_sink",
+    "strict_readonly_enforcement_all_dml_ddl_maintenance_index_analyze",
+    "schema_evolution_rename_add_drop_readd_notnull_under_bind_snapshot",
+    "savepoint_unwind_promote_and_prepared_plan_cache_transitions",
+    "concurrent_expire_snapshots_and_writer_isolation_under_pinned_bind_snapshot",
+    "multi_catalog_independent_bind_snapshot_and_live_write_isolation",
+    "rebuild_lake_index_generational_advance_artifact_retention_and_savepoint_rollback",
+    "public_status_views_and_metadata_functions_accuracy_and_redaction",
+    "multi_role_privilege_filtering_and_zero_oracle_security",
+    "independent_pinned_ducklake_reference_parity_bind_snapshot_table_info_list_files_options"
+  ]
+}

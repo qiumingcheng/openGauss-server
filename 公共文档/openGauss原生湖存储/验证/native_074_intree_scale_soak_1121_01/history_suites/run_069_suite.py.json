@@ -1,0 +1,12 @@
+{
+  "status": "pass",
+  "profile": "release",
+  "postgres_ext_version": "0.69",
+  "enable_thread_pool": "off",
+  "stages": {
+    "stage1_upgrade_068_to_069_and_options": 4,
+    "stage2_expire_schedule_and_pin_xmin_protection": 10,
+    "stage3_orphan_index_gc_and_duckdb_parity": 6
+  },
+  "total_checks": 20
+}

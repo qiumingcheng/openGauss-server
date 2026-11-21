@@ -1,0 +1,300 @@
+{
+  "status": "built_provisional_unlinked",
+  "scope": "Provisional isolated OpenBLAS0.3.18 serial+locking static PIC dependency.\n\nDoes not update source-lock, system packages, frozen PQ v1, Native or SDK.\nAn upstream checkout is archived into an owned build tree before compilation.\n",
+  "owner": {
+    "task": "native-lake-pq-openblas-serial-locking",
+    "run_id": "pq_openblas_locking_build_1109_01",
+    "source": "/home/qiumc/data/code/cpp/.reference/opengauss-native-lake/openblas-pq-locking-v0.3.18",
+    "source_commit": "efe42481e2c85e8197bdf533078bf89bdf6eabf4",
+    "build": "/home/qiumc/data/code/cpp/.build/opengauss-native-lake/openblas-locking/pq_openblas_locking_build_1109_01",
+    "prefix": "/home/qiumc/data/code/cpp/.install/opengauss-native-lake-pq-openblas/pq_openblas_locking_build_1109_01",
+    "created_at": "2026-11-09T13:52:23.437330+00:00"
+  },
+  "driver_sha256": "5b1f72deb70f75f8e67513acc3cbfa5f9e7ee2e83e771f4a9add508159c1ceb8",
+  "assertions": [
+    {
+      "name": "official source commit matches v0.3.18 tag",
+      "observed": "efe42481e2c85e8197bdf533078bf89bdf6eabf4",
+      "expected": "efe42481e2c85e8197bdf533078bf89bdf6eabf4",
+      "status": "pass"
+    },
+    {
+      "name": "source tracked clean before build",
+      "observed": "",
+      "expected": "",
+      "status": "pass"
+    },
+    {
+      "name": "actual compile command enables locking",
+      "observed": true,
+      "expected": true,
+      "status": "pass"
+    },
+    {
+      "name": "actual compile command emits PIC",
+      "observed": true,
+      "expected": true,
+      "status": "pass"
+    },
+    {
+      "name": "actual compile command hides C symbols",
+      "observed": true,
+      "expected": true,
+      "status": "pass"
+    },
+    {
+      "name": "no OpenMP compiler option",
+      "observed": true,
+      "expected": true,
+      "status": "pass"
+    },
+    {
+      "name": "no internal SMP_SERVER compiler option",
+      "observed": true,
+      "expected": true,
+      "status": "pass"
+    },
+    {
+      "name": "one actual static library installed to staging",
+      "observed": 1,
+      "expected": 1,
+      "status": "pass"
+    },
+    {
+      "name": "raw archive defines actual CBLAS kernels",
+      "observed": true,
+      "expected": true,
+      "status": "pass"
+    },
+    {
+      "name": "every owned global definition has private prefix",
+      "observed": [],
+      "expected": [],
+      "status": "pass"
+    },
+    {
+      "name": "installed header uses actual prefixed CBLAS API",
+      "observed": true,
+      "expected": true,
+      "status": "pass"
+    },
+    {
+      "name": "BLAS is LP64",
+      "observed": true,
+      "expected": true,
+      "status": "pass"
+    },
+    {
+      "name": "projection exposes no private BLAS dynamic symbols",
+      "observed": true,
+      "expected": true,
+      "status": "pass"
+    },
+    {
+      "name": "PIC link projection has no TEXTREL",
+      "observed": true,
+      "expected": true,
+      "status": "pass"
+    },
+    {
+      "name": "reference still tracked clean",
+      "observed": "",
+      "expected": "",
+      "status": "pass"
+    }
+  ],
+  "commands": [
+    {
+      "name": "source-archive",
+      "cwd": "/home/qiumc/data/code/cpp/.reference/opengauss-native-lake/openblas-pq-locking-v0.3.18",
+      "argv": [
+        "git",
+        "archive",
+        "--format=tar",
+        "-o",
+        "/home/qiumc/data/code/cpp/.build/opengauss-native-lake/openblas-locking/pq_openblas_locking_build_1109_01/OpenBLAS-v0.3.18-source.tar",
+        "efe42481e2c85e8197bdf533078bf89bdf6eabf4"
+      ]
+    },
+    {
+      "name": "build-libs",
+      "cwd": "/home/qiumc/data/code/cpp/.build/opengauss-native-lake/openblas-locking/pq_openblas_locking_build_1109_01/source",
+      "argv": [
+        "make",
+        "-j1",
+        "libs",
+        "CC=/home/qiumc/data/code/cpp/binarylibs/buildtools/gcc10.3/gcc/bin/gcc",
+        "HOSTCC=/home/qiumc/data/code/cpp/binarylibs/buildtools/gcc10.3/gcc/bin/gcc",
+        "AR=/usr/bin/ar",
+        "RANLIB=/usr/bin/ranlib",
+        "OBJCOPY=/usr/bin/objcopy",
+        "TARGET=PRESCOTT",
+        "BINARY=64",
+        "DYNAMIC_ARCH=0",
+        "USE_THREAD=0",
+        "USE_LOCKING=1",
+        "USE_OPENMP=0",
+        "NUM_THREADS=1",
+        "NUM_PARALLEL=1",
+        "NO_AFFINITY=1",
+        "NOFORTRAN=1",
+        "ONLY_CBLAS=1",
+        "NO_LAPACK=1",
+        "NO_LAPACKE=1",
+        "NO_SHARED=1",
+        "NO_STATIC=0",
+        "NEED_PIC=1",
+        "BUILD_SINGLE=1",
+        "BUILD_DOUBLE=0",
+        "BUILD_COMPLEX=0",
+        "BUILD_COMPLEX16=0",
+        "BUILD_BFLOAT16=0",
+        "SYMBOLPREFIX=oglpq_",
+        "COMMON_OPT=-O0 -g -fPIC -fvisibility=hidden"
+      ]
+    },
+    {
+      "name": "install-staging",
+      "cwd": "/home/qiumc/data/code/cpp/.build/opengauss-native-lake/openblas-locking/pq_openblas_locking_build_1109_01/source",
+      "argv": [
+        "make",
+        "-j1",
+        "install",
+        "PREFIX=/home/qiumc/data/code/cpp/.build/opengauss-native-lake/openblas-locking/pq_openblas_locking_build_1109_01/stage",
+        "CC=/home/qiumc/data/code/cpp/binarylibs/buildtools/gcc10.3/gcc/bin/gcc",
+        "HOSTCC=/home/qiumc/data/code/cpp/binarylibs/buildtools/gcc10.3/gcc/bin/gcc",
+        "AR=/usr/bin/ar",
+        "RANLIB=/usr/bin/ranlib",
+        "OBJCOPY=/usr/bin/objcopy",
+        "TARGET=PRESCOTT",
+        "BINARY=64",
+        "DYNAMIC_ARCH=0",
+        "USE_THREAD=0",
+        "USE_LOCKING=1",
+        "USE_OPENMP=0",
+        "NUM_THREADS=1",
+        "NUM_PARALLEL=1",
+        "NO_AFFINITY=1",
+        "NOFORTRAN=1",
+        "ONLY_CBLAS=1",
+        "NO_LAPACK=1",
+        "NO_LAPACKE=1",
+        "NO_SHARED=1",
+        "NO_STATIC=0",
+        "NEED_PIC=1",
+        "BUILD_SINGLE=1",
+        "BUILD_DOUBLE=0",
+        "BUILD_COMPLEX=0",
+        "BUILD_COMPLEX16=0",
+        "BUILD_BFLOAT16=0",
+        "SYMBOLPREFIX=oglpq_",
+        "COMMON_OPT=-O0 -g -fPIC -fvisibility=hidden"
+      ]
+    },
+    {
+      "name": "prefix-owned-symbols",
+      "cwd": "/home/qiumc/data/code/cpp/.build/opengauss-native-lake/openblas-locking/pq_openblas_locking_build_1109_01",
+      "argv": [
+        "/usr/bin/objcopy",
+        "--redefine-syms=/home/qiumc/data/code/cpp/.build/opengauss-native-lake/openblas-locking/pq_openblas_locking_build_1109_01/owned-symbols.map",
+        "/home/qiumc/data/code/cpp/.build/opengauss-native-lake/openblas-locking/pq_openblas_locking_build_1109_01/stage/lib/liboglpq_openblas_prescott-r0.3.18.a",
+        "/home/qiumc/data/code/cpp/.install/opengauss-native-lake-pq-openblas/pq_openblas_locking_build_1109_01/lib/libog_lake_pq_openblas.a"
+      ]
+    },
+    {
+      "name": "archive-index",
+      "cwd": "/home/qiumc/data/code/cpp/.build/opengauss-native-lake/openblas-locking/pq_openblas_locking_build_1109_01",
+      "argv": [
+        "/usr/bin/ranlib",
+        "/home/qiumc/data/code/cpp/.install/opengauss-native-lake-pq-openblas/pq_openblas_locking_build_1109_01/lib/libog_lake_pq_openblas.a"
+      ]
+    },
+    {
+      "name": "pic-hidden-link-projection",
+      "cwd": "/home/qiumc/data/code/cpp/.build/opengauss-native-lake/openblas-locking/pq_openblas_locking_build_1109_01",
+      "argv": [
+        "/home/qiumc/data/code/cpp/binarylibs/buildtools/gcc10.3/gcc/bin/gcc",
+        "-shared",
+        "-Wl,--whole-archive",
+        "/home/qiumc/data/code/cpp/.install/opengauss-native-lake-pq-openblas/pq_openblas_locking_build_1109_01/lib/libog_lake_pq_openblas.a",
+        "-Wl,--no-whole-archive",
+        "-Wl,--exclude-libs,ALL",
+        "-pthread",
+        "-lm",
+        "-o",
+        "/home/qiumc/data/code/cpp/.build/opengauss-native-lake/openblas-locking/pq_openblas_locking_build_1109_01/hidden-link-projection.so"
+      ]
+    }
+  ],
+  "source": "/home/qiumc/data/code/cpp/.reference/opengauss-native-lake/openblas-pq-locking-v0.3.18",
+  "source_commit": "efe42481e2c85e8197bdf533078bf89bdf6eabf4",
+  "prefix": "/home/qiumc/data/code/cpp/.install/opengauss-native-lake-pq-openblas/pq_openblas_locking_build_1109_01",
+  "build": "/home/qiumc/data/code/cpp/.build/opengauss-native-lake/openblas-locking/pq_openblas_locking_build_1109_01",
+  "symbol_prefix": "oglpq_",
+  "source_lock_updated": false,
+  "provisional": true,
+  "source_archive_sha256": "db5ff9193433706cdca069e71a96ab62e73393c6992823a7bf4c1aae0ffb2966",
+  "make_variables": [
+    "CC=/home/qiumc/data/code/cpp/binarylibs/buildtools/gcc10.3/gcc/bin/gcc",
+    "HOSTCC=/home/qiumc/data/code/cpp/binarylibs/buildtools/gcc10.3/gcc/bin/gcc",
+    "AR=/usr/bin/ar",
+    "RANLIB=/usr/bin/ranlib",
+    "OBJCOPY=/usr/bin/objcopy",
+    "TARGET=PRESCOTT",
+    "BINARY=64",
+    "DYNAMIC_ARCH=0",
+    "USE_THREAD=0",
+    "USE_LOCKING=1",
+    "USE_OPENMP=0",
+    "NUM_THREADS=1",
+    "NUM_PARALLEL=1",
+    "NO_AFFINITY=1",
+    "NOFORTRAN=1",
+    "ONLY_CBLAS=1",
+    "NO_LAPACK=1",
+    "NO_LAPACKE=1",
+    "NO_SHARED=1",
+    "NO_STATIC=0",
+    "NEED_PIC=1",
+    "BUILD_SINGLE=1",
+    "BUILD_DOUBLE=0",
+    "BUILD_COMPLEX=0",
+    "BUILD_COMPLEX16=0",
+    "BUILD_BFLOAT16=0",
+    "SYMBOLPREFIX=oglpq_",
+    "COMMON_OPT=-O0 -g -fPIC -fvisibility=hidden"
+  ],
+  "compiler": "/home/qiumc/data/code/cpp/binarylibs/buildtools/gcc10.3/gcc/bin/gcc",
+  "compiler_sha256": "43025bdfec4f0e3bb12316a87c8eac800864a10c71d274d5d5ab419dfc56675c",
+  "library": "/home/qiumc/data/code/cpp/.install/opengauss-native-lake-pq-openblas/pq_openblas_locking_build_1109_01/lib/libog_lake_pq_openblas.a",
+  "library_sha256": "dee1e4b4b1737b8fa734a55dfc8d6401612cac3a262792190cdb3289075c9422",
+  "owned_symbols": 472,
+  "symbol_map_sha256": "fb47f7586da8236814e03ad3eb3b032a09c4c92a9bb44dc2f84e52e5f69cf237",
+  "files": {
+    ".og-lake-owner.json": "f27a216b852b75703dcd75999ca681bfe8c7f15478ff76698ae9bee24ad4d6bf",
+    "licenses/relapack__LICENSE": "abd17b9664b38cfab093e7cca625ac08d3a686fc63142ea58c27bae15969dd3a",
+    "licenses/lapack-netlib__LICENSE": "d56bd4441b999b80c88df04faf0d8b3d7d3b2bd781cf91242c4188e8a6d0f8be",
+    "licenses/LICENSE": "190b5a9c8d9723fe958ad33916bd7346d96fab3c5ea90832bb02d854f620fcff",
+    "licenses/lapack-netlib__LAPACKE__LICENSE": "871f415ebd2fd06c7ab8cc3c0016aa2d26b918622345116e2d0c740b688d4843",
+    "licenses/GotoBLAS-common-header-notice.txt": "97d2a97438088a7166729976deb5ad5299e95621b0d9235f147837a7e9ae54d3",
+    "licenses/reference__LICENSE": "c1ceeff23f242ddac805ba9d332f58b559454ec00447e65540c0e818f7de69da",
+    "licenses/ctest__LICENSE": "c1ceeff23f242ddac805ba9d332f58b559454ec00447e65540c0e818f7de69da",
+    "licenses/test__LICENSE": "c1ceeff23f242ddac805ba9d332f58b559454ec00447e65540c0e818f7de69da",
+    "lib/libog_lake_pq_openblas.a": "dee1e4b4b1737b8fa734a55dfc8d6401612cac3a262792190cdb3289075c9422",
+    "include/openblas_config.h": "5225d1187037c35b30f384bb5cad9e86b440e5e859fee763951a71fffe8c2971",
+    "include/cblas.h": "6a4379efe40107894646d9047e5a2e98001cbcfe01e5b18b73b74b9dfbe15939",
+    "include/f77blas.h": "229fe8e054ff9235c63f1b07a61af5b5f03d921eb9011db248cbc5681e876835"
+  },
+  "source_license": {
+    "file": "LICENSE",
+    "sha256": "190b5a9c8d9723fe958ad33916bd7346d96fab3c5ea90832bb02d854f620fcff",
+    "spdx": "BSD-3-Clause; GotoBLAS component notices preserved"
+  },
+  "hidden_link_policy": "C compilation visibility hidden; every owned global is prefixed; final link must retain --exclude-libs,ALL as audited by the PIC projection",
+  "caveats": [
+    "OpenBLAS0.3.18 raw get_config returns a mutable static buffer; numeric USE_LOCKING does not protect it.",
+    "Concurrency requires the separate once-initialized immutable-config shim variant, not old serial PQ v1 unchanged behavior.",
+    "No Native SMP or whole-query allocator qualification."
+  ],
+  "finished_at": "2026-11-09T13:52:35.889359+00:00"
+}

@@ -1,0 +1,87 @@
+{
+  "status": "passed",
+  "build_receipt": "/home/qiumc/data/code/cpp/公共文档/openGauss原生湖存储/验证/native_074_intree_build_release_1121_01/build.json",
+  "build_receipt_sha256": "aedab97122da596e9bb86c8ade8d494d0c46a26fd7cf11ebb9c003551a9e08c2",
+  "binary_sha256": "6b22d35b6d467a81b34bf5b29f63affa8bf879147275c50e02324772ec1d01eb",
+  "datavec_regress": {
+    "diskann_vector": {
+      "status": "passed",
+      "stdout_lines": 82
+    },
+    "hnsw_lsg_vector": {
+      "status": "passed",
+      "stdout_lines": 50
+    },
+    "hnsw_rabitq_vector": {
+      "status": "passed",
+      "stdout_lines": 53
+    }
+  },
+  "history_suites_on_release": [
+    "run_056_suite.py",
+    "run_057_suite.py",
+    "run_058_suite.py",
+    "run_059_suite.py",
+    "run_061_suite.py",
+    "run_062_suite.py",
+    "run_063_suite.py",
+    "run_064_suite.py",
+    "run_065_suite.py",
+    "run_066_suite.py",
+    "run_069_suite.py",
+    "ix5_064:run_064_suite.py",
+    "m067:run_067_suite.py",
+    "m068:run_068_suite.py",
+    "m070:run_070_suite.py"
+  ],
+  "scale_1m_rows": {
+    "rows": 1000000,
+    "data_files": 16,
+    "ingest_8_batches_flush_ms": 91470.309,
+    "row_dop1_ms": 1203.18,
+    "row_dop4_ms": 502.487,
+    "row_smp_speedup": 2.394,
+    "vec_dop1_ms": 901.911,
+    "vec_dop4_ms": 377.194,
+    "vec_smp_speedup": 2.391,
+    "vec_dop4_vs_row_dop1": 3.19,
+    "truncate_bucket_prune_1m_ms": 81.631
+  },
+  "diskann_pq_20k_dim32": {
+    "rows": 20000,
+    "files": 4,
+    "dim": 32,
+    "build_ms": 4195.994,
+    "exact_scan_median_ms": 54.612,
+    "pq_warm_dop1_median_ms": 55.346,
+    "pq_warm_dop4_median_ms": 68.937,
+    "mean_recall_at_10": 1.0,
+    "min_recall_at_10": 1.0
+  },
+  "diskann_pq_50k_dim32": {
+    "rows": 50000,
+    "files": 4,
+    "dim": 32,
+    "build_ms": 12067.003,
+    "exact_scan_median_ms": 97.532,
+    "pq_warm_dop1_median_ms": 77.705,
+    "pq_warm_dop4_median_ms": 77.785,
+    "mean_recall_at_10": 0.96,
+    "min_recall_at_10": 0.8
+  },
+  "threadpool_soak_and_lru": {
+    "status": "passed",
+    "thread_pool": "on",
+    "lru_tables_churned": 80,
+    "lru_query_sweeps": 3,
+    "concurrent_vec_reads": 25,
+    "occ_retries_handled": 0,
+    "cancel_probes_handled": 5,
+    "final_soak_rows": 2588,
+    "active_pins_after": 0,
+    "rss_setup_kb": 680208,
+    "rss_after_lru_kb": 683904,
+    "rss_end_kb": 894036,
+    "rss_delta_lru_to_end_kb": 210132
+  }
+}

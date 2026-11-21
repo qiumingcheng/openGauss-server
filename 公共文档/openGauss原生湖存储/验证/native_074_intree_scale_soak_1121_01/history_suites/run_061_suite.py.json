@@ -1,0 +1,37 @@
+{
+  "status": "passed",
+  "sql_version": "0.61",
+  "profile": "release",
+  "port": 55570,
+  "enable_thread_pool": "off",
+  "backend_exe": "/proc/137146514011648/exe",
+  "stage_count": 6,
+  "duckdb_checks": 27,
+  "stages": [
+    {
+      "stage": "upgrade_chain_059_060_061_and_isolation",
+      "status": "passed"
+    },
+    {
+      "stage": "security_openat2_symlink_acl_matrix",
+      "status": "passed"
+    },
+    {
+      "stage": "schema_inference_and_metadata",
+      "status": "passed"
+    },
+    {
+      "stage": "external_parquet_types_projection_rescan_analyze",
+      "status": "passed"
+    },
+    {
+      "stage": "csv_tsv_acl_ducklake_interop_and_060_compat",
+      "status": "passed"
+    },
+    {
+      "stage": "cursor_fd_pinning_atomic_replace_and_copy_role",
+      "status": "passed"
+    }
+  ],
+  "finished_at": "2026-11-21T10:18:45.783471+00:00"
+}

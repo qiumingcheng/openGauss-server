@@ -1,0 +1,30 @@
+{
+  "status": "passed",
+  "profile": "release",
+  "vec_vs_row_60k": {
+    "count_star": {
+      "row_ms": 30.162,
+      "vec_ms": 25.829,
+      "speedup": 1.168
+    },
+    "proj_sum_v": {
+      "row_ms": 40.58,
+      "vec_ms": 32.924,
+      "speedup": 1.233
+    },
+    "full_all_cols": {
+      "row_ms": 64.787,
+      "vec_ms": 51.156,
+      "speedup": 1.266
+    }
+  },
+  "diskann_pq_8000_4x2000_dim32": {
+    "build_ms": 1518.209,
+    "mean_recall_at_10": 0.98,
+    "min_recall_at_10": 0.9,
+    "exact_scan_median_ms": 35.88,
+    "pq_cold_dop1_median_ms": 42.571,
+    "pq_warm_dop1_median_ms": 43.672,
+    "pq_warm_dop4_median_ms": 62.56
+  }
+}

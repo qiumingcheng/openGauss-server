@@ -1,0 +1,11 @@
+$ ["/home/qiumc/data/code/cpp/.install/opengauss-native-lake-debug/bin/gsql", "-X", "-v", "ON_ERROR_STOP=1", "-h", "/home/qiumc/data/code/cpp/.runtime/opengauss-native-lake/ann-debug/socket", "-p", "55580", "-d", "postgres", "-c", "SELECT version(), current_database(), current_user; SELECT 6 * 7;"]
+                                                                              version                                                                               | current_database | current_user 
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+--------------
+ (openGauss 7.0.0-RC3 build ed6a1250) compiled at 2026-11-21 18:23:59 commit 0 last mr 9389 debug on x86_64-unknown-linux-gnu, compiled by g++ (GCC) 10.3.0, 64-bit | postgres         | qiumc
+(1 row)
+
+ ?column? 
+----------
+       42
+(1 row)
+

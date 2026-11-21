@@ -1,0 +1,42 @@
+{
+  "status": "passed",
+  "build_system": "CMake 3.22.0 + GCC 10.3.0 (-DENABLE_HTAP=OFF -DCMAKE_BUILD_TYPE=Release)",
+  "pq_in_tree_archive_bytes": 223210,
+  "pq_in_tree_archive_sha256": "761cce3463a83884ee1c4d0bde6f8b91483cc958e1003483f1f4af4b9faf5bf3",
+  "cmake_gaussdb_bytes": 792826160,
+  "cmake_gaussdb_sha256": "ab37e190f039f30d66b2f376824d4a000a2fa7061f5c1b68c3d2c8b59d6614d2",
+  "unisolated_archive_symbols": [],
+  "dynamic_pq_or_blas_leaks": [],
+  "licenses_installed": [
+    "Microsoft-DiskANN-LICENSE",
+    "Microsoft-DiskANN-NOTICE.txt",
+    "OpenBLAS/LICENSE"
+  ],
+  "runtime_smoke": {
+    "extension_version": "0.74",
+    "table_rows": 1200,
+    "dim": 32,
+    "pq_chunks": 8,
+    "pq_top10_ids": [
+      42,
+      1029,
+      461,
+      990,
+      1047,
+      544,
+      797,
+      712,
+      109,
+      1000
+    ],
+    "nearest_42_hit": true,
+    "plan_excerpt": [
+      "Lake SMP: serial path; parallel candidate requires admitted read-only non-rescannable inputs",
+      "Native Lake: native inline prototype",
+      "Lake Batch Delivery: row ForeignScan",
+      "Planned Inline Access: native DiskANN approximate candidates",
+      "ANN Semantics: approximate inline/file candidates; uncovered/private exact scan; native distance rerank",
+      "Planned File Access: DiskANN Parquet candidates with coverage validation"
+    ]
+  }
+}

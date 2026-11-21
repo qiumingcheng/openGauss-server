@@ -1,0 +1,164 @@
+
+=== [Part A] High-Dim DiskANN+PQ Suite (release) ===
+Tiny 100-row EXPLAIN:
+Limit  (cost=11.16..11.19 rows=10 width=140)
+  ->  Sort  (cost=11.16..11.41 rows=100 width=140)
+        Sort Key: ((v <-> '[-1.2901,0.2599,-0.3197,-0.2729,-1.4263,-0.6891,1.9506,0.155,1.5078,-0.6318,0.1383,0.6516,0.6372,-0.1848,0.0729,1.0993,0.3271,-1.7654,-0.6026,-1.0988,-1.6871,0.8148,1.0785,-0.764,-0.31,1.9879,-0.1498,-0.0784,0.3207,1.3117,0.5119,1.0825]'::vector(32)))
+        ->  Foreign Scan on tiny  (cost=0.00..9.00 rows=100 width=140)
+              Filter: (v IS NOT NULL)
+              Lake SMP: serial path; parallel candidate requires admitted read-only non-rescannable inputs
+              Native Lake: native inline prototype
+              Lake Batch Delivery: row ForeignScan
+              Planned Inline Access: TableAM sequential
+              Planned File Access: complete SDK scan
+              Row Estimate: pg_class / ANALYZE visible file+inline estimate (may be stale)
+              Visible Row Baseline: 100.00
+              Stored Version Estimate: 100.00
+              Inline Data Pages: 6.00
+              Inline Read Cost: 6.00
+              Version Filter Cost: 1.75
+              Visible Row And Qual Cost: 1.00
+              Target Cost: 0.00
+              Base Planner Startup Cost: 0.00
+              Cost Model: source-exclusive file/inline ledger; raw graph statistics may be unknown; native units; not calibrated
+{"dim": 32, "rows": 20000, "files": 4, "metric": "l2", "pq_chunks": 8, "insert_flush_s": 1.46, "analyze_ms": 84.9, "pq_build_ms": 5030.3, "exact_ms": 52.45, "pq_cold_ms": 54.9, "pq_warm_ms": 52.65, "mean_recall10": 1.0, "min_recall10": 1.0, "natural_seqscan_on_chose_ann": true, "filtered_ok": true}
+{"dim": 128, "rows": 20000, "files": 4, "metric": "l2", "pq_chunks": 32, "insert_flush_s": 3.0, "analyze_ms": 165.4, "pq_build_ms": 14837.5, "exact_ms": 109.95, "pq_cold_ms": 96.63, "pq_warm_ms": 96.8, "mean_recall10": 1.0, "min_recall10": 1.0, "natural_seqscan_on_chose_ann": true, "filtered_ok": true}
+{"dim": 384, "rows": 20000, "files": 4, "metric": "cosine", "pq_chunks": 96, "insert_flush_s": 7.12, "analyze_ms": 429.4, "pq_build_ms": 20506.6, "exact_ms": 275.05, "pq_cold_ms": 245.76, "pq_warm_ms": 195.87, "mean_recall10": 1.0, "min_recall10": 1.0, "natural_seqscan_on_chose_ann": true, "filtered_ok": true}
+{"dim": 768, "rows": 20000, "files": 4, "metric": "l2", "pq_chunks": 192, "insert_flush_s": 13.94, "analyze_ms": 787.4, "pq_build_ms": 39680.4, "exact_ms": 466.57, "pq_cold_ms": 385.13, "pq_warm_ms": 353.31, "mean_recall10": 1.0, "min_recall10": 1.0, "natural_seqscan_on_chose_ann": true, "filtered_ok": true}
+{"dim": 1536, "rows": 12000, "files": 4, "metric": "l2", "pq_chunks": 384, "insert_flush_s": 14.95, "analyze_ms": 717.2, "pq_build_ms": 43241.9, "exact_ms": 575.27, "pq_cold_ms": 445.34, "pq_warm_ms": 426.68, "mean_recall10": 1.0, "min_recall10": 1.0, "natural_seqscan_on_chose_ann": true, "filtered_ok": true}
+{"dim": 128, "rows": 5000, "metric": "ip_raw_cached", "mean_recall10": 1.0, "cold_ms": 56.06, "warm_ms": 48.77}
+
+=== [Part B] active-H Empty-Input Hardening & Concurrency (release) ===
+active-H empty-input cleanup & concurrency PASSED
+
+=== [Part C] PGL-0 Expanded Native pg_partition Suite (release) ===
+0.73 pre-upgrade gate & 0.73->0.74 upgrade + 4-leaf RANGE bind PASSED
+[range_4leaf_ext] bind+enable: 1.57s
+[range_4leaf_ext] insert+copy: 6.37s
+[range_4leaf_ext] analyze: 1.94s
+[range_4leaf_ext] rollback_del: 4.87s
+[range_4leaf_ext] update_move: 5.87s
+[range_4leaf_ext] delete: 4.81s
+[range_4leaf_ext] (4 leaves) DML/COPY/ANALYZE/RowMovement/Prune PASSED!
+[list_4leaf_date] bind+enable: 1.52s
+[list_4leaf_date] insert+copy: 4.34s
+[list_4leaf_date] analyze: 1.86s
+[list_4leaf_date] rollback_del: 5.88s
+[list_4leaf_date] update_move: 6.58s
+[list_4leaf_date] delete: 6.03s
+[list_4leaf_date] (4 leaves) DML/COPY/ANALYZE/RowMovement/Prune PASSED!
+[hash_4leaf_text] bind+enable: 1.49s
+[hash_4leaf_text] insert+copy: 4.01s
+[hash_4leaf_text] analyze: 1.86s
+[hash_4leaf_text] rollback_del: 4.64s
+[hash_4leaf_text] update_move: 6.07s
+[hash_4leaf_text] delete: 4.69s
+[hash_4leaf_text] (4 leaves) DML/COPY/ANALYZE/RowMovement/Prune PASSED!
+
+=== ALL REQUESTED 0.74 VERIFICATIONS PASSED ===
+{
+  "ann": {
+    "status": "passed",
+    "cases": [
+      {
+        "dim": 32,
+        "rows": 20000,
+        "files": 4,
+        "metric": "l2",
+        "pq_chunks": 8,
+        "insert_flush_s": 1.46,
+        "analyze_ms": 84.9,
+        "pq_build_ms": 5030.3,
+        "exact_ms": 52.45,
+        "pq_cold_ms": 54.9,
+        "pq_warm_ms": 52.65,
+        "mean_recall10": 1.0,
+        "min_recall10": 1.0,
+        "natural_seqscan_on_chose_ann": true,
+        "filtered_ok": true
+      },
+      {
+        "dim": 128,
+        "rows": 20000,
+        "files": 4,
+        "metric": "l2",
+        "pq_chunks": 32,
+        "insert_flush_s": 3.0,
+        "analyze_ms": 165.4,
+        "pq_build_ms": 14837.5,
+        "exact_ms": 109.95,
+        "pq_cold_ms": 96.63,
+        "pq_warm_ms": 96.8,
+        "mean_recall10": 1.0,
+        "min_recall10": 1.0,
+        "natural_seqscan_on_chose_ann": true,
+        "filtered_ok": true
+      },
+      {
+        "dim": 384,
+        "rows": 20000,
+        "files": 4,
+        "metric": "cosine",
+        "pq_chunks": 96,
+        "insert_flush_s": 7.12,
+        "analyze_ms": 429.4,
+        "pq_build_ms": 20506.6,
+        "exact_ms": 275.05,
+        "pq_cold_ms": 245.76,
+        "pq_warm_ms": 195.87,
+        "mean_recall10": 1.0,
+        "min_recall10": 1.0,
+        "natural_seqscan_on_chose_ann": true,
+        "filtered_ok": true
+      },
+      {
+        "dim": 768,
+        "rows": 20000,
+        "files": 4,
+        "metric": "l2",
+        "pq_chunks": 192,
+        "insert_flush_s": 13.94,
+        "analyze_ms": 787.4,
+        "pq_build_ms": 39680.4,
+        "exact_ms": 466.57,
+        "pq_cold_ms": 385.13,
+        "pq_warm_ms": 353.31,
+        "mean_recall10": 1.0,
+        "min_recall10": 1.0,
+        "natural_seqscan_on_chose_ann": true,
+        "filtered_ok": true
+      },
+      {
+        "dim": 1536,
+        "rows": 12000,
+        "files": 4,
+        "metric": "l2",
+        "pq_chunks": 384,
+        "insert_flush_s": 14.95,
+        "analyze_ms": 717.2,
+        "pq_build_ms": 43241.9,
+        "exact_ms": 575.27,
+        "pq_cold_ms": 445.34,
+        "pq_warm_ms": 426.68,
+        "mean_recall10": 1.0,
+        "min_recall10": 1.0,
+        "natural_seqscan_on_chose_ann": true,
+        "filtered_ok": true
+      },
+      {
+        "dim": 128,
+        "rows": 5000,
+        "metric": "ip_raw_cached",
+        "mean_recall10": 1.0,
+        "cold_ms": 56.06,
+        "warm_ms": 48.77
+      }
+    ]
+  },
+  "active_h": {
+    "status": "passed"
+  },
+  "pgl0": {
+    "status": "passed"
+  }
+}
