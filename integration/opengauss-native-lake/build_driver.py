@@ -29,9 +29,9 @@ IN_TREE_PQ_OWNED_FILES = (
 )
 
 
-def pq_in_tree_inputs(workspace, source, blas_receipt=None):
+def pq_in_tree_inputs(workspace, source, blas_receipt=None, blas_receipt_sha256=None):
     """Validate in-tree contrib/og_lake/{pq,vendor/diskann_pq} + private OpenBLAS."""
-    blas = blas_inputs(workspace)
+    blas = blas_inputs(workspace, receipt=blas_receipt, receipt_sha256=blas_receipt_sha256) if blas_receipt_sha256 else blas_inputs(workspace)
     if blas_receipt is not None and Path(blas_receipt).resolve(strict=True) != Path(blas['receipt']).resolve(strict=True):
         raise RuntimeError('In-tree PQ --blas-build must match pinned serial locking OpenBLAS receipt')
     pq_dir = source / 'contrib/og_lake/pq'
@@ -246,6 +246,10 @@ def native_source_inputs():
         text=True).splitlines())
     module = SOURCE / 'contrib/og_lake'
     for path in module.rglob('*'):
+        # Make writes this object/link-input list during a fresh build. Keep
+        # tracked changes above, but do not treat the generated list as source.
+        if path == module / 'objfiles.txt':
+            continue
         if path.is_file() and (path.suffix in {'.cpp', '.c', '.h', '.hpp', '.sql',
                 '.control', '.inc', '.md', '.sh', '.txt'} or path.name in {'Makefile', 'CMakeLists.txt', 'LICENSE', 'LICENSE.ducklake'}):
             names.add(str(path.relative_to(SOURCE)))
@@ -338,6 +342,8 @@ def main():
     ap.add_argument('--pq-build', type=Path, help='Optional owned PQ static dependency build.json; omitted keeps raw graph')
     ap.add_argument('--pq-in-tree', action='store_true', help='Build and link in-tree contrib/og_lake/{pq,vendor/diskann_pq} with private OpenBLAS')
     ap.add_argument('--blas-build', type=Path, default=None, help='Private locking OpenBLAS build.json used with --pq-in-tree')
+    ap.add_argument('--blas-build-sha256', help='Exact SHA256 of a newly rebuilt private BLAS receipt; legacy admission remains the default')
+    ap.add_argument('--build-entry', type=Path, help='Explicit build/restart entry for a reconstructed environment; recorded in build identity')
     ap.add_argument('--pq-sdk-selection', type=Path, help='Exact full SDK54/PQ source and actual proof selection; decimal54 kind only')
     ap.add_argument('--pq-sdk-selection-sha256', help='SHA256 of the explicit decimal54 SDK selection')
     ap.add_argument('--jobs', type=int, default=3)
@@ -346,6 +352,8 @@ def main():
         ap.error('--pq-in-tree cannot be combined with --pq-build or --pq-sdk-selection')
     if args.blas_build is not None and not args.pq_in_tree:
         ap.error('--blas-build requires --pq-in-tree')
+    if args.blas_build_sha256 and (args.blas_build is None or not args.pq_in_tree):
+        ap.error('--blas-build-sha256 requires --pq-in-tree and --blas-build')
     SOURCE = source_for_profile(args.profile)
     if not re.fullmatch(r'[A-Za-z0-9_.-]+', args.run_id) or args.jobs < 1:
         ap.error('invalid run id or jobs')
@@ -376,6 +384,7 @@ def main():
                  'OG_LAKE_PQ_BLAS_LICENSES', 'OG_LAKE_PQ_MANIFEST'):
         env.pop(name, None)
     env.update(CODE_BASE=str(SOURCE), BINARYLIBS=str(ROOT / 'binarylibs'),
+               OG_LAKE_BUILD_PROFILE=install_profile,
                GAUSSHOME=str(install), PGDATA=str(data), PGPORT=str(port),
                PGHOST=str(runtime / 'socket'), PGUSER=env.get('USER', 'qiumc'),
                DB_USER=env.get('USER', 'qiumc'), JOBS=str(args.jobs),
@@ -407,7 +416,7 @@ def main():
             env.update(OG_LAKE_ROARING_INCLUDE=dependency['include'],
                        OG_LAKE_ROARING_ARCHIVE=dependency['library'])
         if args.pq_in_tree:
-            pq_dependency = pq_in_tree_inputs(ROOT, SOURCE, args.blas_build)
+            pq_dependency = pq_in_tree_inputs(ROOT, SOURCE, args.blas_build, args.blas_build_sha256)
             if not (SOURCE / 'contrib/og_lake/lake_file_pq.cpp').is_file():
                 raise RuntimeError('In-tree PQ supplied to a source tree without Native PQ glue')
             env.update(OG_LAKE_PQ_IN_TREE='1',
@@ -454,7 +463,7 @@ def main():
             summary['compiled_build_receipt']=str(args.reuse_build_receipt.resolve())
             summary['compiled_build_receipt_sha256']=digest(args.reuse_build_receipt)
             bootstrap(data,runtime,evidence,prefix=install)
-        else:
+        elif not (args.build_entry is not None and args.mode in ('full', 'incremental')):
             bootstrap(data, runtime, evidence)
         if args.mode == 'init':
             summary['status'] = 'initialized_only'
@@ -466,8 +475,9 @@ def main():
             expected_debug = args.profile != 'release'
             if ('--enable-debug' in config) != expected_debug or str(install) not in config:
                 raise RuntimeError('configuration/profile differs; use full')
-        entry = ROOT / ('deliverables/multimodal_optimizer/opengauss_build_install_restart.sh'
+        entry = args.build_entry.resolve(strict=True) if args.build_entry else ROOT / ('deliverables/multimodal_optimizer/opengauss_build_install_restart.sh'
                         if args.profile != 'release' else 'deliverables/hybrid_vs_milvus_bench/build_release.sh')
+        summary['build_entry'] = str(entry)
         summary['build_entry_sha256'] = digest(entry)
         # The authoritative Debug installer uses cp -r for JRE files. Its
         # upstream archive contains read-only files, so subsequent installs
@@ -508,7 +518,7 @@ def main():
                     'og_lake_bitmap_decode', 'og_lake_bitmap_writer_open',
                     'og_lake_bitmap_select', 'roaring_bitmap_portable_deserialize_safe'))
         if args.pq_in_tree:
-            summary['pq_inputs_after'] = pq_in_tree_inputs(ROOT, SOURCE, args.blas_build)
+            summary['pq_inputs_after'] = pq_in_tree_inputs(ROOT, SOURCE, args.blas_build, args.blas_build_sha256)
             if summary['pq_inputs_after'] != pq_dependency:
                 raise RuntimeError('In-tree PQ inputs changed during the build')
             pq_lib = Path(pq_dependency['library'])
@@ -558,7 +568,7 @@ def main():
         if 'pq_inputs_before' in summary and 'pq_inputs_after' not in summary:
             try:
                 summary['pq_inputs_after'] = (
-                    pq_in_tree_inputs(ROOT, SOURCE, args.blas_build)
+                    pq_in_tree_inputs(ROOT, SOURCE, args.blas_build, args.blas_build_sha256)
                     if args.pq_in_tree else
                     selected_pq_inputs(args.pq_build, ROOT, selection=args.pq_sdk_selection, selection_sha256=args.pq_sdk_selection_sha256)
                 )

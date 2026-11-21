@@ -19,6 +19,7 @@ import threading
 import time
 import uuid
 from copy import deepcopy
+from contextlib import contextmanager
 from pathlib import Path
 
 import numpy as np
@@ -143,11 +144,17 @@ def setup_test_db(profile: str, ext_version: str = '0.74'):
 
 
 def teardown_test_db(profile: str, conn, db: str, role: str, tmp_root: Path):
+    failed = sys.exc_info()[0] is not None
     if conn is not None:
         try:
             conn.close()
         except Exception:
             pass
+    if failed:
+        retained = dict(profile=profile, database=db, role=role, files=str(tmp_root))
+        (tmp_root / 'failed-run.json').write_text(json.dumps(retained, indent=2) + '\n')
+        print('Failure scene retained: ' + json.dumps(retained), file=sys.stderr, flush=True)
+        return
     admin = connect_profile(profile, 'postgres')
     with admin.cursor() as cur:
         cur.execute(f'DROP DATABASE IF EXISTS {db}')
@@ -156,8 +163,26 @@ def teardown_test_db(profile: str, conn, db: str, role: str, tmp_root: Path):
     shutil.rmtree(tmp_root, ignore_errors=True)
 
 
-def run_ann_suite(profile: str, dims=(32, 128, 384, 768, 1536)):
+@contextmanager
+def index_fixture_timeout(cur, milliseconds):
+    """Allow slow Debug index preparation without changing query acceptance limits."""
+    cur.execute('SHOW statement_timeout')
+    previous = cur.fetchone()[0]
+    try:
+        cur.execute('SET statement_timeout = %s', (milliseconds,))
+        yield
+    finally:
+        cur.execute('SET statement_timeout = %s', (previous,))
+
+
+def build_fixture_index(cur, index_uuid, timeout_ms):
+    with index_fixture_timeout(cur, timeout_ms):
+        cur.execute('SELECT og_lake.build_lake_index(%s::uuid)', (index_uuid,))
+
+
+def run_ann_suite(profile: str, dims=(32, 128, 384, 768, 1536), index_timeout_ms=300000):
     print(f'\n=== [Part A] High-Dim DiskANN+PQ Suite ({profile}) ===', flush=True)
+    print(f'Index fixture timeout: {index_timeout_ms} ms; query acceptance timeouts unchanged', flush=True)
     results = []
     conn, db, role, tmp_root, idx_dir = setup_test_db(profile)
     try:
@@ -173,7 +198,7 @@ def run_ann_suite(profile: str, dims=(32, 128, 384, 768, 1536)):
             cur.execute("""SELECT og_lake.create_lake_index('biz.tiny'::regclass, 'ix_tiny',
                 '{"version":1,"kind":"vector","method":"diskann","column":"v","metric":"l2"}'::jsonb)""")
             tiny_u = cur.fetchone()[0]
-            cur.execute('SELECT og_lake.build_lake_index(%s::uuid)', (tiny_u,))
+            build_fixture_index(cur, tiny_u, index_timeout_ms)
             q0 = '[' + ','.join(f'{x:.4f}' for x in rng.normal(size=32)) + ']'
             cur.execute('SET enable_seqscan=on; SET enable_lake_ann=on')
             cur.execute(f"EXPLAIN (COSTS ON) SELECT id FROM biz.tiny WHERE v IS NOT NULL ORDER BY v <-> '{q0}'::vector(32) LIMIT 10")
@@ -227,7 +252,7 @@ def run_ann_suite(profile: str, dims=(32, 128, 384, 768, 1536)):
                 pq_uuid = cur.fetchone()[0]
                 t_bld0 = time.monotonic()
                 for _ in range(8):
-                    cur.execute('SELECT og_lake.build_lake_index(%s::uuid)', (pq_uuid,))
+                    build_fixture_index(cur, pq_uuid, index_timeout_ms)
                     cur.execute('SELECT og_lake.lake_index_status(%s::uuid)::text', (pq_uuid,))
                     st_json = json.loads(cur.fetchone()[0])
                     if st_json.get('file_uncovered_inputs', 0) == 0:
@@ -318,7 +343,7 @@ def run_ann_suite(profile: str, dims=(32, 128, 384, 768, 1536)):
             cur.execute("""SELECT og_lake.create_lake_index('biz.t_ip_128'::regclass, 'ix_ip_raw',
                 '{"version":1,"kind":"vector","method":"diskann","column":"v","metric":"ip","pq":false}'::jsonb)""")
             ip_uuid = cur.fetchone()[0]
-            cur.execute('SELECT og_lake.build_lake_index(%s::uuid)', (ip_uuid,))
+            build_fixture_index(cur, ip_uuid, index_timeout_ms)
             ip_q = [rng.normal(0.0, 1.0, size=128).astype(np.float32) for _ in range(10)]
             ip_lits = ['[' + ','.join(f'{x:.5f}' for x in q) + ']' for q in ip_q]
             ip_truth = [set(int(x) for x in np.argsort(-(ip_vecs @ q))[:10]) for q in ip_q]
@@ -339,7 +364,7 @@ def run_ann_suite(profile: str, dims=(32, 128, 384, 768, 1536)):
             print(json.dumps(ip_rec), flush=True)
             assert ip_rec['mean_recall10'] >= 0.88, ip_rec
             results.append(ip_rec)
-        return dict(status='passed', cases=results)
+        return dict(status='passed', cases=results, index_fixture_timeout_ms=index_timeout_ms)
     finally:
         teardown_test_db(profile, conn, db, role, tmp_root)
 
@@ -683,12 +708,16 @@ def main():
     ap.add_argument('--profile', choices=['debug', 'release', 'ann-debug'], default='release')
     ap.add_argument('--mode', choices=['full', 'ann', 'active-h', 'pgl0'], default='full')
     ap.add_argument('--dims', default='32,128,384,768,1536')
+    ap.add_argument('--index-fixture-timeout-ms', type=int, default=300000,
+                    help='Timeout only while building fixture indexes; query assertions/timeouts are unchanged')
     args = ap.parse_args()
+    if not 1 <= args.index_fixture_timeout_ms <= 2147483647:
+        ap.error('--index-fixture-timeout-ms must be between 1 and 2147483647')
 
     out = {}
     dims = tuple(int(x) for x in args.dims.split(',') if x.strip())
     if args.mode in ('full', 'ann'):
-        out['ann'] = run_ann_suite(args.profile, dims=dims)
+        out['ann'] = run_ann_suite(args.profile, dims=dims, index_timeout_ms=args.index_fixture_timeout_ms)
     if args.mode in ('full', 'active-h'):
         out['active_h'] = run_active_h_suite(args.profile)
     if args.mode in ('full', 'pgl0'):

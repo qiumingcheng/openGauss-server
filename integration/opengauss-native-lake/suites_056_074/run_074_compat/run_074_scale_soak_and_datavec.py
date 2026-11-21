@@ -29,10 +29,13 @@ from psycopg2 import sql
 ROOT = Path('/home/qiumc/data/code/cpp')
 INTEGRATION = ROOT / 'integration/opengauss-native-lake'
 VERIF = ROOT / '公共文档/openGauss原生湖存储/验证'
-REPLAY_DIR = Path('/home/qiumc/.gemini/antigravity-cli/brain/c42afb00-fe75-4503-b0b5-faefda85817d/scratch/run_074_compat/replay_056_074')
+REPLAY_DIR = Path(__file__).resolve().parent / 'replay_056_074'
 
 ROARING_BUILD = VERIF / 'native_bitmap_roaring_oom_dependency_1109_01/build.json'
 BLAS_BUILD = VERIF / 'pq_openblas_locking_build_1109_01/build.json'
+BLAS_BUILD_SHA256 = None
+BUILD_ENTRY = None
+RELEASE_SOURCE = ROOT / '.worktrees/opengauss-native-lake-release'
 
 EXPECTED_SDK54 = 'b07ee911aaf81aa816c2c280bd1568871353bbd6f8af5792ac5cdf9010240c51'
 EXPECTED_SDK6 = '4f2a2cd79d50f3f2c3b1350ac58b4868b20b727a5141ae49ec1033b4d3a20368'
@@ -52,7 +55,7 @@ def sha256_file(path: Path) -> str:
 
 def driver_env():
     env = os.environ.copy()
-    env['OG_LAKE_SOURCE'] = str(ROOT / '.worktrees/opengauss-native-lake')
+    env['OG_LAKE_SOURCE'] = str(RELEASE_SOURCE)
     env['OG_LAKE_TEST_PROFILE'] = 'release'
     return env
 
@@ -79,6 +82,10 @@ def rel_driver(action, run_id, build_receipt=None):
     ]
     if action == 'restart' and build_receipt is not None:
         cmd.extend(['--reuse-build-receipt', str(build_receipt)])
+    if BLAS_BUILD_SHA256 is not None:
+        cmd.extend(['--blas-build-sha256', BLAS_BUILD_SHA256])
+    if BUILD_ENTRY is not None:
+        cmd.extend(['--build-entry', str(BUILD_ENTRY)])
     return cmd
 
 
@@ -159,7 +166,7 @@ def run_datavec_regress(out_dir: Path):
     gsql_env = driver_env()
     gsql_env['GAUSSHOME'] = str(REL_INSTALL)
     gsql_env['LD_LIBRARY_PATH'] = f"{REL_INSTALL}/lib:{ROOT}/binarylibs/buildtools/gcc10.3/gcc/lib64"
-    regress_dir = ROOT / '.worktrees/opengauss-native-lake/src/test/regress'
+    regress_dir = RELEASE_SOURCE / 'src/test/regress'
     results = {}
     for name in ('diskann_vector', 'hnsw_lsg_vector', 'hnsw_rabitq_vector'):
         sql_path = regress_dir / 'sql' / f'{name}.sql'
@@ -709,10 +716,32 @@ def soak_threadpool_spi_cache_and_gc(build_receipt: Path, orig_conf: bytes):
 
 
 def main():
+    global ROARING_BUILD, BLAS_BUILD, BLAS_BUILD_SHA256, BUILD_ENTRY, RELEASE_SOURCE
+    global EXPECTED_SDK54, EXPECTED_SDK6, EXPECTED_RELEASE_CONF
     ap = argparse.ArgumentParser()
     ap.add_argument('--build-receipt', type=Path, required=True)
     ap.add_argument('--out-dir', type=Path, default=VERIF / 'native_074_scale_soak_1121_01')
+    ap.add_argument('--roaring-build', type=Path, default=ROARING_BUILD)
+    ap.add_argument('--blas-build', type=Path, default=BLAS_BUILD)
+    ap.add_argument('--blas-build-sha256', default=None)
+    ap.add_argument('--build-entry', type=Path, default=None)
+    ap.add_argument('--source', type=Path, default=RELEASE_SOURCE)
+    ap.add_argument('--sdk54-sha256', default=EXPECTED_SDK54,
+                    help='Expected identity from the independently recorded local SDK54 build receipt')
+    ap.add_argument('--sdk6-sha256', default=EXPECTED_SDK6,
+                    help='Expected identity from the independently recorded local SDK6 build receipt')
+    ap.add_argument('--release-conf-sha256', default=EXPECTED_RELEASE_CONF,
+                    help='Expected identity recorded when provisioning this Release instance')
     args = ap.parse_args()
+    for name in ('sdk54_sha256', 'sdk6_sha256', 'release_conf_sha256', 'blas_build_sha256'):
+        value = getattr(args, name)
+        if value is not None and (len(value) != 64 or any(c not in '0123456789abcdef' for c in value)):
+            ap.error(name.replace('_', '-') + ' must be a lowercase SHA256')
+    ROARING_BUILD, BLAS_BUILD = args.roaring_build.resolve(), args.blas_build.resolve()
+    BLAS_BUILD_SHA256, BUILD_ENTRY = args.blas_build_sha256, args.build_entry
+    RELEASE_SOURCE = args.source.resolve()
+    EXPECTED_SDK54, EXPECTED_SDK6 = args.sdk54_sha256, args.sdk6_sha256
+    EXPECTED_RELEASE_CONF = args.release_conf_sha256
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     assert sha256_file(REL_SDK54_SO) == EXPECTED_SDK54
@@ -748,6 +777,14 @@ def main():
         'build_receipt': str(args.build_receipt),
         'build_receipt_sha256': sha256_file(args.build_receipt),
         'binary_sha256': build_meta['binary_sha256'],
+        'environment_inputs': {
+            'source': str(RELEASE_SOURCE), 'replay_dir': str(REPLAY_DIR),
+            'roaring_build': str(ROARING_BUILD), 'blas_build': str(BLAS_BUILD),
+            'blas_build_sha256': BLAS_BUILD_SHA256,
+            'build_entry': str(BUILD_ENTRY) if BUILD_ENTRY else None,
+            'sdk54_sha256': EXPECTED_SDK54, 'sdk6_sha256': EXPECTED_SDK6,
+            'release_conf_sha256': EXPECTED_RELEASE_CONF,
+        },
         'datavec_regress': dv_res,
         'history_suites_on_release': list(hist_res.keys()),
         'scale_1m_rows': scale1m_res,

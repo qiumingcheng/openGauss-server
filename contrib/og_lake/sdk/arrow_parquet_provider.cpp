@@ -574,7 +574,7 @@ struct OgLakeSdkReader {
     std::vector<int> selected_groups;
     std::vector<int> selected_fields;
     std::thread::id owner=std::this_thread::get_id();
-    int64_t batch_rows=0,remaining=0,group_offset=0;
+    int64_t batch_rows=0,decode_batch_rows=0,remaining=0,group_offset=0;
     size_t group_index=0;
     uint64_t decoded_rows=0;
     bool failed=false;
@@ -593,7 +593,8 @@ int ReaderOpen(const OgLakeSdkReadOptions* options,OgLakeSdkReader** output,OgLa
         Require(options->num_field_ids<=0||options->field_ids,"missing Parquet projection vector");
         Require(options->num_row_groups<=0||options->row_groups,"missing Parquet row-group vector");
         auto reader=std::make_unique<OgLakeSdkReader>();reader->limits=Limits(&options->limits);
-        reader->batch_rows=options->batch_rows;reader->footer=OpenFooter(options->path,reader->limits);
+        reader->batch_rows=options->batch_rows;reader->decode_batch_rows=options->batch_rows;
+        reader->footer=OpenFooter(options->path,reader->limits);
         auto& footer=*reader->footer;std::set<int> seen;
         int num_fields=options->num_field_ids<0?footer.info.num_fields:options->num_field_ids;
         Require(num_fields<=footer.info.num_fields,"too many projected Parquet fields");
@@ -626,10 +627,37 @@ int ReaderOpen(const OgLakeSdkReadOptions* options,OgLakeSdkReader** output,OgLa
             reader->remaining+=footer.groups[group].num_rows;
         }
         footer.reader->set_use_threads(false);footer.reader->set_batch_size(reader->batch_rows);
-        if(!reader->selected_fields.empty()&&!reader->selected_groups.empty())
-            reader->batches=Take(footer.reader->GetRecordBatchReader(reader->selected_groups,reader->selected_fields));
         *output=reader.release();return OG_LAKE_SDK_OK;
     });
+}
+/* Reopening a RecordBatchReader creates fresh per-column/page decoder state.
+ * Replay consumes only an immutable group's already-delivered prefix. A batch
+ * straddling that exact prefix is sliced, never dropped or delivered twice. */
+std::shared_ptr<arrow::RecordBatch> ReadCurrentGroup(OgLakeSdkReader* reader)
+{
+    if(!reader->batches){
+        Poll(reader->limits);
+        reader->footer->reader->set_batch_size(reader->decode_batch_rows);
+        reader->batches=Take(reader->footer->reader->GetRecordBatchReader(
+            std::vector<int>{reader->selected_groups[reader->group_index]},reader->selected_fields));
+        int64_t skip=reader->group_offset,replayed=0;
+        const int64_t group_rows=reader->footer->groups[reader->selected_groups[reader->group_index]].num_rows;
+        while(skip>0){
+            Poll(reader->limits);std::shared_ptr<arrow::RecordBatch> discarded;
+            do{Check(reader->batches->ReadNext(&discarded));}while(discarded&&discarded->num_rows()==0);
+            Require(discarded&&discarded->num_rows()>0&&discarded->num_rows()<=reader->decode_batch_rows&&
+                discarded->num_rows()<=group_rows-replayed&&discarded->schema()->Equals(*reader->projected_schema,false),
+                "Parquet retry cannot replay its delivered prefix",OG_LAKE_SDK_IO);
+            if(discarded->num_rows()>skip){
+                return discarded->Slice(skip);
+            }
+            skip-=discarded->num_rows();replayed+=discarded->num_rows();
+        }
+    }
+    Poll(reader->limits);std::shared_ptr<arrow::RecordBatch> values;
+    do{Check(reader->batches->ReadNext(&values));}while(values&&values->num_rows()==0);
+    Require(values!=nullptr,"Parquet reader ended before the footer population",OG_LAKE_SDK_IO);
+    return values;
 }
 int ReaderNext(OgLakeSdkReader* reader,OgLakeSdkBatch** output,OgLakeSdkError* error)
 {
@@ -640,49 +668,69 @@ int ReaderNext(OgLakeSdkReader* reader,OgLakeSdkBatch** output,OgLakeSdkError* e
         Require(!reader->failed,"Parquet reader cannot be reused after an error",OG_LAKE_SDK_STATE);
         Require(!reader->lease->outstanding.load(),"release the preceding Parquet batch before reading again",OG_LAKE_SDK_STATE);
         reader->failed=true;Poll(reader->limits);
-        if(reader->remaining==0){reader->failed=false;return OG_LAKE_SDK_EOF;}
-        std::shared_ptr<arrow::RecordBatch> values;
-        if(reader->selected_fields.empty())values=arrow::RecordBatch::Make(reader->projected_schema,
-            std::min(reader->batch_rows,reader->remaining),std::vector<std::shared_ptr<arrow::Array>>{});
-        else{
-            do{Check(reader->batches->ReadNext(&values));}while(values&&values->num_rows()==0);
-            Require(values!=nullptr,"Parquet reader ended before the footer population",OG_LAKE_SDK_IO);
+        if(reader->remaining==0){reader->batches.reset();reader->failed=false;return OG_LAKE_SDK_EOF;}
+        while(reader->group_index<reader->selected_groups.size()&&
+            reader->group_offset==reader->footer->groups[reader->selected_groups[reader->group_index]].num_rows){
+            Poll(reader->limits);reader->batches.reset();++reader->group_index;reader->group_offset=0;
         }
-        int64_t count=values->num_rows();
-        Require(count>0&&count<=reader->remaining&&count<=reader->batch_rows,"Parquet batch violates row bounds",OG_LAKE_SDK_IO);
-        Require(values->schema()->Equals(*reader->projected_schema,false),"Parquet projection schema/order changed",OG_LAKE_SDK_IO);
-        ValidateTemporalValues(values,reader->limits);
-        for(int column=0;column<values->num_columns();++column)
-            if(reader->footer->fields[reader->selected_fields[column]].type==OG_LAKE_SDK_UUID)
-                ValidateUuidValues(values->column(column),reader->limits);
-            else if(reader->footer->fields[reader->selected_fields[column]].type==OG_LAKE_SDK_JSON)
-                ValidateJsonValues(values->column(column),reader->limits);
-            else if(reader->footer->fields[reader->selected_fields[column]].type==OG_LAKE_SDK_DECIMAL128){
-                int p=0,s=0;
-                Require(Decimal128Parameters(reader->projected_schema->field(column)->type(),&p,&s),
-                    "projected decimal128 parameters are unavailable",OG_LAKE_SDK_IO);
-                ValidateDecimal128Values(values->column(column),p,s,reader->limits);
+        Require(reader->group_index<reader->selected_groups.size(),
+            "Parquet reader exceeded selected row groups",OG_LAKE_SDK_IO);
+        for(;;){
+            try{
+                std::shared_ptr<arrow::RecordBatch> values;
+                if(reader->selected_fields.empty())values=arrow::RecordBatch::Make(reader->projected_schema,
+                    std::min(reader->decode_batch_rows,reader->remaining),std::vector<std::shared_ptr<arrow::Array>>{});
+                else values=ReadCurrentGroup(reader);
+                int64_t count=values->num_rows();
+                Require(count>0&&count<=reader->remaining&&count<=reader->batch_rows,"Parquet batch violates row bounds",OG_LAKE_SDK_IO);
+                if(!reader->selected_fields.empty())
+                    Require(count<=reader->footer->groups[reader->selected_groups[reader->group_index]].num_rows-reader->group_offset,
+                        "Parquet batch crossed the selected physical row group",OG_LAKE_SDK_IO);
+                Require(values->schema()->Equals(*reader->projected_schema,false),"Parquet projection schema/order changed",OG_LAKE_SDK_IO);
+                ValidateTemporalValues(values,reader->limits);
+                for(int column=0;column<values->num_columns();++column)
+                    if(reader->footer->fields[reader->selected_fields[column]].type==OG_LAKE_SDK_UUID)
+                        ValidateUuidValues(values->column(column),reader->limits);
+                    else if(reader->footer->fields[reader->selected_fields[column]].type==OG_LAKE_SDK_JSON)
+                        ValidateJsonValues(values->column(column),reader->limits);
+                    else if(reader->footer->fields[reader->selected_fields[column]].type==OG_LAKE_SDK_DECIMAL128){
+                        int p=0,s=0;
+                        Require(Decimal128Parameters(reader->projected_schema->field(column)->type(),&p,&s),
+                            "projected decimal128 parameters are unavailable",OG_LAKE_SDK_IO);
+                        ValidateDecimal128Values(values->column(column),p,s,reader->limits);
+                    }
+                auto batch=std::make_unique<BatchOwner>();batch->pool=reader->footer->pool;
+                batch->positions=Take(arrow::AllocateBuffer(count*sizeof(int64_t),batch->pool.get()));
+                auto* positions=reinterpret_cast<int64_t*>(batch->positions->mutable_data());
+                /* Commit cursor changes only after all allocation/export work.
+                 * A memory retry must begin at the last delivered row. */
+                size_t next_group=reader->group_index;int64_t next_offset=reader->group_offset;
+                for(int64_t row=0;row<count;++row){
+                    while(next_group<reader->selected_groups.size()&&
+                        next_offset==reader->footer->groups[reader->selected_groups[next_group]].num_rows){
+                        Poll(reader->limits);++next_group;next_offset=0;
+                    }
+                    Require(next_group<reader->selected_groups.size(),"Parquet position stream exceeded selected row groups",OG_LAKE_SDK_IO);
+                    const auto& group=reader->footer->groups[reader->selected_groups[next_group]];
+                    positions[row]=group.first_row+next_offset++;
+                }
+                Check(arrow::ExportRecordBatch(*values,&batch->array,&batch->schema));
+                batch->object_version=reader->footer->object_version;
+                batch->view={sizeof(OgLakeSdkBatch),count,&batch->array,&batch->schema,positions,batch.get(),batch->object_version.c_str()};
+                batch->lease=reader->lease;reader->lease->outstanding.store(true);
+                reader->group_index=next_group;reader->group_offset=next_offset;reader->remaining-=count;
+                if(!reader->selected_fields.empty())reader->decoded_rows+=count;
+                reader->failed=false;*output=&batch.release()->view;return OG_LAKE_SDK_OK;
+            }catch(const Failure& failure){
+                /* Attempt-local values/BatchOwner have been destroyed before
+                 * this handler. Drop every decoder/table holding old buffers. */
+                reader->batches.reset();
+                if(failure.code!=OG_LAKE_SDK_MEMORY||reader->decode_batch_rows<=1)throw;
+                int64_t previous=reader->decode_batch_rows;
+                reader->decode_batch_rows=std::max<int64_t>(1,previous/2);
+                Poll(reader->limits);
             }
-        auto batch=std::make_unique<BatchOwner>();batch->pool=reader->footer->pool;
-        batch->positions=Take(arrow::AllocateBuffer(count*sizeof(int64_t),batch->pool.get()));
-        auto* positions=reinterpret_cast<int64_t*>(batch->positions->mutable_data());
-        for(int64_t row=0;row<count;++row){
-            while(reader->group_index<reader->selected_groups.size()&&
-                reader->group_offset==reader->footer->groups[reader->selected_groups[reader->group_index]].num_rows){
-                ++reader->group_index;reader->group_offset=0;
-            }
-            Require(reader->group_index<reader->selected_groups.size(),"Parquet position stream exceeded selected row groups",OG_LAKE_SDK_IO);
-            const auto& group=reader->footer->groups[reader->selected_groups[reader->group_index]];
-            positions[row]=group.first_row+reader->group_offset++;
         }
-        Check(arrow::ExportRecordBatch(*values,&batch->array,&batch->schema));
-        batch->object_version=reader->footer->object_version;
-        batch->view={sizeof(OgLakeSdkBatch),count,&batch->array,&batch->schema,positions,batch.get(),batch->object_version.c_str()};
-        batch->lease=reader->lease;reader->lease->outstanding.store(true);
-        reader->remaining-=count;
-        if(!reader->selected_fields.empty())reader->decoded_rows+=count;
-        reader->failed=false;
-        *output=&batch.release()->view;return OG_LAKE_SDK_OK;
     });
 }
 void BatchRelease(OgLakeSdkBatch** batch) noexcept

@@ -109,10 +109,19 @@ def qualified_sources(workspace):
                 frontier_scope='isolated adapter only; not independent Native qualification')
 
 
-def blas_inputs(workspace):
+def blas_inputs(workspace, receipt=None, receipt_sha256=None):
     workspace = Path(workspace).resolve(strict=True)
-    path = workspace / '公共文档/openGauss原生湖存储/验证' / BLAS_MANIFEST[0]
-    if digest(path) != BLAS_MANIFEST[1]:
+    if receipt is None:
+        if receipt_sha256 is not None:
+            raise RuntimeError('Explicit BLAS checksum requires an explicit receipt')
+        path = workspace / '公共文档/openGauss原生湖存储/验证' / BLAS_MANIFEST[0]
+        expected_sha256 = BLAS_MANIFEST[1]
+    else:
+        path = Path(receipt).resolve(strict=True)
+        if not receipt_sha256 or not re.fullmatch(r'[0-9a-f]{64}', receipt_sha256):
+            raise RuntimeError('A rebuilt BLAS receipt requires its explicit SHA256')
+        expected_sha256 = receipt_sha256
+    if digest(path) != expected_sha256:
         raise RuntimeError('PQ private locking BLAS manifest mismatch')
     dep = read(path)
     if (dep.get('status') != 'built_provisional_unlinked' or
