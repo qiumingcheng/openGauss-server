@@ -18,6 +18,7 @@
 #include "knl/knl_variable.h"
 
 #include "access/sysattr.h"
+#include "access/og_lake.h"
 #include "access/tableam.h"
 #include "access/xact.h"
 #include "catalog/dependency.h"
@@ -239,12 +240,33 @@ static void deleteObjectsInList(ObjectAddresses *targetObjects, Relation *depRel
     /*
      * Delete all the objects in the proper order.
      */
+    bool lakeScope = false;
     for (i = 0; i < targetObjects->numrefs; i++) {
-        ObjectAddress *thisobj = targetObjects->refs + i;
-        if (thisobj->objectId != InvalidOid) {
-            deleteOneObject(thisobj, depRel, flags);
+        ObjectAddress* object = targetObjects->refs + i;
+        if (object->classId == ExtensionRelationId &&
+            object->objectId == get_extension_oid("og_lake", true)) {
+            lakeScope = true;
+            break;
         }
     }
+    bool previousLakeScope = lakeScope ? LakeSetExtensionDropScope(true) : false;
+    PG_TRY();
+    {
+        for (i = 0; i < targetObjects->numrefs; i++) {
+            ObjectAddress *thisobj = targetObjects->refs + i;
+            if (thisobj->objectId != InvalidOid)
+                deleteOneObject(thisobj, depRel, flags);
+        }
+    }
+    PG_CATCH();
+    {
+        if (lakeScope)
+            (void)LakeSetExtensionDropScope(previousLakeScope);
+        PG_RE_THROW();
+    }
+    PG_END_TRY();
+    if (lakeScope)
+        (void)LakeSetExtensionDropScope(previousLakeScope);
 }
 
 static bool IsBaseTableInTargets(ObjectAddresses* addresses, Oid baseTblOid)

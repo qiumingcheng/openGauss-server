@@ -14,6 +14,9 @@
 #include "knl/knl_variable.h"
 
 #include "access/reloptions.h"
+#include "access/heapam.h"
+#include "access/og_lake.h"
+#include "utils/lsyscache.h"
 #include "catalog/pg_foreign_data_wrapper.h"
 #include "catalog/pg_foreign_server.h"
 #include "catalog/pg_foreign_table.h"
@@ -215,12 +218,29 @@ bool IsSpecifiedFDW(const char* ServerName, const char* SepcifiedType)
  * @return If the relation type equal to the given type of foreign table, return true,
  *         otherwise return false.
  */
+/* Native lake parents use ForeignScan callbacks while remaining real heap
+ * partition roots. They have no pg_foreign_table row. Classify only their
+ * controlled reloption here; actual binding/version/ACL admission remains in
+ * the native planner/executor. Ordinary foreign-table lookup stays strict. */
+static bool IsNativeLakePartitionRelation(Oid relid)
+{
+    if (get_rel_relkind(relid) != RELKIND_RELATION)
+        return false;
+    Relation relation = heap_open(relid, AccessShareLock);
+    bool native = LakeHasNativePartitionMarker(relation);
+    heap_close(relation, AccessShareLock);
+    return native;
+}
+
 bool IsSpecifiedFDWFromRelid(Oid relId, const char* SepcifiedType)
 {
     if (!OidIsValid(relId)) {
         ereport(ERROR, (errmsg("Invalid relid is used to verify fdw type."),
                         errhint("This may be a join relationship, or has aggregation, etc.")));
     }
+
+    if (IsNativeLakePartitionRelation(relId))
+        return false;
 
     ForeignTable* ftbl = NULL;
     ForeignServer* fsvr = NULL;
@@ -260,7 +280,7 @@ bool IsSpecifiedFDWFromRelid(Oid relId, const char* SepcifiedType)
  */
 bool CheckSupportedFDWType(Oid oid, bool byServerId)
 {
-    static const char* supportFDWType[] = {MOT_FDW, MYSQL_FDW, ORACLE_FDW, POSTGRES_FDW};
+    static const char* supportFDWType[] = {MOT_FDW, MYSQL_FDW, ORACLE_FDW, POSTGRES_FDW, "og_lake_fdw"};
     int size = sizeof(supportFDWType) / sizeof(supportFDWType[0]);
     bool support = false;
 
@@ -285,6 +305,10 @@ bool CheckSupportedFDWType(Oid oid, bool byServerId)
             break;
         }
     }
+    /* Read-only external file scan subplans (byServerId == true in createplan.cpp)
+     * may feed writable targets, while target checks (byServerId == false) reject them. */
+    if (!support && byServerId && pg_strcasecmp(fdw->fdwname, "og_lake_file_fdw") == 0)
+        support = true;
 
     MemoryContextSwitchTo(oldContext);
     MemoryContextReset(u_sess->opt_cxt.ft_context);
@@ -297,6 +321,9 @@ bool isSpecifiedSrvTypeFromRelId(Oid relId, const char* SepcifiedType)
         ereport(ERROR, (errmsg("Invalid relid is used to verify foreign server type."),
                         errhint("This may be a join relationship, or has aggregation, etc.")));
     }
+
+    if (IsNativeLakePartitionRelation(relId))
+        return false;
 
     ForeignTable* ftbl = NULL;
     ForeignServer* fsrv = NULL;
@@ -883,6 +910,9 @@ Oid get_foreign_server_oid(const char* servername, bool missing_ok)
 
 DefElem* GetForeignTableOptionByName(Oid reloid, const char* optname)
 {
+    if (IsNativeLakePartitionRelation(reloid))
+        return NULL;
+
     ForeignTable* table = NULL;
     ForeignServer* server = NULL;
     ForeignDataWrapper* wrapper = NULL;
@@ -1043,6 +1073,10 @@ ServerTypeOption getServerType(Oid foreignTableId)
         ereport(ERROR, (errmsg("Invalid foreignTableId is used to get server type."),
                         errhint("This may be a join relationship, or has aggregation, etc.")));
     }
+    if (IsNativeLakePartitionRelation(foreignTableId))
+        return T_LAKE_SERVER;
+    if (IsSpecifiedFDWFromRelid(foreignTableId, "og_lake_fdw"))
+        return T_LAKE_SERVER;
     char* optionValue = HdfsGetOptionValue(foreignTableId, "type");
     ServerTypeOption srvType = T_INVALID;
 

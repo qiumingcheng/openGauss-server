@@ -11000,6 +11000,7 @@ static Plan* setPartitionParam(PlannerInfo* root, Plan* plan, RelOptInfo* rel)
         }
 
         switch (plan->type) {
+            case T_ForeignScan:
             case T_SeqScan:
             case T_CStoreScan:
 #ifdef ENABLE_HTAP

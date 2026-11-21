@@ -393,6 +393,12 @@ static void AddTupleToSort(Relation index, ItemPointer tid, Datum* values, DiskA
     insertValue[0] = PointerGetDatum(insertVector);
 
     blkno = InsertTuple(index, insertValue, tid, &buildstate->metaPage, true);
+    /* Cosine deliberately excludes zero-norm vectors. Never enqueue the
+     * invalid result as P_NEW and later read a new empty page as a node. */
+    if (!BlockNumberIsValid(blkno)) {
+        pfree(insertVector);
+        return;
+    }
     // parallel build
     if (buildstate->diskannleader) {
         DiskAnnShared *shared = buildstate->diskannleader->diskannshared;
@@ -417,6 +423,14 @@ static void BuildCallback(Relation index, CALLBACK_ITEM_POINTER, Datum* values, 
 
     /* Skip nulls */
     if (isnull[0]) {
+        return;
+    }
+
+    /* og_lake inline carriers bind their ANN index at registered_snapshot under
+     * ShareLock; heap-deleted tuples from earlier flushes are dead to all readers. */
+    if (!tupleIsAlive && RelationGetRelationName(index) != NULL &&
+        strncmp(RelationGetRelationName(index), "_og_lake_ix_", 12) == 0 &&
+        strlen(RelationGetRelationName(index)) == 44) {
         return;
     }
 
@@ -488,7 +502,11 @@ void DiskAnnParallelBuildMain(const BgWorkerContext* bwc)
         size_t start = workerId * (totalBlocks / diskannshared->parallelWorker) + Min(workerId, remainder);
         const BlockNumber* workerBlk = diskannshared->blocksList.begin() + start;
         DiskAnnGraphStore graphStore(indexRel);
+        graphStore.EnableVectorCache();
         for (size_t i = 0; i < workerBlockCount; i++) {
+            /* Link releases its page locks before the next node. Honour
+             * cancellation here without interrupting a page modification. */
+            CHECK_FOR_INTERRUPTS();
             DiskAnnGraph graph(indexRel, diskannshared->dimensions, diskannshared->frozen, &graphStore);
             BlockNumber blk = workerBlk[i];
             graph.Link(blk, diskannshared->indexSize, true);
@@ -684,7 +702,11 @@ static void BuildVamanaIndex(DiskAnnBuildState* buildstate)
     if (buildstate->heap != NULL) {
         if (!buildstate->diskannleader) {
         serial_build:
+            buildstate->graphStore->EnableVectorCache();
             for (size_t i = 0; i < buildstate->blocksList.size(); i++) {
+                /* A CPU-bound graph build may not visit another executor
+                 * interrupt check for its entire linking phase. */
+                CHECK_FOR_INTERRUPTS();
                 DiskAnnGraph graph(buildstate->index, buildstate->dimensions, frozen, buildstate->graphStore);
                 BlockNumber blk = buildstate->blocksList[i];
                 graph.Link(blk, buildstate->indexSize, true);

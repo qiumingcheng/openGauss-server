@@ -31,6 +31,7 @@
  * associated with the process.
  */
 #include "postgres.h"
+#include "access/og_lake_maintenance.h"
 #include "knl/knl_variable.h"
 
 #include <signal.h>
@@ -640,7 +641,7 @@ static void GetProcFromFreeList()
         t_thrd.proc = g_instance.proc_base->autovacFreeProcs;
     } else if (IsJobSchedulerProcess() || IsJobWorkerProcess()) {
         t_thrd.proc = g_instance.proc_base->pgjobfreeProcs;
-    } else if (IsBgWorkerProcess()) {
+    } else if (IsBgWorkerProcess() || IsNativeLakeMaintenanceProcess()) {
         t_thrd.proc = g_instance.proc_base->bgworkerFreeProcs;
     } else if (t_thrd.dcf_cxt.is_dcf_thread) {
         t_thrd.proc = g_instance.proc_base->externalFreeProcs;
@@ -821,7 +822,7 @@ void InitProcess(void)
             g_instance.proc_base->autovacFreeProcs = (PGPROC*)t_thrd.proc->links.next;
         } else if (IsJobSchedulerProcess() || IsJobWorkerProcess()) {
             g_instance.proc_base->pgjobfreeProcs = (PGPROC*)t_thrd.proc->links.next;
-        } else if (IsBgWorkerProcess()) {
+        } else if (IsBgWorkerProcess() || IsNativeLakeMaintenanceProcess()) {
             g_instance.proc_base->bgworkerFreeProcs = (PGPROC*)t_thrd.proc->links.next;
         } else if (t_thrd.dcf_cxt.is_dcf_thread) {
             g_instance.proc_base->externalFreeProcs = (PGPROC*)t_thrd.proc->links.next;
@@ -899,7 +900,7 @@ void InitProcess(void)
      * cleaning up.  (XXX autovac launcher currently doesn't participate in
      * this; it probably should.)
      */
-    if (IsUnderPostmaster && !IsAutoVacuumLauncherProcess() && !IsJobSchedulerProcess() &&
+    if (IsUnderPostmaster && !IsAutoVacuumLauncherProcess() && !IsNativeLakeLauncherProcess() && !IsJobSchedulerProcess() &&
         !IsJobWorkerProcess() && !t_thrd.dcf_cxt.is_dcf_thread && !IsBgWorkerProcess() &&
         !IsFencedProcessingMode() && (t_thrd.role != DMS_WORKER) && !IS_THREAD_POOL_LISTENER) {
         MarkPostmasterChildActive();
@@ -1504,7 +1505,7 @@ static void ProcPutBackToFreeList()
             g_instance.conn_cxt.CurCMAConnCount--;
             SpinLockRelease(&g_instance.conn_cxt.ConnCountLock);
         }
-    } else if (IsBgWorkerProcess()) {
+    } else if (IsBgWorkerProcess() || IsNativeLakeMaintenanceProcess()) {
         t_thrd.proc->links.next = (SHM_QUEUE*)g_instance.proc_base->bgworkerFreeProcs;
         g_instance.proc_base->bgworkerFreeProcs = t_thrd.proc;		
     } else {
@@ -1646,7 +1647,7 @@ static void ProcKill(int code, Datum arg)
      * autovac launcher should be included here someday)
      * DMS worker threads does not have shmem resources to clean.
      */
-    if (IsUnderPostmaster && !IsAutoVacuumLauncherProcess() && !StreamThreadAmI() && !IsJobSchedulerProcess() &&
+    if (IsUnderPostmaster && !IsAutoVacuumLauncherProcess() && !IsNativeLakeLauncherProcess() && !StreamThreadAmI() && !IsJobSchedulerProcess() &&
         !IsJobWorkerProcess() && !IsBgWorkerProcess() && !IsDMSWorkerProcess() && !IS_THREAD_POOL_LISTENER &&
         !IsFencedProcessingMode()) {
         MarkPostmasterChildInactive();

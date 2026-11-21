@@ -14,6 +14,7 @@
  * -------------------------------------------------------------------------
  */
 #include "postgres.h"
+#include "access/og_lake.h"
 #include "knl/knl_variable.h"
 
 #include "access/tableam.h"
@@ -223,7 +224,10 @@ void ExecInitJunkAttr(EState* estate, CmdType operation, List* targetlist, Resul
         char relkind;
 
         relkind = result_rel_info->ri_RelationDesc->rd_rel->relkind;
-        if (relkind == RELKIND_RELATION) {
+        if(LakeHasNativePartitionMarker(result_rel_info->ri_RelationDesc)) {
+            /* The native lake mutation adapter consumes its typed locator,
+             * never a synthetic ctid/tableoid from a local leaf heap. */
+        } else if (relkind == RELKIND_RELATION) {
             j->jf_junkAttNo = ExecFindJunkAttribute(j, "ctid");
             if (!AttributeNumberIsValid(j->jf_junkAttNo)) {
                 ereport(ERROR,

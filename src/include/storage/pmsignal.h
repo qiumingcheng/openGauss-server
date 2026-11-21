@@ -61,6 +61,7 @@ typedef enum {
     PMSIGNAL_DMS_SWITCHOVER_DEMOTE_FAILURE_CHECK, /* figure out why switchover demote failed */
     PMSIGNAL_START_ARCHIVE_CMD_AGENT, /* restart archive cmd agent */
     PMSIGNAL_CLEAN_BACKENDS,            /* clean backends by signals */
+    PMSIGNAL_START_LAKE_WORKER,       /* start a native lake flush worker */
     NUM_PMSIGNALS                      /* Must be last value of enum! */
 } PMSignalReason;
 

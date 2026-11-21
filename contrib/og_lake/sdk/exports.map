@@ -1,0 +1,20 @@
+OG_LAKE_PARQUET_1 {
+    global: og_lake_parquet_sdk_v1;
+    local: *;
+};
+
+OG_LAKE_PARQUET_2 {
+    global: og_lake_parquet_sdk_v2;
+} OG_LAKE_PARQUET_1;
+
+OG_LAKE_PARQUET_3 {
+    global: og_lake_parquet_sdk_v3;
+} OG_LAKE_PARQUET_2;
+
+OG_LAKE_PARQUET_4 {
+    global: og_lake_parquet_sdk_v4;
+} OG_LAKE_PARQUET_3;
+
+OG_LAKE_PARQUET_5 {
+    global: og_lake_parquet_sdk_v5;
+} OG_LAKE_PARQUET_4;

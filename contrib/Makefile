@@ -19,6 +19,7 @@ SUBDIRS = \
 		dummy_seclabel	\
 		earthdistance	\
 		file_fdw	\
+		og_lake		\
 		fuzzystrmatch	\
 		hstore		\
 		log_fdw		\

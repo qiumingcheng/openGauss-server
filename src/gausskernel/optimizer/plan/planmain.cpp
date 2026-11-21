@@ -20,6 +20,7 @@
  * -------------------------------------------------------------------------
  */
 #include "postgres.h"
+#include "access/og_lake.h"
 #include "knl/knl_variable.h"
 
 #include "miscadmin.h"
@@ -177,6 +178,7 @@ RelOptInfo* query_planner(PlannerInfo* root, List* tlist,
      * restrictions.  Finally, we form a target joinlist for make_one_rel() to
      * work from.
      */
+    LakePrepareDmlLocatorPlaceholders(root, tlist);
     build_base_rel_tlists(root, tlist);
 
     find_placeholders_in_jointree(root);

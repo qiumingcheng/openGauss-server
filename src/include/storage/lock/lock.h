@@ -695,7 +695,7 @@ extern void ReleaseLockIfHeld(const LOCKTAG *locktag, LOCKMODE lockmode, bool se
 extern void LockReleaseAll(LOCKMETHODID lockmethodid, bool allLocks);
 extern void Check_FastpathBit();
 
-extern void LockReleaseSession(LOCKMETHODID lockmethodid);
+extern void LockReleaseSession(LOCKMETHODID lockmethodid, bool sqlAdvisoryOnly = false);
 extern void LockReleaseCurrentOwner(void);
 extern void LockReassignCurrentOwner(void);
 extern bool LockHasWaiters(const LOCKTAG* locktag, LOCKMODE lockmode, bool sessionLock);

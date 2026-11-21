@@ -23,6 +23,7 @@
  */
 
 #include "postgres.h"
+#include "access/og_lake.h"
 #include "knl/knl_variable.h"
 #ifdef PGXC
 #include "commands/trigger.h"
@@ -374,6 +375,7 @@ StreamNodeGroup::StreamNodeGroup()
     m_streamProducerList = NULL;
     m_syncControllers = NIL;
     m_streamRuntimeContext = NULL;
+    m_lakeScanBindings = NULL;
     m_streamArray = NULL;
     m_quitWaitCond = 0;
     m_edataWriteProtect = EDATA_WRITE_ENABLE;
@@ -1200,6 +1202,9 @@ void StreamNodeGroup::deInit(StreamObjStatus status)
         pg_usleep(1000);
     } while (saveQuit == false);
 
+    /* No worker can still dereference shared lake descriptors after the
+     * preceding join. Release main-thread read views before context deletion. */
+    LakeReleaseStreamBindings(this);
     /* release the socket in case not release. */
     foreach (cell, m_streamProducerList) {
         producer = (StreamProducer*)lfirst(cell);

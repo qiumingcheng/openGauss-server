@@ -14,6 +14,7 @@
  * -------------------------------------------------------------------------
  */
 #include "postgres.h"
+#include "access/og_lake.h"
 #include "knl/knl_variable.h"
 
 #include <math.h>
@@ -835,7 +836,7 @@ void set_rel_size(PlannerInfo* root, RelOptInfo* rel, Index rti, RangeTblEntry* 
     } else {
         switch (rel->rtekind) {
             case RTE_RELATION:
-                if (rte->relkind == RELKIND_FOREIGN_TABLE || rte->relkind == RELKIND_STREAM) {
+                if (rte->relkind == RELKIND_FOREIGN_TABLE || rte->relkind == RELKIND_STREAM || LakeIsNativePartitionRoutine(rel->fdwroutine)) {
                     /* Foreign table */
                     set_foreign_size(root, rel, rte);
                 } else {
@@ -928,9 +929,10 @@ static void SetRelationPath(PlannerInfo* root, RelOptInfo* rel, RangeTblEntry* r
         set_cheapest(rel);
         return;
     }
-    if (rte->relkind == RELKIND_FOREIGN_TABLE || rte->relkind == RELKIND_STREAM) {
+    if (rte->relkind == RELKIND_FOREIGN_TABLE || rte->relkind == RELKIND_STREAM || LakeIsNativePartitionRoutine(rel->fdwroutine)) {
         /* Foreign table */
         set_foreign_pathlist(root, rel, rte);
+        if (LakeIsNativePartitionRoutine(rel->fdwroutine)) try_add_partiterator(root, rel, rte);
     } else {
         /* Plain relation */
         set_plain_rel_pathlist(root, rel, rte);
@@ -1522,7 +1524,7 @@ static void set_foreign_pathlist(PlannerInfo* root, RelOptInfo* rel, RangeTblEnt
      * If the query dose not support stream and the distribution type of foreign table
      * is replication or roundrobin, the query can send remotequery to datanode.
      */
-    if (!IS_STREAM) {
+    if (!IS_STREAM && !LakeIsNativePartitionRoutine(rel->fdwroutine)) {
         isrp = create_plainrel_rqpath(root, rel, rte);
     }
 
@@ -4304,6 +4306,10 @@ static Path* create_partiterator_path(PlannerInfo* root, RelOptInfo* rel, Path* 
     Path* result = NULL;
 
     switch (path->pathtype) {
+        case T_ForeignScan:
+            if (!LakeIsNativePartitionRoutine(rel->fdwroutine))
+                ereport(ERROR,(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),errmsg("only native lake ForeignScan can use the native partition iterator")));
+            /* Existing native iterator, no new executor. */
         case T_SeqScan:
         case T_CStoreScan:
 #ifdef ENABLE_HTAP

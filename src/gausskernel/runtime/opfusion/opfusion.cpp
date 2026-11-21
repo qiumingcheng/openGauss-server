@@ -25,6 +25,7 @@
  */
 
 #include "opfusion/opfusion.h"
+#include "access/og_lake.h"
 
 #include "access/printtup.h"
 #include "access/transam.h"
@@ -340,6 +341,9 @@ void OpFusion::executeInit()
     if (m_local.m_isFirst == true) {
         checkPermission();
     }
+    /* Repeat after normal host ACL admission for cached/PBE objects and every
+     * execution, not only when the fusion object is first constructed. */
+    LakeRejectNativePartitionFusion(m_global->m_planstmt);
     if (m_local.m_resOwner == NULL) {
         m_local.m_resOwner = t_thrd.utils_cxt.CurrentResourceOwner;
     }
@@ -357,6 +361,7 @@ void OpFusion::executeInit()
         m_local.m_snapshot = RegisterSnapshot(GetTransactionSnapshot());
     }
     PushActiveSnapshot(m_local.m_snapshot);
+    LakeCheckNotNullPlanSnapshot(m_global->m_planstmt,m_local.m_snapshot);
 }
 
 void OpFusion::auditRecord()

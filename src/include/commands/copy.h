@@ -370,6 +370,11 @@ typedef struct CopyStateData {
     char* enclosed;
     char* line_start;
     uint64  bytes_processed;    /* number of bytes processed so far */
+    bool lake_parquet;
+    int lake_parquet_compression;
+    void* lake_parquet_state;
+    bool lake_json;
+    void* lake_json_state;
 } CopyStateData;
 
 typedef struct InsertCopyLogInfoData {

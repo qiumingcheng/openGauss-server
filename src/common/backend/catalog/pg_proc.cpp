@@ -18,6 +18,7 @@
 
 #include "access/transam.h"
 #include "access/xact.h"
+#include "access/og_lake.h"
 #include "catalog/dependency.h"
 #include "catalog/gs_encrypted_proc.h"
 #include "catalog/indexing.h"
@@ -2153,7 +2154,9 @@ Datum fmgr_c_validator(PG_FUNCTION_ARGS)
     if (isnull)
         ereport(ERROR, (errcode(ERRCODE_NULL_VALUE_NOT_ALLOWED), errmsg("null probin for C function %u", funcoid)));
     probin = TextDatumGetCString(tmp);
-    if (strcmp(probin, "$libdir/plpgsql") && strcmp(probin, "$libdir/dist_fdw") && strcmp(probin, "$libdir/file_fdw") &&
+    if (strcmp(probin, "$libdir/og_lake") == 0) {
+        (void)LakeLookupBuiltinFunction(prosrc);
+    } else if (strcmp(probin, "$libdir/plpgsql") && strcmp(probin, "$libdir/dist_fdw") && strcmp(probin, "$libdir/file_fdw") &&
 #ifdef ENABLE_MOT
         strcmp(probin, "$libdir/mot_fdw") &&
 #endif

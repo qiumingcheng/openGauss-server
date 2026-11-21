@@ -38,6 +38,7 @@
 #include "access/cstore_am.h"
 #include "access/cstore_rewrite.h"
 #include "access/multixact.h"
+#include "access/og_lake.h"
 #include "access/subtrans.h"
 #include "access/transam.h"
 #include "access/twophase.h"
@@ -2799,7 +2800,21 @@ static void CommitTransaction(bool STP_commit)
             break;
     }
 
-    CallXactCallbacks(XACT_EVENT_PRE_COMMIT);
+    /* New native lake business operations cannot join a callback pass that
+     * has already started. Existing publication uses its explicit txn state. */
+    bool previousLakeCallbackPhase = u_sess->og_lake_precommit_callbacks;
+    u_sess->og_lake_precommit_callbacks = true;
+    PG_TRY();
+    {
+        CallXactCallbacks(XACT_EVENT_PRE_COMMIT);
+    }
+    PG_CATCH();
+    {
+        u_sess->og_lake_precommit_callbacks = previousLakeCallbackPhase;
+        PG_RE_THROW();
+    }
+    PG_END_TRY();
+    u_sess->og_lake_precommit_callbacks = previousLakeCallbackPhase;
     /*
      * The remaining actions cannot call any user-defined code, so it's safe
      * to start shutting down within-transaction services.	But note that most
@@ -3119,8 +3134,15 @@ static void CommitTransaction(bool STP_commit)
     libraryDoPendingDeletes(true);
     AtEOXact_MultiXact();
 
+    /* Finish lake transaction state after BEFORE_LOCKS native resources.
+     * Session protection stays held through late SDK cleanup below, after
+     * ordinary native locks have been released.
+     */
+    LakeHostTransactionEnd(true);
+
     ResourceOwnerRelease(t_thrd.utils_cxt.TopTransactionResourceOwner, RESOURCE_RELEASE_LOCKS, true, true);
     ResourceOwnerRelease(t_thrd.utils_cxt.TopTransactionResourceOwner, RESOURCE_RELEASE_AFTER_LOCKS, true, true);
+    LakeHostTransactionAfterLocks(true);
 
     /* Check we've released all catcache entries */
     AtEOXact_CatCache(true);
@@ -3411,7 +3433,21 @@ static void PrepareTransaction(bool STP_commit)
             break;
     }
 
-    CallXactCallbacks(XACT_EVENT_PRE_PREPARE);
+    /* New native lake business operations cannot join a callback pass that
+     * has already started. Existing publication uses its explicit txn state. */
+    bool previousLakeCallbackPhase = u_sess->og_lake_precommit_callbacks;
+    u_sess->og_lake_precommit_callbacks = true;
+    PG_TRY();
+    {
+        CallXactCallbacks(XACT_EVENT_PRE_PREPARE);
+    }
+    PG_CATCH();
+    {
+        u_sess->og_lake_precommit_callbacks = previousLakeCallbackPhase;
+        PG_RE_THROW();
+    }
+    PG_END_TRY();
+    u_sess->og_lake_precommit_callbacks = previousLakeCallbackPhase;
     /*
      * The remaining actions cannot call any user-defined code, so it's safe
      * to start shutting down within-transaction services.	But note that most
@@ -4027,8 +4063,13 @@ static void AbortTransaction(bool PerfectRollback, bool STP_rollback)
         decrease_rp_number();
         libraryDoPendingDeletes(false);
         AtEOXact_MultiXact();
+        /* Abort callbacks precede resource cleanup. Finish native lake state
+         * here; session guards remain until late candidate abort completes.
+         */
+        LakeHostTransactionEnd(false);
         ResourceOwnerRelease(t_thrd.utils_cxt.TopTransactionResourceOwner, RESOURCE_RELEASE_LOCKS, false, true);
         ResourceOwnerRelease(t_thrd.utils_cxt.TopTransactionResourceOwner, RESOURCE_RELEASE_AFTER_LOCKS, false, true);
+        LakeHostTransactionAfterLocks(false);
         AtEOXact_CatCache(false);
 
         /* If we are in a transaction block, we'll check whether username have been changed. */
@@ -5892,8 +5933,13 @@ void RollbackAndReleaseCurrentSubTransaction(bool inSTP)
     CleanupSubTransaction(inSTP);
 
     s = CurrentTransactionState; /* changed by pop */
+    /* BeginInternalSubTransaction also accepts COMMIT/PREPARE callers.  A
+     * rollback of that child restores the unchanged TBLOCK_END/TBLOCK_PREPARE
+     * parent, whose actual transaction is still in progress here. */
+    AssertState(s->state == TRANS_INPROGRESS);
     AssertState(s->blockState == TBLOCK_SUBINPROGRESS || s->blockState == TBLOCK_INPROGRESS ||
-                s->blockState == TBLOCK_STARTED);
+                s->blockState == TBLOCK_STARTED || s->blockState == TBLOCK_END ||
+                s->blockState == TBLOCK_PREPARE);
 }
 
 char *GetSavepointName(List *options)
@@ -6687,8 +6733,10 @@ void AbortSubTransaction(bool STP_rollback)
         AtEOSubXact_BucketCache(false, s->subTransactionId, s->parent->subTransactionId);
         AtEOSubXact_Inval(false);
         AtSubAbort_smgr();
+        LakeHostSubTransactionAbort(s->subTransactionId);
         ResourceOwnerRelease(s->curTransactionOwner, RESOURCE_RELEASE_LOCKS, false, false);
         ResourceOwnerRelease(s->curTransactionOwner, RESOURCE_RELEASE_AFTER_LOCKS, false, false);
+        LakeHostSubTransactionAfterLocks(s->subTransactionId);
 
         AtEOXact_GUC(false, s->gucNestLevel);
         AtEOSubXact_SPI(false, s->subTransactionId, STP_rollback, false);

@@ -1,0 +1,12 @@
+{
+  "upstream": "https://github.com/apache/arrow",
+  "commit": "3ad0370a04ccdae638755b94c3c31c8760a11193",
+  "tag": "apache-arrow-20.0.0",
+  "source_path": "cpp/src/arrow/c/abi.h",
+  "license": "Apache-2.0",
+  "files": {
+    "LICENSE.txt": "36f65c663f1c9c910af64c73cb4302667d6513c3f0a617e42bd896d767ff4604",
+    "NOTICE.txt": "b62ea242642d3a18f1e29b0c1fe082415a6943fe158ee22b48cff3762f354009",
+    "abi.h": "1828f1ce60368cd590d19595910fa19db09b30728f8a43b5f89933623f7a7276"
+  }
+}

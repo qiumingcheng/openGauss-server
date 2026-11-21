@@ -288,6 +288,19 @@ typedef struct knl_instance_attr_storage {
     int adioBufferAlignSize;
     int adioReaderThreadNum;
     int adioWriterThreadNum;
+    /* Per-instance background maintenance resource and scheduling defaults. */
+    bool enable_lake_maintenance;
+    bool enable_lake_index_maintenance;
+    bool enable_lake_autoanalyze;
+    int lake_autoanalyze_budget;
+    int lake_autoanalyze_max_delay;
+    int lake_index_build_budget;
+    int lake_index_maintenance_naptime;
+    int lake_flush_naptime;
+    int lake_flush_min_rows;
+    int lake_flush_max_delay;
+    int lake_flush_worker_budget;
+    int lake_flush_max_batches;
 } knl_instance_attr_storage;
 
 #endif /* SRC_INCLUDE_KNL_KNL_INSTANCE_ATTR_STORAGE_H_ */

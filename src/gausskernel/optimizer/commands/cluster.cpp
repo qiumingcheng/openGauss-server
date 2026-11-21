@@ -18,6 +18,7 @@
  * -------------------------------------------------------------------------
  */
 #include "postgres.h"
+#include "access/og_lake.h"
 #include "knl/knl_variable.h"
 
 #include "access/cstore_delta.h"
@@ -229,6 +230,7 @@ void cluster(ClusterStmt* stmt, bool isTopLevel)
         tableOid = RangeVarGetRelidExtended(
             stmt->relation, lockMode, false, false, false, false, RangeVarCallbackOwnsTable, NULL);
         rel = heap_open(tableOid, NoLock);
+        LakeRejectNativePartitionDDL(rel, "CLUSTER");
 
         TrForbidAccessRbObject(RelationRelationId, tableOid, stmt->relation->relname);
 
@@ -416,6 +418,16 @@ void cluster_rel(Oid tableOid, Oid partitionOid, Oid indexOid, bool recheck, boo
 
     /* If the table has gone away, we can skip processing it */
     if (!OldHeap) {
+        gstrace_exit(GS_TRC_ID_cluster_rel);
+        return;
+    }
+
+    /* The root is authoritative even for CLUSTER PARTITION / VACUUM FULL.
+     * Database-wide CLUSTER skips marked placeholders without a heap rewrite. */
+    if (LakeHasNativePartitionMarker(OldHeap)) {
+        if (!recheck)
+            LakeRejectNativePartitionDDL(OldHeap, OidIsValid(indexOid) ? "CLUSTER" : "VACUUM FULL");
+        relation_close(OldHeap, lockMode);
         gstrace_exit(GS_TRC_ID_cluster_rel);
         return;
     }
@@ -4187,6 +4199,7 @@ void vacuumFullPart(Oid partOid, VacuumStmt* vacstmt, int freeze_min_age, int fr
     /* If the table has gone away, we can skip processing it */
     if (!oldHeap)
         return;
+    LakeRejectNativePartitionDDL(oldHeap, "VACUUM FULL PARTITION");
 
     /*
      * Don't process temp tables of other backends ... their local buffer

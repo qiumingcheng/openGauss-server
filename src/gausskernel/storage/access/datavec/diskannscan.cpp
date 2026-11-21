@@ -24,6 +24,7 @@
 #include <algorithm>
 #include <cmath>
 #include "access/datavec/diskann.h"
+#include "access/datavec/diskann_graph_search.h"
 #include "access/datavec/utils.h"
 #include "utils/guc.h"
 #include "utils/memutils.h"
@@ -492,90 +493,53 @@ void diskannsearch(DiskAnnScanOpaque so)
     }
 }
 
-void SearchFixedPoint(DiskAnnScanOpaque so)
-{
-    NeighborPriorityQueue *queue = so->queue;
-    blockhash_hash *blocks = so->blocks;
-    DiskPQParams* params = &so->params;
-    bool enablePQ = so->enablePQ;
-    float* queryPQDistance = NULL;
-    bool found = false;
-    float *query = DatumGetVector(so->value)->x;
+/* Native pages retain their existing distance/PQ and iterator protocol. Only
+ * the frontier is shared with immutable lake graph storage. */
+struct DiskAnnNativeSearchStorage {
+    DiskAnnScanOpaque so;
+    float* queryPQDistance;
 
-    /* A wider beam restarts at the frozen entry points. Visits from the
-     * preceding beam cannot suppress those entry points or their edges. */
-    blockhash_reset(blocks);
-    queue->reserve(so->nexpextedCandidates);
-
-    VectorList<BlockNumber> *frozenBlknos = &(so->frozenBlks);
-
-    if (enablePQ) {
-        size_t tmpSize = sizeof(float) * params->pqChunks * GENERIC_DEFAULT_PQ_KSUB;
-        queryPQDistance = (float*)palloc(tmpSize);
-        int ret = GetPQDistanceTable((char *)query, params, queryPQDistance);
-        if (ret != 0) {
-            ereport(WARNING, (ret, errmsg("GetPQDistanceTable failed.")));
-        }
+    float EntryDistance(BlockNumber id,Neighbor& candidate)
+    {
+        return GetDistance(so,id,candidate.heaptids,&candidate.heaptidsLength);
     }
-
-    // Add frozen nodes to the priority queue
-    for (size_t i = 0; i < frozenBlknos->size(); i++) {
-        BlockNumber master = (*frozenBlknos)[i];
-        blockhash_insert(blocks, master, &found);
-        if (found) {
-            continue;
-        }
-        Neighbor nn;
-        float distance = GetDistance(so, (*frozenBlknos)[i], nn.heaptids, &nn.heaptidsLength);
-        nn.id = master;
-        nn.distance = distance;
-        nn.expanded = false;
-
-        queue->insert(nn);
-    }
-
-    // Search the graph
-    while (queue->has_unexpanded_node()) {
-        size_t idx;
-        Neighbor *n = GetNextNeighbor(queue, &idx);
-        BlockNumber master = n->id;
-
-        bool deleted = IsMarkDeleted(so->rel, n->id);
-        if (deleted) {
-            queue->remove(idx);
-        }
-
-        uint32_t infoFlag = DISKANN_NEIGHBOR_VECTOR | DISKANN_NEIGHBOR_BLKNO;
-        VamanaVertexNbIterator *nbIter = CreateIterator(n->id, so, infoFlag);
-
-        for (nbIter->begin(); !nbIter->isFinished(); nbIter->next()) {
-            DiskAnnNeighborInfoT nbinfo = {0};
-            BlockNumber nbVertex = nbIter->getCurNeighborInfo(&nbinfo);
-            Vector *nVec = (Vector *)DatumGetPointer(nbinfo.vector);
-            Assert(DatumGetVector(so->value)->dim == nVec->dim);
-            float distance = 0;
-            if (!enablePQ) {
-                distance = DatumGetFloat8(FunctionCall2Coll(so->procinfo, so->collation, so->value, PointerGetDatum(nVec)));
-            } else {
-                uint8_t *curNeighborPQCode = nbIter->curNbtup->pqcode;
-                int ret = GetPQDistance(curNeighborPQCode, params, queryPQDistance, distance);
-                if (ret != 0) {
-                    ereport(WARNING, (ret, errmsg("GetPQDistanceTable failed.")));
-                }
+    bool Deleted(BlockNumber id) {return IsMarkDeleted(so->rel,id);}
+    void Expand(BlockNumber id,NeighborPriorityQueue* queue)
+    {
+        uint32_t infoFlag=DISKANN_NEIGHBOR_VECTOR|DISKANN_NEIGHBOR_BLKNO;
+        VamanaVertexNbIterator* nbIter=CreateIterator(id,so,infoFlag);
+        for(nbIter->begin();!nbIter->isFinished();nbIter->next()){
+            DiskAnnNeighborInfoT nbinfo={0};
+            BlockNumber nbVertex=nbIter->getCurNeighborInfo(&nbinfo);
+            Vector* nVec=(Vector*)DatumGetPointer(nbinfo.vector);
+            Assert(DatumGetVector(so->value)->dim==nVec->dim);
+            float distance=0;
+            if(!so->enablePQ){
+                distance=DatumGetFloat8(FunctionCall2Coll(so->procinfo,so->collation,so->value,PointerGetDatum(nVec)));
+            }else{
+                int ret=GetPQDistance(nbIter->curNbtup->pqcode,&so->params,queryPQDistance,distance);
+                if(ret!=0)ereport(WARNING,(ret,errmsg("GetPQDistanceTable failed.")));
             }
-            if (nbinfo.freeVector) {
-                pfree(DatumGetPointer(nbinfo.vector));
-            }
-            Neighbor nn = Neighbor(nbVertex, distance);
-            nn.heaptidsLength = nbIter->curNbtup->heaptidsLength;
-            for (int i = 0; i < nn.heaptidsLength; i++) {
-                nn.heaptids[i] = nbIter->curNbtup->heaptids[i];
-            }
-
-            queue->insert(nn);
+            if(nbinfo.freeVector)pfree(DatumGetPointer(nbinfo.vector));
+            Neighbor next=Neighbor(nbVertex,distance);
+            next.heaptidsLength=nbIter->curNbtup->heaptidsLength;
+            for(int i=0;i<next.heaptidsLength;++i)next.heaptids[i]=nbIter->curNbtup->heaptids[i];
+            queue->insert(next);
         }
         ReleaseIterator(nbIter);
     }
+};
+
+void SearchFixedPoint(DiskAnnScanOpaque so)
+{
+    DiskAnnNativeSearchStorage storage={so,NULL};
+    if(so->enablePQ){
+        size_t size=sizeof(float)*so->params.pqChunks*GENERIC_DEFAULT_PQ_KSUB;
+        storage.queryPQDistance=(float*)palloc(size);
+        int ret=GetPQDistanceTable((char*)DatumGetVector(so->value)->x,&so->params,storage.queryPQDistance);
+        if(ret!=0)ereport(WARNING,(ret,errmsg("GetPQDistanceTable failed.")));
+    }
+    DiskAnnSearchGraph(so->queue,so->blocks,&so->frozenBlks,so->nexpextedCandidates,storage);
 }
 
 float GetDistance(DiskAnnScanOpaque so, BlockNumber blk, ItemPointer heaptids,

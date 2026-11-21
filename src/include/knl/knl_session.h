@@ -3398,6 +3398,15 @@ typedef struct knl_session_context {
 
     knl_u_hook_context hook_cxt;
 
+    /* Lazily allocated in the session Storage context; follows pool workers.
+     * create_session_context() zero-initializes the whole session object.
+     */
+    void* og_lake_state;
+    /* Reject new lake work from PRE_COMMIT/PRE_PREPARE callbacks, including
+     * first-ever lake access whose callback would otherwise miss the loop. */
+    bool og_lake_precommit_callbacks;
+    void* og_lake_test_probe; /* Internal superuser-only callback-order diagnostic. */
+
     MemoryContext opfusion_cxt;
 
     /* The datetime cache in current transaction. */
