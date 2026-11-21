@@ -1,0 +1,1007 @@
+{
+  "schema_version": 1,
+  "created_at": "2026-11-06T14:06:17.313240+00:00",
+  "target_format": "1.1",
+  "repositories": {
+    "opengauss": {
+      "url": "https://github.com/opengauss-mirror/openGauss-server.git",
+      "commit": "ba1e4ad2f99295b1b0f65e3880a05cb75a1121d4",
+      "path": ".worktrees/opengauss-native-lake",
+      "role": "production_baseline",
+      "license": {
+        "spdx": "MulanPSL-2.0",
+        "file": "COPYRIGHT",
+        "sha256": "c6224cc6e2d7062edc1c9319705daa8c46fadf608090c55fbcd78263251df139"
+      },
+      "patches": [
+        {
+          "commit": "34b9e2ea86f54d08308cf93417887b237692f763",
+          "status": "implemented_unverified",
+          "description": "Fix native lake scan and modify query-permission declarations during compilation",
+          "diff_sha256": "792ff7ee7ac628d383cedd5d7bec90bcd6b3843f657a5016f5cd760ffc92d76e",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "d561 official native build failed because LakeCheckQueryPermissions is declared only in access/og_lake.h. This commit adds that existing header to lake_inline_scan.cpp and lake_modify.cpp; no header, ABI, permission semantics or reference source changed. Official native incremental continuation and ordinary-user runtime acceptance remain pending; source provenance is not product qualification."
+        },
+        {
+          "commit": "1fb6e10da2019e9a0dafea859bc488dbf0f17f5c",
+          "status": "implemented_unverified",
+          "description": "Bounded parameterized inline publication batches instead of per-row SPI execution",
+          "diff_sha256": "732f24c5e2d7a9e8771d75dda35b1b8772883f2fbdd805140287d64e084526ea",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "Up to512 rows and8192 parameters per statement; final row IDs, stats and the same host transaction/savepoint boundaries retained. Source only, no new runtime acceptance; combined official full and large/correctness/history/failure regression required."
+        },
+        {
+          "commit": "242db221fc14c7fa20477896034eeea6e331c266",
+          "status": "implemented_unverified",
+          "description": "Exact logical-version-prefix inline flush and bounded file-deletion-population progress",
+          "diff_sha256": "0f8aa4d5133ea94b321cfdda51b4b2de52e67e6c032a8811f3da6035271a3601",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "Two actual81de baseline tests preserved:262162 physical versions and18 marked data files are refused atomically with54000. New source selects ordered(row_id,birth) prefixes via native bounded/spillable sort, deletes only transferred identities under original cutoff, and retains unselected file markers. Native header changed; official full required; no fresh qualification or physical orphan GC/remote/RAC claim."
+        },
+        {
+          "commit": "b47408e2a385af7eaabcaf86fb4e0af289bf825e",
+          "status": "implemented_unverified",
+          "description": "Retain shared catalog session protection through late SDK candidate close/abort",
+          "diff_sha256": "1bf7aee6dd5342b4268726bdebd5750a9ff7776cac098fd348ab57f4aec0e8c9",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "Prior242 full98,23 components909,66 read/DML2466 and3 SIGKILL cases102 passed. Two actual SDK lifecycle-barrier negative cases60 reproduce exclusive diagnostic guard acquisition while genuine candidate abort remains paused, in transaction and savepoint rollback; all real Parquet/abort work delegates to original a424 provider, restored by official restart. New CPP-only source moves guard release after candidate cleanup and keeps parent/maintenance ownership; requires official incremental, same positive barrier cases and affected/full regression. Not physical GC, remote or RAC qualification."
+        },
+        {
+          "commit": "c9202428c63a5122f173538f4ca0c52d5620007d",
+          "status": "implemented_unverified",
+          "description": "Require host READ COMMITTED at common lake access admission, including cached reads",
+          "diff_sha256": "01643bb55ea7f4a2d587ef5abb8d639baacf86477714b53df9736309423732df",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "User explicitly limited implementation to RC. Prior b474 23 components909,66 read/DML2466,3 crash102 and SDK lifecycle60 passed. New CPP-only guard and README require official incremental and RC/cached-plan/refusal/reader-protection qualification; not physical GC or commercial acceptance."
+        },
+        {
+          "commit": "7aaf826b512bf9a9d16c7adc4dac94bb570c99a8",
+          "status": "implemented_unverified",
+          "description": "Optional synchronous durable local deletion SDK ABI3 and native capability loader; no automatic GC enablement",
+          "diff_sha256": "0006130c7b9919126cf6251446b46d1b893a28ed32ba7475734b5c98e21a5a6d",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "RC scope qualification and all prior regression receipts passed before source mutation. Worktree-external candidate SDK passed313 genuine/path/cancel/fsync/idempotency/FD checks and original6 ABI1/2 lifecycle cases. New source requires official full, fresh provider build and component/native qualification. Does not itself authorize deletion or qualify catalog GC, backup, remote or RAC."
+        },
+        {
+          "commit": "7f7ee97d1818f6fb2a6bdaa310219c50849865a8",
+          "status": "implemented_unverified",
+          "description": "Native postmaster-managed lake flush launcher/worker, bounded TableAM eligibility, isolated RC maintenance transactions and default-off runtime controls",
+          "diff_sha256": "1f05d7dc4fc6f7039837b8de59bd0c39b6175a842db5a79b17b3a42263033054",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "Prior7aaf full98 and source SDK313/original lifecycle6 passed. Actual native old-provider rejection11 and old/new RC83+83, new-provider adapter25,10 flush433 and18 current reads/DML846 passed with new SDK0cad. New background code requires official full and real startup/dispatch/fairness/claim/error/cancel/restart/shutdown qualification. One active worker per instance; no pg_job, no automatic physical GC, no real RAC qualification."
+        },
+        {
+          "commit": "71d7fb98cd7cc0b77910bb2767832e187a19d8ef",
+          "status": "implemented_unverified",
+          "description": "Set independent maintenance statement timeout origins, recover cancellation inside launcher latch waits, and preserve existing source file executable modes",
+          "diff_sha256": "920e2d623aaaf6b5c16609d9437e5f99253973755c3b6a3d92c8b7e653635add",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "Preceding7f7 official full build and default-off SQL startup passed; automatic execution still unqualified. CPP-only maintenance repair after clean header build; official incremental and real enabled automatic flush qualification pending. File mode restoration does not change header contents."
+        },
+        {
+          "commit": "66bdd6fbad531973a75a0d995e4e7d289caf7288",
+          "status": "implemented_unverified",
+          "description": "Allow only the dedicated lake worker role in native trusted bootstrap identity assertions",
+          "diff_sha256": "07b4d489b0105a33750a102dfed2ffb0305f7c68911a31c03105e50383deaf01",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "Real enabled automatic smoke on71d7 reproduced miscinit.cpp:1050 Debug assertion before frontend availability. Original failure retained; test restored original configuration and restarted successfully. CPP-only whitelist repair; official incremental and enabled execution pending."
+        },
+        {
+          "commit": "12c1ac9798b1eb72c81add3872ac4fba1c21368e",
+          "status": "implemented_unverified",
+          "description": "Initialize native SPI password-mask context for maintenance roles and normalize abort/timeout/cancellation recovery",
+          "diff_sha256": "25aa8ab6b2931d70ffe0a02b7a20246fd486a817bb6e4cc33511f42cdce930d3",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "66bdd6 real row-trigger30 and age-trigger30 passed. Exact automatic publish cancellation reproducibly disconnected the instance; GDB captured SIGSEGV in elog.cpp:is_execute_cmd palloc0 after maskPassword switched to a missing mask_password_mem_cxt, called by the SPI error callback. Original normal/debug failure receipts retained. CPP-only repair follows native autovacuum context initialization and abort recovery; official build and exact negative-case rerun pending."
+        },
+        {
+          "commit": "bdbcf13cd7d1c18bfc34f1bef04a35fef751a2d0",
+          "status": "implemented_unverified",
+          "description": "Keep maintenance error recovery and exit callbacks in an allocated writable message context",
+          "diff_sha256": "d76a7a5ff38f62d3d58bc6b6d2a29178aa342c3a36af1ba18731a11f499dbc0e",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "12c1 official incremental109 inputs passed. Exact cancellation no longer crashed in the SPI masker and logged the expected57014, then exit statistics allocation panicked because recovery switched to sealed ThreadTopMemoryContext. Preserved actual PANIC stack identifies pgstat_send during proc_exit. CPP-only repair uses the dedicated message context for both roles; official build and exact rerun pending."
+        },
+        {
+          "commit": "1f8b035e175835bb0ce69b496da2d196510444ed",
+          "status": "implemented_unverified",
+          "description": "Preserve persistent maintenance loop cursors and batch budget across PG_TRY longjmp",
+          "diff_sha256": "4a8f07675bf3b8ddd07f5a8a4aa071961ea23c0778b58a1df4b596e13ea2e862",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "Priorbdbc official109 passed and exact automatic cancellation43 passed. Fairness campaign stopped on test assumption that a restarted pthread_t must differ; job generation continued21->221 but physical incarnation was not observed. Test now observes actual Linux launcher TID under the same owned postmaster, retaining the original failure. New CPP change separately makes modified loop state volatile across longjmp as required for Release correctness. Official incremental and fresh exact affected campaign pending."
+        },
+        {
+          "commit": "486d837100fca6a5cd11e90a32bfd966781789ef",
+          "status": "implemented_unverified",
+          "description": "Clear only abandoned SPI metadata scope on fatal process-exit transaction abort; preserve normal commit/error scope invariant",
+          "diff_sha256": "e585b2f1c5035d9f73b22c08cff15b5a46834f393b63bea56afe97b98a98519d",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "1f8b official109 passed, actual launcher/four-table fairness48 and automatic cancellation43 passed. Age data/physical checks27 passed then controlled fast shutdown failed: postmaster THRD_SIGTERM causes FATAL within SPI, bypasses query PG_CATCH, and late host metadata_scope assertion traps. Actual stack retained. Original config, controlled retry startup, recovered3rows and exact owned cleanup proved separately; original failed campaign kept. CPP-only exit-abort normalization relies on native AbortTransaction restoring user/security before hook. Deterministic shutdown-in-SPI test and official build pending."
+        },
+        {
+          "commit": "e24e2a54eb1ce251961c7575b1f4015e5e36c4f8",
+          "status": "implemented_unverified",
+          "description": "Share the worker time budget across initial metadata selection and every flush batch, fail closed if native timeout cannot be armed",
+          "diff_sha256": "9330743291b5e73dd5c61b956651c014d3bc12c80ae4f0ea4cf69056bb8ce226",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "486d six-case239 and separate small cross-database42 passed. New actual three-table metadata lock test configured1500ms and observed2.53009s before worker exit; data/catalog/candidate rollback passed but whole-worker deadline failed. Original result retained. CPP-only fix starts one epoch before initial transaction and gives subsequent transactions only the remaining budget; pin budget per worker. Official incremental and exact negative-test rerun pending."
+        },
+        {
+          "commit": "0b9a10d1cfd2e6bddf105c589b081941e84ba1a9",
+          "status": "implemented_unverified",
+          "description": "SQL0.11 closed native RC publishers use existing exact-source MVCC validation for independent inline DML; retained interfaces and flush remain conservative",
+          "diff_sha256": "c22de764f669913580e74716334a2632e0476f6b785a5be467f1096d2b8b10f0",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "e24e current automatic5/193 passed. Actual2writer+reader workload failed after93 acknowledged commits/123 consistent reads from repeated40001; automatic-OFF control also failed with51 commits/66 consistent reads. Deterministic disjoint-row A UPDATEid1/B UPDATEid2 reproduced false whole-table40001 and atomic A heap rollback. Pinned DuckLake transaction_state.cpp228-324 intentionally uses table-level inline conflicts; native SQL0.11 adapts existing exact-end-version and file-position checks under snapshot PK, preserving structural/flush rejection and SQL<=0.10 behavior. CPP-only candidate requires official build and disjoint/overlap/legacy/flush and full affected transaction qualification; not commercially promoted."
+        },
+        {
+          "commit": "7c817f16c0118f4d6a5923850edfc09d1b820d82",
+          "status": "implemented_unverified",
+          "description": "Keep native launcher error cooldown intact across committed hints and overflow rediscovery",
+          "diff_sha256": "6cfa3e319f9cd8fa77dc5f86feb81271472e4c05353ce4ffed751cd8775c1cbc",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "Prior0b9 official incremental and10 exact-origin RC cases160 plus two120s OFF/ON workloads52 passed. ON sampled184 failed maintenance batches. Real SPI-cancel plus fresh committed hint reproduced erroneous same-database retry after0.28287s instead of configured30s; original negative retained with exact config/object cleanup. CPP-only cached cooldown classification and priority eligibility repair; official incremental, identical real negative-case positive, affected cancellation/fairness/budget regressions and new timed automatic workload pending. No GC, remote SDK or target RAC qualification."
+        },
+        {
+          "commit": "65cceecc7eaad0b96302c51043d0361b7b0cb088",
+          "status": "implemented_unverified",
+          "description": "Reconcile post-cutoff inline ends into standard prepared-file position deletions under snapshot publication claim",
+          "diff_sha256": "6850fc3623e3a827481673a4cb535dfc7aa81646eaae8a902bc7bd8717523e84",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "7c817 official109, real cooldown29 and8 functional regression cases319 passed, but120s sustained workload failed maintenance progress:541 successful business commits and380 consistent readers/final models,4 conservative flush conflicts and0 publications. A real completed-Parquet/late-UPDATE deterministic negative also returns40001. New CPP-only native SQL0.11 private-owner RC adaptation verifies selected interval count/end, derives positions over full sorted(row_id,birth) input, records late ends at original deletion snapshots, and removes only transferred versions; later births/file marks remain. Standard format, IDs, SDK I/O placement unchanged; structural/competing-flush/old-locator conflicts retained. Official incremental and genuine current/history/reference/mixed/partial/cancel/large-prefix/sustained tests pending; no commercial/GC/remote/RAC claim."
+        },
+        {
+          "commit": "c16ba818af5682dabcd764f6ebf241c79b61cfa3",
+          "status": "implemented_unverified",
+          "description": "SQL0.12 transactional positive inline-limit configuration in standard metadata",
+          "diff_sha256": "fd78fc10a14c02e61e8477d3fd86c64a49f97a4b3efc2c2dee8a5a14c83e48e3",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "Native table-owner/catalog-admin SPI configuration, no snapshot or implicit commit; fresh post-wait RC reads and duplicate rejection, savepoint-aware mixed-DML exclusion. Header version changed: official Debug full and focused configuration/affected regressions required. Commercial work remains deferred by user."
+        },
+        {
+          "commit": "b9b1dc0d66b1174b17e01608f96b7e43fd3b7172",
+          "status": "implemented_unverified",
+          "description": "SQL0.13 permanent table RENAME journal, native DDL hook and late standard metadata publication",
+          "diff_sha256": "64d74f6a1a425ac2d448796d044086ee9ac76b080ad5ec238c66eed83f0bf0c8",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "Host AX locks and immutable savepoint-aware events; final per-table names version standard definitions with unchanged row/file identities and paths. Existing carrier layout registrations retained. Header/transaction ABI changed: official Debug full required, then actual rename rollback/name collision/cache/claim/concurrency/reference continuation tests. Other ALTER remains rejected; no runtime acceptance yet and commercial work remains deferred."
+        },
+        {
+          "commit": "990980d8553d0a6ca344e73dc93f73e980c7a603",
+          "status": "implemented_unverified",
+          "description": "Advance completed host DDL command visibility before native RENAME precommit checks",
+          "diff_sha256": "cfc522cff2b8207997d3847229d6fa5939f8969410df19dcf7ebbea3a5b5d27a",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "b9b1 official full passed; first8 rename cases192 assertions passed, but cancel recovery retry failed and independent ordinary autocommit/upgrade reproduced identical40001. postgres.cpp last utility finishes transaction before next ordinary CCI. CPP-only fix adds CCI at rename publication entry, preserving fixed lake snapshot. Official incremental and reordered full rename/affected Debug cases required. Failures retained; commercial work remains deferred."
+        },
+        {
+          "commit": "08d68f4ba5ce86e7c7554c026795c8af8e45e095",
+          "status": "implemented_unverified",
+          "description": "SQL0.14 first derived index registry: definitions/segments/coverage, owner-only scalar integer definitions, retirement and trusted private catalog handover",
+          "diff_sha256": "1919a0458c7a64568f84f862e8cdc114d608de44a67dbdcbf2c46bf5906fc08e",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "08d metadata registry only; no index builder, READY artifact publication or indexed query path. Standard DuckLake metadata unchanged; ACTIVE definitions report usable=false. New protected CHECK/FK/composite identity/exact partial-index validators, fresh/upgrade owner handover and binding retirement require official Debug full and real lifecycle/ACL/rollback/upgrade/tamper/concurrency plus affected regressions. Source is not acceptance; other core work and final commercial qualification retained."
+        },
+        {
+          "commit": "91772e06be0dc828fb15269a7100484e5a9314f7",
+          "status": "implemented_unverified",
+          "description": "Use native openGauss JsonbValue anonymous union in index definition parser",
+          "diff_sha256": "6e3ebb369016d86b20526b3e3c0d7bb3b991a954c7c9e56c24c25964b76fe081",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "Actual08d official full failed at the index parser because old openGauss JsonbValue has an anonymous union, unlike newer PostgreSQL. Original failed receipt retained; this CPP-only repair changes member access only. Official Debug incremental continuation and fresh metadata-registry/affected acceptance pending; no built index or indexed query claim."
+        },
+        {
+          "commit": "eee5c5be29a054c48e7a02b7102961d668c5412c",
+          "status": "implemented_unverified",
+          "description": "Persist index CHECK numeric constants without explicit cast FuncExpr nodes",
+          "diff_sha256": "51223853e9750965dba5aba3636f149d85b165e33379f70a8bfbcab760745f5f",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "9177 official Debug build/start passed with121 unchanged native inputs, but first fresh-owner registry case failed55000. Owned actual GDB trace identifies index_definition CHECK at lake_acl.cpp482; raw pg_constraint conbin proves explicit0::bigint is a builtin FuncExpr, while the fixed trust validator requires a Const. This SQL-only correction uses plain0 and the already admitted int8/int4 builtin overload; validator is not weakened. Original failed case and owned diagnostic03 retained. Official incremental install and fresh/upgrade registry plus affected tests pending. Product C/C++11561 unchanged."
+        },
+        {
+          "commit": "6ceba3ee1300bf0d1cb6fbb382d14502c7787667",
+          "status": "implemented_unverified",
+          "description": "Validate exact stored explicit partial-index Expr before relcache normalization",
+          "diff_sha256": "68c1307d734712ff8e2810622053f2b1f0ee40a77f21673f92c5af85a5482004",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "eee5 official Debug incremental/start passed, but fresh-owner test again55000. Actual GDB and pg_index.indpred prove numeric checks now63/63 valid; failure is explicit OpExpr/Var stored by index.cpp625, while initial validator assumed implicit one-element List. This CPP-only repair admits exact raw Expr or one-element List and retains the same two builtin predicate shapes; no expression evaluation. Tamper tests now also replace each partial predicate and require rejection. Official Debug incremental and all fresh/upgrade/affected tests pending. Product11568; no builder/READY/query support."
+        },
+        {
+          "commit": "87416856878ade061842f80ddd2e7e32eaffc693",
+          "status": "implemented_unverified",
+          "description": "Execute protected index catalog migration and validation through DO utility blocks",
+          "diff_sha256": "51cd1d0407c622b2e828d6d0d7f689281c0fd551a7d64e3af20ddd5fd9666da5",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "6ceb official Debug build121 inputs and fresh definition27 passed; configured0.13 upgrade failed owner check10passed/1failed. Native extension.cpp749 executes only INSERT, skipping SELECT migration helpers.8741 SQL-only switches to DO/PERFORM; source written before WSL restriction, not yet runtime-qualified. User now lifts cloud-only restriction for local development/tests; no remote push. Official incremental, new and configured-owner upgrade, full registry/affected/real flush acceptance pending."
+        },
+        {
+          "commit": "3228edfd002b0a73a5e4b91f1e35d8bbf80f1c34",
+          "status": "implemented_unverified",
+          "description": "Reuse host B-tree for heap inline integer build and costed ForeignScan access, with exact lake visibility and complete file fallback",
+          "diff_sha256": "d98ae850a5a343faeb9e8363dddd8b11d75ff23571a2602a5c718455322d2845",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "Prior8741 registry9/212, affected11/255 and real prepared flush+late DML1/26 passed and reviewed21/493. New candidate0.15 adds physical index OID and protected migration, native DefineIndex builder, IndexAM read and rescan, exact int4/int8 comparison Const/Param paths, post-plan definition/physical/HOT-CSN horizon checks. Full original quals, file inputs and private after-images retained; no file index/Ustore indexed access/DiskANN/fusion. Edited in separate isolated worktree during8741 tests, then fast-forwarded only after all scoped checks. Header/plan ABI changes require official Debug full; no current runtime qualification or remote push."
+        },
+        {
+          "commit": "d8175f2f9997095d2ab2f996da3d18ec3be9abed",
+          "status": "implemented_unverified",
+          "description": "Admit SQL0.15 in native catalog creation guard",
+          "diff_sha256": "5b09ce87f3f6380ed8e2f862a10c4d205a3e7e55f3f0d98d03426bdfdbb1a902",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "3228 official Debug full/start passed with125 exact native inputs, but first0.15 case failed at create_catalog because its separate installed variable version whitelist omitted0.15. Original6-check failure/cleanup retained. CPP-only literal admission fix; official incremental and real index cases pending. No broader feature admission or remote push."
+        },
+        {
+          "commit": "8385ea14fc1d43cb756957309041f5b2c01c554d",
+          "status": "implemented_unverified",
+          "description": "Native inline integer comparison keys use the builtin operator RHS subtype without narrowing",
+          "diff_sha256": "ff97d87b3191a71258870084a75afaaf4da07fc25d6574a90d6fd8c14102bc99",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "Prior d817 official incremental125 and20 scoped Debug cases514 assertions strictly reviewed, including actual IndexAM execution/private changed-key overlay and11 affected cases. New CPP-only source follows native ExecIndexBuildScanKeys integer opfamily operand properties, compares int4/int8 columns with int2/int4/int8 Const/Param keys, and preserves complete file/private fallback. Official incremental, actual wide-boundary/generic/correlated tests and affected index scopes required; no file scalar backend, Ustore index, DiskANN, fusion or commercial claim."
+        },
+        {
+          "commit": "8e488c891ff3206c345bcba7282479f04b776bc7",
+          "status": "implemented_unverified",
+          "description": "Reuse native B-tree SK_SEARCHARRAY for integer equality-ANY and SQL IN predicates",
+          "diff_sha256": "ac71e450eaaea14f9db4bce268ae930af5da1d1e3b466ac00151c55d96e0d1fa",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "Prior8385 official incremental125 native inputs and9 scoped Debug cases352 assertions strictly reviewed. This CPP-only adapter follows native ScalarArrayOpExpr handling and nbtutils preprocessing, admits only builtin integer equality Const/Param arrays, retains full quals/file/private streams and includes estimate_array_length seek costs. New source requires official incremental, fresh exact-reference build receipt, genuine duplicate/NULL/empty/wide/generic/own-DML/file-fallback array tests and affected scalar index cases. Not file scalar backend, Ustore index, DiskANN, fusion or production qualification."
+        },
+        {
+          "commit": "e1b644e1d7837132cc38d7d6d12c622752c74c53",
+          "status": "implemented_unverified",
+          "description": "Native inline B-tree NULL/NOTNULL scan keys with explicit private plan null mode",
+          "diff_sha256": "dd8a6fb08b83316332d91ba0ead8185e452e0093d0220eda4d46f609849cb8d6",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "Prior8e48 official incremental125 and5 scoped Debug cases270 assertions strictly reviewed: actual array62, cross-integer114 and plan/rescan/DML+flush94. CPP-only NULL adapter follows native NullTest ScanKey flags with InvalidStrategy/InvalidOid and no operator, plain primitive key Vars only. Private scan plan layout5 explicitly carries null mode; persistent catalog/file/SDK/headers unchanged. New source requires official incremental, exact-reference re-attestation, selective NULL/NOTNULL/correlated/private/Parquet cases plus actual array/cross/affected cached-plan scopes. Full IX2/file/Ustore/DiskANN/fusion/commercial gates remain unfinished."
+        },
+        {
+          "commit": "3ce5ccec98d6d453304f953d3847d448cc25bd6f",
+          "status": "implemented_unverified",
+          "description": "SQL0.16 isolated derived-index root configuration and portable sorted Parquet page component",
+          "diff_sha256": "83bc4d18b5fadb68d2c44ee65a9d46774a10ba5ec3d30d0844e47d0e9691112c",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "Prior e1b6 official125 and7 native scopes333 strictly reviewed. New portable format bytes separately passed217 named component/fault assertions and422 genuine C++ consumer checks including164 independent SQL selections, complete-input decode, separate-process reopen, CRC corruption, valid altered postings and bounded failure. Configured catalog_binding gains nullable index_root with admin/path-overlap/retained-segment pinning; no business snapshot/implicit commit. Native headers changed: official Debug full and root/upgrade/permissions/concurrency plus legacy native regression required. Native file build/coverage publication/query integration and full IX2/DiskANN/fusion/commercial remain unfinished; host_status keeps file build false."
+        },
+        {
+          "commit": "4368ab9c624e1dac94656202eab1a42ae83859a3",
+          "status": "implemented_unverified",
+          "description": "Native spillable physical-source scalar build, opaque SDK object-version binding, transaction-owned Parquet segments and guarded READY coverage",
+          "diff_sha256": "4ab94e6b1c58c034714fc3555fd633c794bd5444175006ae0e74d33b91e76502",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "Prior3ce5 official Debug full129 source inputs and20 scoped native cases547 passed. Isolated candidate ABI suffix and portable component passed fresh exact-byte tests; native builder/publication is unqualified. Header changes require official full, source provider build/qualification, real physical versions/rollback/savepoint/cancel/coverage tests. File query backend, Ustore indexes, DiskANN/fusion, GC/remote/RAC/commercial gates remain unfinished."
+        },
+        {
+          "commit": "5644c9085fb4eae034c567af969ce7d59778dcf4",
+          "status": "implemented_unverified",
+          "description": "Use native tableam_tslot_getallattrs after the official full-build linker identified unimplemented legacy slot_getallattrs",
+          "diff_sha256": "8219be900db930333fa2e5a5ed81c7c255215820d605a20301bdee8df8e5b78d",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "Original4368 Debug full compiled all source but failed at the new scalar-builder legacy slot symbol during link. This CPP-only fix follows existing lake_flush.cpp native TableAM use. Official incremental continuation and queued exact-build native cases remain pending; no native file query or production claim."
+        },
+        {
+          "commit": "448b3cfb567b5e6da72a1d3a7911d3f3c7c98d66",
+          "status": "implemented_unverified",
+          "description": "Select verified scalar file candidates and fetch original row groups",
+          "diff_sha256": "3b38fb9a39c04f8ca9cac3fd2eb80c24d7b997910048fa4254644bd6b3cdd711",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "Prior5644 official Debug incremental131 inputs and24 scoped native cases659 strictly verified;142b provider remains exact qualified local artifact. New query source verifies definition/source/context/content before complete physical candidates, bounds metadata and row groups, retains uncovered scans/visibility/private rows/original quals, and follows native memory callbacks. Native headers changed: official full and actual query/CRC-fallback/visibility/rescan/lifetime/affected cases required. No Ustore index, DiskANN/fusion, remote/RAC or commercial qualification."
+        },
+        {
+          "commit": "6b2f47aa4bc3caa63ca52c1e032b815b4c8401ae",
+          "status": "implemented_unverified",
+          "description": "Follow openGauss memory reset callback ownership for scalar results",
+          "diff_sha256": "0fbc5a81c98450a441d0905ef63076d388d38b6d702ee6304135a4c1a944e2fb",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "Prior5644 official Debug incremental131 inputs and24 scoped native cases659 strictly verified;142b provider remains exact qualified local artifact. New query source verifies definition/source/context/content before complete physical candidates, bounds metadata and row groups, retains uncovered scans/visibility/private rows/original quals, and follows native memory callbacks. Native headers changed: official full and actual query/CRC-fallback/visibility/rescan/lifetime/affected cases required. No Ustore index, DiskANN/fusion, remote/RAC or commercial qualification."
+        },
+        {
+          "commit": "962593eef2aca6d77f9677f001351c1cf6f8bd96",
+          "status": "implemented_unverified",
+          "description": "Bound scalar file cost metadata to the current physical input set",
+          "diff_sha256": "7ffbdcc7862302347ba8a2ad10caa8dc2dca1b026a9460fd5ddca62db4b75855",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "Prior5644 official Debug incremental131 inputs and24 scoped native cases659 strictly verified;142b provider remains exact qualified local artifact. New query source verifies definition/source/context/content before complete physical candidates, bounds metadata and row groups, retains uncovered scans/visibility/private rows/original quals, and follows native memory callbacks. Native headers changed: official full and actual query/CRC-fallback/visibility/rescan/lifetime/affected cases required. No Ustore index, DiskANN/fusion, remote/RAC or commercial qualification."
+        },
+        {
+          "commit": "fbacecd04a92fa127acb2613171a3b54ae83663a",
+          "status": "implemented_unverified",
+          "description": "Record verified scalar builder baseline before query qualification",
+          "diff_sha256": "a239d75631f91e7df6c1cbeb5556855750129dc0dba6a0bc9f77b1ddeb46848e",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "Prior5644 official Debug incremental131 inputs and24 scoped native cases659 strictly verified;142b provider remains exact qualified local artifact. New query source verifies definition/source/context/content before complete physical candidates, bounds metadata and row groups, retains uncovered scans/visibility/private rows/original quals, and follows native memory callbacks. Native headers changed: official full and actual query/CRC-fallback/visibility/rescan/lifetime/affected cases required. No Ustore index, DiskANN/fusion, remote/RAC or commercial qualification."
+        },
+        {
+          "commit": "b690615be174468db5171445fae570e8c9367d79",
+          "status": "implemented_unverified",
+          "description": "Adapt existing native UB-tree and Ustore slot ownership for inline scalar indexes",
+          "diff_sha256": "fc6cdb30ff87a197f7c4333481064315939061b201b010393d71a2b4be8fc94e",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "Prior fbace official Debug full131 inputs and28 scoped cases795 assertions strictly verified; no Ustore index proof in prior baseline. CPP-only adapter uses exact builtin UB-tree classes and IndexGetnextSlot, retains old lake snapshot safety, and reports metadata READY separately from runtime checks. Official Debug incremental plus genuine Ustore and affected heap/file/root/build/query correctness required. No DiskANN, fusion, remote/RAC or commercial qualification."
+        },
+        {
+          "commit": "038c2e95632d25baa9013e76ba868baa328cd46b",
+          "status": "implemented_unverified",
+          "description": "Report current-input scalar file coverage separately from execution validation",
+          "diff_sha256": "31e609c6a4c1ca753266af82e971f6cc9c72a30ce244801041b71769fb6399ee",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "Prior fbace official Debug full131 inputs and28 scoped cases795 assertions strictly verified; no Ustore index proof in prior baseline. CPP-only adapter uses exact builtin UB-tree classes and IndexGetnextSlot, retains old lake snapshot safety, and reports metadata READY separately from runtime checks. Official Debug incremental plus genuine Ustore and affected heap/file/root/build/query correctness required. No DiskANN, fusion, remote/RAC or commercial qualification."
+        },
+        {
+          "commit": "7d79d30209a6dc59c8007c810bce1be8d06b2743",
+          "status": "implemented_unverified",
+          "description": "Check native build XID against retained lake snapshot xmin rather than advancing RC session horizon",
+          "diff_sha256": "7e17df146c2e5ac29d4cdceaf4796f55bcd9eab0b814ae6daa647d73f73a7904",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "038c official Debug incremental131 inputs passed; Ustore integer/bigint/rescan/rollback cases passed but pre-build retained reader unexpectedly used native index. Real native transfer+new inline population+build+two ordinary heap commits reproduced lost old rows (expected2,actual0) at native_ubtree_transfer_negative_20261109_04. Earlier transfer without post-build transactions passed; harness limit/ANALYZE attempts retained. CPP-only fix replaces session TransactionXmin shortcut with actual business snapshot xmin, retaining CSN check. Exact negative-to-positive and Ustore/heap/file/affected Debug qualification pending."
+        },
+        {
+          "commit": "1a0adab661b66f0d4b88ef139077a27356f675f1",
+          "status": "implemented_unverified",
+          "description": "Reuse native snapshot-aware XID visibility instead of NULL-snapshot CSN lookup for index birth",
+          "diff_sha256": "7f839deee7ab85d70cfc822421dbc202818bf914c3775648734e5080abbe6703",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "7d79 official incremental131 passed and original transfer first rerun20 passed, but identical repeat native_ubtree_horizon_cases_20261109_02_1_old_build_transfer again lost2 old rows. Actual transam.cpp FetchCSNFromCache/lookup with NULL snapshot accepts FROZEN cache or RecentXmin-based CLOG sentinel, which cannot prove older snapshot visibility. New CPP-only adapter uses native XidVisibleInSnapshot with the retained snapshot, including host DMS routing. Strengthened original scenario repeats6 ordinary RC epochs; official incremental and35-case scoped verification pending. No commercial qualification."
+        },
+        {
+          "commit": "12ca723b524566e002fe1e2d390de4d4e769a753",
+          "status": "implemented_unverified",
+          "description": "Verify complete scalar leaves before reusing READY coverage and repair damaged segments",
+          "diff_sha256": "0bc9fa8e5e75bb3413504330fa7b17f66836ca17ffe8b8fd8103414a5c331b2d",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "Prior1a0 official Debug incremental131 inputs and35 scoped cases981 strictly verified; original Ustore horizon failures and long-ID fixture failure preserved. Real same-source missing lookup negative at scalar_repair_neg_1a0_1109: query complete, build kept broken READY. New header/API and shared scalar page visitor verify unchanged and newly completed leaves, replacing only corrupt/unavailable artifacts through existing candidate/transactional coverage ownership. Official Debug full plus real repair/rollback/READY-rename, actual queries and affected regression required. Automatic maintenance, physical GC, DiskANN/fusion, remote/RAC/commercial remain pending."
+        },
+        {
+          "commit": "073b0581236ed1bc6830e4e52bd3369db5a74f6d",
+          "status": "implemented_unverified",
+          "description": "Validate all completed scalar leaves before READY publication",
+          "diff_sha256": "526c78d98871e601dcf2efa57a65fbc30e9b0fb46d987c1e19cf03eabb0a3f61",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "Prior1a0 official Debug incremental131 inputs and35 scoped cases981 strictly verified; original Ustore horizon failures and long-ID fixture failure preserved. Real same-source missing lookup negative at scalar_repair_neg_1a0_1109: query complete, build kept broken READY. New header/API and shared scalar page visitor verify unchanged and newly completed leaves, replacing only corrupt/unavailable artifacts through existing candidate/transactional coverage ownership. Official Debug full plus real repair/rollback/READY-rename, actual queries and affected regression required. Automatic maintenance, physical GC, DiskANN/fusion, remote/RAC/commercial remain pending."
+        },
+        {
+          "commit": "738f378305f0119613e9546d695068275ba76e15",
+          "status": "implemented_unverified",
+          "description": "Record verified Ustore snapshot baseline and genuine scalar repair gap",
+          "diff_sha256": "03db256bc061ed2c48bcb112d0f399f108c96da22a91eb6f2f91fe365520811d",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "Prior1a0 official Debug incremental131 inputs and35 scoped cases981 strictly verified; original Ustore horizon failures and long-ID fixture failure preserved. Real same-source missing lookup negative at scalar_repair_neg_1a0_1109: query complete, build kept broken READY. New header/API and shared scalar page visitor verify unchanged and newly completed leaves, replacing only corrupt/unavailable artifacts through existing candidate/transactional coverage ownership. Official Debug full plus real repair/rollback/READY-rename, actual queries and affected regression required. Automatic maintenance, physical GC, DiskANN/fusion, remote/RAC/commercial remain pending."
+        },
+        {
+          "commit": "c8652d468f98ed541e5e7cb62f340503f9f4362b",
+          "status": "implemented_unverified",
+          "description": "Capability-gated IEEE floating codec in the isolated Parquet provider",
+          "diff_sha256": "aebde52695ed143b4936ccd1b6c4bb6d763e47e7303abe980b3a03110d336d5b",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "Local SDK component21 named/216093 C checks passed with old-header compatibility; no native SQL or remote admission."
+        },
+        {
+          "commit": "5d291add28f1b0caef15b51dacabf477ca5c7fdd",
+          "status": "implemented_unverified",
+          "description": "Standard one-level float lists with catalog parent/child IDs and optional ABI4 writer",
+          "diff_sha256": "4ee3bcb3a95837e86773c86787e269acdfd71d1a1048c20b3c0813d2744d3d16",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "Isolated list26/269334 and float21/216093 C checks plus pre-list reader/writer compatibility passed. All base layouts unchanged; no native vector/DiskANN or SDK installation qualification."
+        },
+        {
+          "commit": "ff98ca01aca68bab123af4cdabe1fb1715a2f1d9",
+          "status": "implemented_unverified",
+          "description": "Central native scalar type registry and lossless float SQL/flush candidate",
+          "diff_sha256": "3c2915de051e3e01a769f6ed33624bb81b4932f6f162c82b5c5fc27bd7675249",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "Header change requires official Debug full and typed SQL/flush/transaction/ANALYZE/old-provider/affected tests. Float catalog bounds remain unknown; vector and ANN not admitted."
+        },
+        {
+          "commit": "8c757505e0198db83e9be01dbb9951f73b281493",
+          "status": "implemented_unverified",
+          "description": "Use the shared scalar registry for parameterized inline option admission",
+          "diff_sha256": "f0868c017796879f2f536afbe4ee53f68b6e9e722c2d9ff12ec73cbb0c58bd64",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "ff98 official Debug full132 passed. Actual native float SQL stopped at set_option because that independent SQL whitelist still had four types; original failure preserved and exact owned roles cleaned separately after harness cleanup signature repair. CPP-only correction derives allowed names from the registry and rejects NULL type metadata; requires official incremental and repeated native float/option regression."
+        },
+        {
+          "commit": "353d13ad11e8683579a4b061877d7dd52071f7e9",
+          "status": "implemented_unverified",
+          "description": "Expose optional LIST element field IDs without breaking legacy footer consumers",
+          "diff_sha256": "38345140663b9896d61062bcffac89e347e3eceb05663d5767db176b7a2c4fb9",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "Isolated provider 9daba30 passed52 named assertions and485456 C checks, including the old64-byte prefix. Native struct guards changed and require official full build. No native vector, ANN or commercial qualification."
+        },
+        {
+          "commit": "2e01c41b6b0720fe9ce34feda32ab699a066e231",
+          "status": "implemented_unverified",
+          "description": "Read standard LIST float32 with explicit native vector dimensions and TEXT inline decoding",
+          "diff_sha256": "0169715bfc87bca9d3687a633124afe2f2a53b2238c91f301d7101f050bb51a9",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "Source candidate only: native full and genuine reference file/inline/error-path SQL tests pending. Vector writes/CREATE/flush remain explicitly rejected. No ANN/DiskANN or remote/RAC qualification."
+        },
+        {
+          "commit": "74a33f397843a08dbadc9b7e8f54aade039f20f2",
+          "status": "implemented_unverified",
+          "description": "Prepare native vector CREATE, standard inline text publication and identity-preserving nested flush",
+          "diff_sha256": "5966f81e69474da5376dc65fff55727bcabf736852b09f4c3246ad54f3a54349",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "Read2e01 passed official full134 inputs and6cases183 scoped assertions before integration. This source adds vector varlena accounting, separate root/element definitions and optional ABI4 under original ABI2 candidate lifetime; nested leaf stats remain unknown. Header changes require official full, vector DML/flush and affected regressions. Not ANN/SMP/remote/commercial qualification."
+        },
+        {
+          "commit": "26ad965efe72d9c840351c35df5628f7c0fa8c61",
+          "status": "implemented_unverified",
+          "description": "Describe native vector runtime capability gates without claiming ANN",
+          "diff_sha256": "f57b4f261861d304879d0801fc221994bdf8b65b6c6f08354491b31dc58e3679",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "Runtime-binary capability scope and SDK prerequisites are explicit; DiskANN/fusion remain false. Native source only, unverified."
+        },
+        {
+          "commit": "0c8d569d489354ebafde1f4dfb8bb64b3997140b",
+          "status": "implemented_unverified",
+          "description": "Keep unmeasured floating file NaN statistics unknown during flush",
+          "diff_sha256": "360dc098ba68babc8d5c7cce480c805799ba97d971857626bbf7414c359a67ae",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "Real2e01 probe native_float_file_nan_gap_2e01_1109_01 fails at assertion42: four file/column entries advertise false rather than unknown; logical wire checks pass and owned cleanup passes. New source must pass the same strict flag plus vector/affected regression. Original negative retained."
+        },
+        {
+          "commit": "31088d7ad0e40ccb84e5e8370ecfe4b8a9788411",
+          "status": "implemented_unverified",
+          "description": "Record scoped vector read qualification and pending vector write/statistic boundaries",
+          "diff_sha256": "8a07efc84410a24cf2ee540f3ca8fe57d3836d004481c1d97223ab8e7229ab2d",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "README only; product semantics unchanged from0c8. Integrated new candidate requires official Debug full; source provenance is not product qualification."
+        },
+        {
+          "commit": "f3eeecb611948cc6c82fcfb03bfa39880139078a",
+          "status": "implemented_unverified",
+          "description": "Include vector declarations after Relation/IndexInfo/fmgr backend declarations in CREATE adapters",
+          "diff_sha256": "0426f08c5aa2a0414e97dc65edd20bdd99055749ac41618da86f8d863753da3f",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "31088 official clean full failed compiling lake_business_create.cpp because vector.h preceded its backend type dependencies. Only two CPP include positions change; header bytes/ABI are unchanged. Preserve failed full and use official incremental continuation of that clean build, then complete native write and statistic acceptance."
+        },
+        {
+          "commit": "acb48452cf401f1426120147dadcb14b0d85a986",
+          "status": "implemented_unverified",
+          "description": "Check cancellation between native DiskANN graph-link nodes in serial and parallel builders",
+          "diff_sha256": "1a9e36e1863ac990245edda69f18fa7c126f7fda71e6ece88af3b390cb614391",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "Same-build f3 isolated2048 expression build exceeded both5s SQL and30s wall time, fast stop failed and owned immediate cleanup succeeded. Child GDB confirms serial graph-link work and source has no interrupt checks in either node loop. CPP-only6-line change, no algorithm/format/header/ABI change. Official incremental and actual57014 cancellation/rollback/connection reuse plus existing64-row native probes required; not lake ANN/PQ qualification."
+        },
+        {
+          "commit": "81885500e0da5bf5eab8b47601c1fd37e27226d2",
+          "status": "implemented_unverified",
+          "description": "Opt-in native DiskANN inline lake index definition/build/read/planner adapter with retained visibility and exact uncovered inputs",
+          "diff_sha256": "d5df8e8f00821f1c52c7ce1de45ba69266480180b3bee9f99f7ff048b0750652",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "Source candidate only. enable_lake_ann defaults off, non-PQ heap inline only; fixed builtin expression/AM trust, definition permission, retained native+lake visibility, bounded candidate version dedup, original SQL distance sort, full files/private after-images. Simple ascending vector ORDER BY Const/Param with bounded constant LIMIT and explicit non-null (positive norm for cosine); unsupported shapes remain full scan. Headers/session layout changed: official Debug full required. Separate same-build ann-debug runtime must be deployed from exact compiled receipt; never edit original main pg_am. No file ANN/PQ/Ustore/parallel/commercial qualification."
+        },
+        {
+          "commit": "fad65ccb53c35eb36d61d779497415ff539efa5e",
+          "status": "implemented_unverified",
+          "description": "Conservative inline ANN source horizon after carrier lock and exception-safe rescan query ownership",
+          "diff_sha256": "0dc20f7a51c4d2413448f4c43ff35daacb2be57974ae350de18cb67b8975b02d",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "CPP-only continuation after original818 clean full compilation error. Session/header ABI remains identical to the clean build. Original failure retained; official incremental, same-build deployment and actual lake ANN/DML/flush/snapshot/error qualification required."
+        },
+        {
+          "commit": "96a68ed6dfd925f70e992b0bff940bdac35bc1e7",
+          "status": "implemented_unverified",
+          "description": "Restrict first inline ANN path to one direct relation and exclude all joins and CTEs",
+          "diff_sha256": "5a0c17305b19c98c737d9d1881d5141d50d27e1b778fc2014e046eed25eef9c5",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "CPP-only continuation after original818 clean full compilation error. Session/header ABI remains identical to the clean build. Original failure retained; official incremental, same-build deployment and actual lake ANN/DML/flush/snapshot/error qualification required."
+        },
+        {
+          "commit": "a8ba2c71263c0ea0c8e233f241335603cdf86179",
+          "status": "implemented_unverified",
+          "description": "Include the existing native inline physical page estimate declaration",
+          "diff_sha256": "2c8a4a038d4e48590a86750ecd64382691fb351e653a095bb13def7a99663a9f",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "CPP-only continuation after original818 clean full compilation error. Session/header ABI remains identical to the clean build. Original failure retained; official incremental, same-build deployment and actual lake ANN/DML/flush/snapshot/error qualification required."
+        },
+        {
+          "commit": "00b7562175ca6efd5bf80e1a6f25dcddc4a2e67c",
+          "status": "implemented_unverified",
+          "description": "Reuse native ordered candidate batches to bound normalized query lifetime and stop exhausted beams",
+          "diff_sha256": "471c018a1e759ff82477c9189450fea63862624af1f18ef75f1f2be489ea1c8d",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "CPP-only. a8 actual L2/IP lake ANN each64 passed and independently reviewed. Original cosine hit native GetVector empty-page assertion after InsertTuple rejected zero norm but its invalid block was enqueued; isolated runtime recovered66 committed rows and aborted index absent, exact owned DB/role cleanup separate. New source requires official incremental, native all-zero cosine and lake L2/IP/cosine tests, then broader error/shape qualification; not PQ/fileANN/parallel/commercial."
+        },
+        {
+          "commit": "010755c57076585ed4883bf00e0837e370ae0d3e",
+          "status": "implemented_unverified",
+          "description": "Exclude InvalidBlockNumber returned for zero-norm cosine vectors before either native graph node list or indexed tuple count",
+          "diff_sha256": "70b58f7dbf13f66b9c035a20a6af58163caa423794db2a25261c61fbdcf44186",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "CPP-only. a8 actual L2/IP lake ANN each64 passed and independently reviewed. Original cosine hit native GetVector empty-page assertion after InsertTuple rejected zero norm but its invalid block was enqueued; isolated runtime recovered66 committed rows and aborted index absent, exact owned DB/role cleanup separate. New source requires official incremental, native all-zero cosine and lake L2/IP/cosine tests, then broader error/shape qualification; not PQ/fileANN/parallel/commercial."
+        },
+        {
+          "commit": "206052d1516b92daef37b467c6ed3ae0e6949893",
+          "status": "implemented_unverified",
+          "description": "Native DiskANN insertion skips SQL NULL before detoast and skips rejected cosine zero values before seeding/linking",
+          "diff_sha256": "bfa684f5b40139cc95ef6e9d1ee931aa052a980960095179cc703947605892ae",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "CPP-only.010 official build139 and lake L2/IP/cosine3/192 passed and reviewed; native all-zero cosine build passes4. Extended actual010 probe then rejects legal NULL INSERT with NULL input for detoast datum; original failed result retained with normal owned shutdown. Peer HNSW/IVF already skip NULL; this patch matches them and does not seed/link an InvalidBlockNumber for zero cosine. Requires actual NULL/zero/first-nonzero insertion and lake DML/flush/error qualification; no fileANN/PQ/parallel/commercial claim."
+        },
+        {
+          "commit": "45e7ab3508e683b79ee7a64b84760447c68f35a3",
+          "status": "implemented_unverified",
+          "description": "Portable non-PQ graph records over optional BINARY Parquet and one shared native DiskANN frontier, with file candidate search entry",
+          "diff_sha256": "ce4bcc556ee821b638d8fc60e9d0ff28ac8652a912695cf49a620d8dbe6e2e6a",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "Prior206 actual heap-inline ANN6/372 plus affected10/304 strictly reviewed. Isolated SDK BINARY3/64 and graph-format33/5085 checks reviewed; original SQL-type test and empty cancellation failure preserved. New native shared frontier/file search code not compiled or exercised yet; headers/objects require official Debug full. No file graph build/export, READY publication, lake file query, PQ, fusion, SMP or commercial claim. SDK9d remains installed; component SDK5ae is separate."
+        },
+        {
+          "commit": "1d2475b129419687e3ae35d567ec14afa71a89f0",
+          "status": "implemented_unverified",
+          "description": "Native private-heap DiskANN build/export with original physical/logical/version addresses, complete input coverage and conditional immutable READY publication",
+          "diff_sha256": "fee503dc514fc357999cada557a6303329dc95e4e08ae92129da56cf09e875ed",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "45e scoped11/604 and ordinary5/50 retained. Scratch metadata inspector33/5093 standalone checks reviewed. New builder/export/physical visitor/publication is source-only; official Debug full and real native publication/rollback/cancel/repair cases required. File query activation, PQ, fusion and commercial gates remain incomplete. SDK5ae full standalone qualification passed, controlled native install pending."
+        },
+        {
+          "commit": "4f085374858e36f382b3e3eb103c0c26f13298ec",
+          "status": "implemented_unverified",
+          "description": "Match native PageInit MAXALIGN special-space reservation when exporting DiskANN pages",
+          "diff_sha256": "9d04c428822bf13d436cdcde08903cce8ef854cb2b6b708475a1cfb59a3eb88e",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "1d247 official Debug full152 inputs passed, but first real file build fails with invalid native ANN export page. Native PageInit explicitly aligns sizeof(DiskAnnPageOpaqueData) from12 to16; exporter wrongly compared raw12. Original failed receipt and exact DB/role cleanup retained. CPP-only correction requires official incremental and real graph publication rerun; no runtime pass claim. SDK5ae installed, ann-debug stopped before shared-prefix build."
+        },
+        {
+          "commit": "c35922b09197ccdf91350a9b49926633011d4914",
+          "status": "implemented_unverified",
+          "description": "Initialize required OgLakeAnnSpec output size before graph metadata inspection",
+          "diff_sha256": "a997da574ebfb8b5bd7cf2ed0dfb382b61e17797293adafb26c9594c6b091d57",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "4f085 official incremental152 passed. 60s L2 test completed genuine native build, full physical address/vector/topology checks, then failed19th idempotence assertion because inspect output struct_size was zero; strict component correctly rejects it.15s budget timeout and debugger failures retained separately. Owned isolated ann-debug recovered6f44;167 visible wire rows and170 physical versions exact, uncommitted graph0; failed diagnostic DB/roles exactly cleaned. Ann-debug stopped before this CPP-only build. No graph query/PQ/fusion or commercial claim."
+        },
+        {
+          "commit": "1ca490687dd1d120024d19c05d153e43fd23f571",
+          "status": "implemented_unverified",
+          "description": "File DiskANN candidate selection with immutable coverage/source validation, authoritative address preflight, selected row-group fetch and native original-vector global rerank; conservative full source fallback for deleted/future/private versions",
+          "diff_sha256": "65483876b48c7eba7216caf3f1bdbd420a453f25736403bc69c1317ba81b82b8",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "c359 real file build/publication8/220 plus inlineANN6/372 and vector data4/129 =18/721 strictly reviewed with exact source/bin/provider/artifacts/cleanup. New query adapters are uncompiled; changed native headers require official Debug full. Includes file-only or Ustore-inline/full fallback, NULL/zero/GUC-off rescan, unavailable/bad-derived per-file fallback before row output and explicit metadata status. Schema hash now also binds vector child field ID, so older coverage falls back until rebuild. Candidate budget and existing shared frontier retained; cost intentionally conservative and uncalibrated. Dedicated actual FDW file query test prepared. No PQ/fusion/SMP/large-scale/performance/commercial claim. Ann-debug stopped before shared prefix build."
+        },
+        {
+          "commit": "18826322f0d3b741a646a2fcd1f274ecd19717c9",
+          "status": "implemented_unverified",
+          "description": "Use the native double vector_norm for cosine eligibility, gate old adapter artifacts as version2, and carry SQL K through a validated FDW private plan to unique-position completeness fallback",
+          "diff_sha256": "c5ece1aa5ce06e0935617642b9d15c7f5bdc7bc61b5e3d7bd63494faf269f696",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "1ca official full152/79fe passed. First actual L2 FDW case matches values but fails activation (file coverage0); all failures/cleanup retained. Real cosine precision case proves native SQL norm accepts3 tiny nonzero vectors while exported graph has0 addresses. New code uses original vector_norm, adapter algorithm_version2/contextv2 makes older graphs full-fallback until rebuild. Replaces node-count sufficiency with explicit SQL K and unique physical candidate rows; frozen/duplicate graph vertices are not business-row counts. Plan private version6 validates scalar6 vs ANN7 fields; internal signatures changed, official Debug full required. DEBUG1 diagnostics expose bounded fallback counts only. No new query/precision/K boundary/PQ/fusion/SMP/performance/commercial pass claim."
+        },
+        {
+          "commit": "cfe2b404fbd2efd16302f65eb3c5f5ef90164142",
+          "status": "implemented_unverified",
+          "description": "Keep native file DiskANN publication with complete Ustore carrier input, and expose supported zero inline limit through transactional public configuration",
+          "diff_sha256": "a3b75b5a96ba1846ea3c0ecca839ebd9f31a7d43d8aeb63d644663875cc2b020",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "188 official full152/56562a15+SDK5ae passed; actual3metric file query plus tiny nonzero vector4/177 strictly reviewed. New Ustore real negative fails native inline ANN after file build; file-only public option0 is rejected despite direct file DML existing. Both original failures and exact cleanup retained, initial regnamespace test-script failure separately retained. New CPP-only changes uncompiled; no Ustore native DiskANN support claim. Ustore rows continue complete TableAM scanning; file graphs use private astore staging. Zero limit only with existing file DML ABI. Commercial/recall/PQ/fusion/SMP remain incomplete. Ann-debug stopped before shared-prefix official incremental."
+        },
+        {
+          "commit": "441057733267d3770c69ff2d67868ec61a504bb3",
+          "status": "implemented_unverified",
+          "description": "Restore zero inline limit rejection: flush file writer exists but direct INSERT/UPDATE Parquet publication does not",
+          "diff_sha256": "6cc958f471224c13155193525938daa7dfb29241442f55ebce936ea3b1aa2e33",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "cfe official incremental152/11e9b417 passed, Ustore mixed L2 actual query64 checks strictly reviewed, scalar/options5/171 reviewed. New publiczero configuration accepts0 but first direct data INSERT correctly refuses unsupported publication before data loss. This disproves assumed direct-DML availability: restore original configuration gate; preserve all failures and evidence. File-only ANN read will use genuine external DuckLake Parquet/catalog plus native binding and positive-inline after-image policy, not forged catalog or disabled guard. cfe Ustore file backend fix retained. No direct-file DML/PQ/fusion/scale/commercial claim. Ann-debug stopped before CPP-only official incremental."
+        },
+        {
+          "commit": "b0f0dbb523e75be39e5c10d80d4a3d1f659f7a7b",
+          "status": "implemented_unverified",
+          "description": "Reuse native float_ops B-tree/UB-tree and existing Parquet scalar pages with signed IEEE float4/float8 ordered keys and codec adapter2",
+          "diff_sha256": "b80502fea5afda71d2a4ceaa416fa4c86da9abb6dc55677f5b7eb1082085b23c",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "Prior441 official152/4303f7a6 SDK5ae passed.17 cases1135 actual index/affected assertions strictly reviewed including3x2048 row truncated file ANN and15 deterministic pre-update Top10 samples recall1; no general recall/PQ/fusion/SMP/perf claim. New candidate header separately compiled into an ABI/export-gated test-only module and31 native IEEE/order/operator/cross-float checks strictly reviewed,1052 bit samples/type; no product float index qualification yet. FLOAT4 widens exactly, NaNs/zeros/infinities follow native total order, cross FLOAT8 arguments never narrow. Licensed pinned DuckDB radix provenance, ordered int64 storage in format1, FLOAT adapter2/integer1 checked at runtime. Public SDK/DuckLake/SQL0.16 layouts unchanged. New private header requires official Debug full. Heap/Ustore/independent decoded-key ordering, IEEE boundary/array/generic/visibility/codec fallback and integer/ANN affected tests prepared. Ann-debug stopped before shared-prefix full."
+        },
+        {
+          "commit": "490b5319bca362c329ca315bd4e14311c05888ba",
+          "status": "implemented_unverified",
+          "description": "Include the real floating scalar helpers before file build projection checks",
+          "diff_sha256": "0ca33d2b234d6ea23eeb26a88a5b4e80cefc63358cda8fc711f721a10eb69a1e",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "b0f clean Debug full failed because lake_file_reader.cpp uses LakeScalarIndexedType but its include insertion pattern missed this CPP. Original compiler failure retained; no installed new binary or float integration qualification. This CPP-only include correction preserves all helper/native headers and requires official incremental continuation of the failed full, not a source/header bypass.17/1135 qualified tests retain441 identity;31 IEEE comparison component retains candidate-header/test-only scope."
+        },
+        {
+          "commit": "5bd09594098868e19bc378a633675e9ad8a2e466",
+          "status": "implemented_unverified",
+          "description": "Native scalar-position masks constrain file DiskANN results while rejected graph vertices remain navigable; native scalar projection and complete fallback",
+          "diff_sha256": "9539516c6402ade545154ab08a347ee56ecc7417e2bc3e6dd0ccb3adcf61193f",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "Prior490 official154 unchanged inputs and current17/844 strict review on two separately owned local RC Debug runtimes binary147d/provider5ae. Actual490 negative with id>=1 reports file ANN coverage0 while exact results and owned cleanup hold; new route is source-only. Query-local Bitmapset over one builtin numeric comparison/NULL test uses original source column, not persistent bitmap or PQ. Existing native graph traversal unchanged; file source/version/address/native SQL rechecks, insufficient matching K and bounded navigation full fallback; filtered inline/private/deleted/future sources remain exact. Plan-private7 re-evaluates scalar/vector parameters on rescan. Native header signatures changed, official full and actual masked three-metric/bridge/parameter/visibility/error/affected regression required. No SMP/RAC/performance/commercial claim."
+        }
+      ],
+      "local_patches": [
+        {
+          "commit": "11da9d7f56bf174081516de1f9412642fca2f976",
+          "status": "implemented_unverified",
+          "description": "Initial native lake host integration; build/test evidence maintained by root.",
+          "diff_sha256": "c610b20aa055b2efc4d830b79de3af3d28479b4108a7929233a97a6b526eae3e"
+        },
+        {
+          "commit": "e03a84ce0c998ef7c5ff8173e8cb9801e9847f41",
+          "status": "implemented_unverified",
+          "description": "fix(lake): allocate host state in writable session storage context",
+          "diff_sha256": "0cd47deba803c5fce776d7aaeac08d9de750c5db8ab0b89d712fefa0de4dc95b",
+          "diff_command": "git diff --binary COMMIT^ COMMIT"
+        },
+        {
+          "commit": "35fda822e13bded8655611ddde0182c31ae5e07e",
+          "status": "implemented_unverified",
+          "description": "feat(lake): integrate read-only native inline prototype",
+          "diff_sha256": "1a6c281b2421a32329506aa1bfe1603a5e4d01fc5ddd2de6f97a145907cc19eb",
+          "diff_command": "git diff --binary COMMIT^ COMMIT"
+        },
+        {
+          "commit": "d04dacb50f09a629763bd6ab7dc142c6ac4b2d41",
+          "status": "implemented_unverified",
+          "description": "fix(lake): accept canonical types and guard unsupported DDL; d04 local read-only inline/host/lifecycle evidence is scoped in root-run receipts, not a whole-product qualification.",
+          "diff_sha256": "c8ec2dc0b0fb7b08e01cf6263d6a9615b93359e50ba22db120e698a55aa1b093",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "Root reports d04 scoped inline/host/profile/BOOT tests passed; product-baseline promotion remains separate and is not performed by this reference lock update."
+        },
+        {
+          "commit": "fec3486a76abdd77d4543d70e2031e945415d3fd",
+          "status": "implemented_unverified",
+          "description": "feat(lake): implement transactional native inline INSERT prototype",
+          "diff_sha256": "679175e07a9bbff7cd89db2e66c45975a35a63444dd0a2425465dabac1d232cc",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "N3 product compilation and actual INSERT/interread tests pending; recording source identity does not promote product baseline."
+        },
+        {
+          "commit": "da03fcacd4204f279164f4981ea37739f351f0f4",
+          "status": "implemented_unverified",
+          "description": "fix(lake): use native extension catalog lookup and correct SPI null flags",
+          "diff_sha256": "a939620e2ba7ff9ba5d4a504247cfe8b8ae14ae22ddb9b1bd5f0093aa417cf11",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "Fixes observed N3 full_01 compilation failures. Root verified lake module object compilation in full_02; full linking/install and actual INSERT tests are pending."
+        },
+        {
+          "commit": "8365eecf99a9f9b7623cb6920a2e13663e9829ff",
+          "status": "implemented_unverified",
+          "description": "fix: preserve valid commit parent states after internal rollback",
+          "diff_sha256": "6b706619f621acc6a9a26285acc4335d0c885426868aca0bc232c2ddbffe2c2f",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "Root observed da03 N3 concurrent COMMIT assertion failure at xact.cpp:5934. This change admits the END/PREPARE parent states already accepted by BeginInternalSubTransaction and asserts TRANS_INPROGRESS; incremental build and repaired concurrency validation are pending. Prior da03 commands/callback/savepoint successes are partial evidence, not whole N3 qualification."
+        },
+        {
+          "commit": "a5d97996a56dff7dbb8755be0fe820d881408601",
+          "status": "implemented_unverified",
+          "description": "feat(lake): implement native inline update and delete prototype",
+          "diff_sha256": "2f9c8933e3872cc5c5ce2557878d83f46e29df6ceecc04ae6724d1fd6b194ecf",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "N4 product source committed; full build is currently running and native UPDATE/DELETE acceptance has not run. Separate actual fixed-reference four-group net-change experiment confirms the intended reference contract only; it is not native product validation. Production baseline remains unchanged."
+        },
+        {
+          "commit": "572e04851e6e99f1b4501a5011632a8fd4d82139",
+          "status": "implemented_unverified",
+          "description": "fix(lake): traverse native nested DML targets and add locator diagnostics",
+          "diff_sha256": "1ab63f59a3fe12703c2ef1f26ff519781ce385337c6e683c1e4af13d3353980e",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "N4 a5 full build succeeded, but first actual ABI host ordinary heap UPDATE crashed: PlannedStmt.resultRelations is List<IntList>, not flat. This patch uses two-level traversal and adds locator codec diagnostics. Official incremental build is running; repaired dynamic behavior has not been validated. Recording reference provenance is not product qualification."
+        },
+        {
+          "commit": "cc5896e13d07551e85e86afd6e75b3082c679fae",
+          "status": "implemented_unverified",
+          "description": "fix(lake): reject lake modifying CTEs under select and insert parents",
+          "diff_sha256": "0a51e9a333df23c648737d344330da1d6ccb91ce11bdf7577fed9e529698a63e",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "Root completed ten actual CTE reproduction shapes on 572e04. This minimal guard change rejects lake modifying CTEs beneath SELECT and INSERT parents; official incremental build is running and repaired dynamic acceptance is pending. This provenance update does not promote a whole-product baseline or claim statistics-gap resolution."
+        },
+        {
+          "commit": "713ac533a3de79f78c20dbfba830058982176bba",
+          "status": "implemented_unverified",
+          "description": "fix(lake): recover bounds only after proving predecessor inline values are all NULL",
+          "diff_sha256": "a20fe5bef456bc9bc902b04c18407a05036cca9eab7f5e6bc244e9474eba6f74",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "Old cc5896 actual reference differential reproduced ALL_NULL commit1 missing bounds and UNKNOWN_BOUNDS commit3 missing recovery; UNKNOWN_BOUNDS commit1/2 matched reference. This patch checks the committed predecessor including rows ended by this commit and excluding its new rows. Official incremental build and repaired runtime statistics acceptance are pending; pinning source is not a product qualification."
+        },
+        {
+          "commit": "f5648f3fe0591bbcb3c906028d166c08169cd72e",
+          "status": "implemented_unverified",
+          "description": "Add native lake ordinary-user ACL and private metadata owner scope",
+          "diff_sha256": "2d4713f6c9241d620cf48fc35593ad6aab55bbafb6f9ebe7e8cff1b2b75cf596",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "Native permission 0.5 implementation is committed; official Debug full build is running and real-login/upgrade/negative permission acceptance has not run. Earlier 713 scoped statistics/pool/publication evidence remains historical. This reference provenance refresh does not qualify the product or supply missing Parquet SDK/OGRAC dependencies."
+        },
+        {
+          "commit": "d56130b62e0e0693d6ab42b2b43c264eec977035",
+          "status": "implemented_unverified",
+          "description": "Fix native lake ACL text type shadowing during compilation",
+          "diff_sha256": "075b436073da7849ef094256deb5ecdc15e4ea133f09ad52e6a1be3437e595ca",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "f5648 official full clean/configure build failed compiling LakeCheckExpression because parameter text shadows the PG text typedef used by TextDatumGetCString. Only lake_acl.cpp changed: rename to expectedText and split misleading-indentation statements. Official incremental continuation is running; no 0.5 runtime acceptance has passed."
+        },
+        {
+          "commit": "f434ba4a11eac397e1c94f8feab6008abb07ec0c",
+          "status": "implemented_unverified",
+          "description": "feat(lake): create native DuckLake catalogs in the caller transaction",
+          "diff_sha256": "457fb4eeac416bf3bfc0bd5cc51acbdc490ac283a6ad8057f86eeedc1422a907",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "Native catalog0.6 implementation and registration lock changes are committed; official Debug full is running and real EMPTY initialization/interread, rollback, root overlap/concurrency and owner-lock tests have not run. Prior 0.5 scoped permission and compatibility evidence remains historical. This reference provenance refresh does not qualify the product, promote a product baseline, or supply missing Parquet SDK/OGRAC dependencies."
+        },
+        {
+          "commit": "d25228f2625e1a7a68aa867b7abbe02340700d6f",
+          "status": "implemented_unverified",
+          "description": "feat(lake): add native inline analyze and planner statistics",
+          "diff_sha256": "ffa6fcb916b81034c4bd48fed29b5eea033fdd3e4932fcede7225e1ccc981514",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "Native explicit pure-inline ANALYZE/shared reader and planner statistics implementation is committed; official full build is running and new producer/cost/Ustore/empty-table runtime acceptance has not run. The separate catalog06_f434_acceptance_index.json records the prior catalog slice only. Refreshing the exact standalone reference does not qualify this product change or provide missing Parquet SDK/OGRAC dependencies."
+        },
+        {
+          "commit": "93fb65c12af4a1bc99c07eb98faf3d83221d6cc9",
+          "status": "implemented_unverified",
+          "description": "fix(lake): initialize empty inline tables and align analyze diagnostics",
+          "diff_sha256": "8b4e3cc74bf725f65aff4c6a0cb4190aa6825b27cf3e9aa270e6d5f3b6a8fb58",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "Fixes actual d252 first INSERT into a genuine never-written empty inline table, physical page-count sentinel handling and the test-only next-top-level-ANALYZE pause lifecycle. The native host ANALYZE transaction guard is unchanged. Official Debug incremental and repaired native runtime acceptance are pending; exact reference provenance/smoke do not qualify the product, supply the missing Parquet SDK/OGRAC, or assert transaction-block ANALYZE support."
+        },
+        {
+          "commit": "2cd0a21aaded7fdc286afc670313c7c5bd865a91",
+          "status": "implemented_unverified",
+          "description": "Native transactional business CREATE with LOCAL object identity, locator V2, winner-only standard definition publication and temporary carrier dependency detachment.",
+          "diff_sha256": "46bee98cd68a47563475efca3730b776216a61f60ce2fa62b655d8090ff6936c",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "Parent dirty-source official full and cpp-only repair builds passed; seven scoped cases passed 353 assertions. Committed-head fresh build/reference receipts and current-source regression pending; not full DDL/SDK/flush/RAC qualification."
+        },
+        {
+          "commit": "673d9dd47652bff9c3769e7832bf489f60f1804e",
+          "status": "implemented_unverified",
+          "description": "Add isolated Apache Arrow20 local Parquet C ABI read/write provider; no native file integration in this commit",
+          "diff_sha256": "25735ad0d7e19bd67c5e3ef23ae8c41c017c256b29d319cf5bceddf0a465bfbf",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "Standalone scoped C11 real file, pinned DuckDB differential, write/fsync/close failure, actual DuckLake hidden-field and relocatable-prefix tests passed under native_sdk_local_20261107_01. This commit does not link the provider into the backend or qualify native file scans, flush, private SDK, RAC or commercial gates. Native 0.8 integration is a later uncommitted candidate."
+        },
+        {
+          "commit": "0c02240af85239fbc5e9d59cb216b3d014ade22f",
+          "status": "implemented_unverified",
+          "description": "Native0.8 bounded local Parquet directory selection/materialization/C ABI ownership, retained SQL gates, honest runtime created_by and sealed provider linking",
+          "diff_sha256": "4a23e30942213a25b591dcedb8004cae19679b33bb3f22b0d013d039759e3c95",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "Initial dirty-source full and interrupt-repair builds passed; 12 native local-file cases /159 assertions passed before the created_by fix and sealed provider. Compatibility exposed the outdated creation tag; fix built, final committed-source build and full affected acceptance are pending. Sealed standalone provider separately passed local real-file/fault/relocation tests. Not full SDK/N2/file DML/flush/private SDK/RAC/commercial qualification."
+        },
+        {
+          "commit": "af47c5b6731c4ccc156230d65cccbbefb8e0b023",
+          "status": "implemented_unverified",
+          "description": "Reject standard inline file-position deletion inputs until native delete visibility is implemented",
+          "diff_sha256": "babc5d0bd8c9fdcb38aa2304a6817462a626379e6b06598b442feba9b44b412e",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "Two genuine reference UPDATE/DELETE fixtures reproduced stale native rows on0c022. This adds a fixed-snapshot capability rejection through the trusted metadata SPI path; official build and rejection/affected regression are pending. Full file deletion/flush and commercial gates remain incomplete."
+        },
+        {
+          "commit": "d1658e50a453faa5d1889dff36670d5b27f02cf7",
+          "status": "implemented_unverified",
+          "description": "SQL0.9 bounded local explicit row IDs, birth snapshots and inline/Parquet position deletion visibility",
+          "diff_sha256": "8405d11e05363038716558ed3529d8cc4517c1eb2412f5c859c966f38d70b3dd",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "New candidate source only. Official full rebuild required by changed native headers; native visibility acceptance pending. SQL0.8 rejection remains; no Puffin, file DML/flush, SMP, remote or RAC qualification."
+        },
+        {
+          "commit": "2c4f10732189110f5dae0de77553e3fddb2e78ba",
+          "status": "implemented_unverified",
+          "description": "Always validate actual deletion footer even when catalog delete_count is zero",
+          "diff_sha256": "b6e06f9add11b9cc3798c7e7639a523475e6e4d4fe38e1de34656d263f94d863",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "Static review found d165 could skip a corrupt actual delete file when catalog count is zero. After official d165 full, this cpp-only change preserves native header ABI and fixes that branch before native0.9 acceptance. Zero-count corruption regression required; full deletion/flush/commercial gates remain incomplete."
+        },
+        {
+          "commit": "e7c124c431d2cc4012779d7753906331695367b6",
+          "status": "implemented_unverified",
+          "description": "SQL0.10 file-origin DML with private row versions and standard inline file-position deletes",
+          "diff_sha256": "d5e5b0a3cc7c4765047f9245520ce38608c80dd513e3cd22c071e119f0b62eb8",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "New candidate source only. Private scan hides precede Datum copies; claimed publication uses attempt-local carrier creation and standard changesets. Effective positive inline limit required; direct file-write batches/Puffin/flush/remote/RAC remain unavailable. Header changes require official full and real DML/rollback/reference interread acceptance; no product promotion."
+        },
+        {
+          "commit": "a2e23b1887af9033a5bf2f0b7c39af7563ccf323",
+          "status": "implemented_unverified",
+          "description": "Include shared module version header in lake_catalog.cpp",
+          "diff_sha256": "cf52d8f7820066ee46caca030f09c31072b2d7a78299673242bfdeab34e2ecea",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "Official e7c full compilation failed at lake_catalog.cpp:767 because OG_LAKE_MODULE_VERSION was not declared. CPP-only include repair; official incremental continuation and actual SQL0.10 tests pending. Prior full failure evidence retained."
+        },
+        {
+          "commit": "bc315064683f4be9718893d8f5457218785d4cdf",
+          "status": "implemented_unverified",
+          "description": "Conservatively preserve unknown global bounds when predecessor includes file data",
+          "diff_sha256": "6f2b69afb0ea03aa3085a8ed1a7380197bacfed778e4cd1378bc8c23760ef535",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "Actual a2e SQL0.10 file UPDATE tests reproduced global unknown bounds narrowed incorrectly to 7/7, including surviving file value 0. Keep unknown bounds when files remain; avoid file I/O under snapshot publication lock. Original failure evidence retained. Official CPP incremental and runtime repair acceptance pending."
+        },
+        {
+          "commit": "19be9678dcf5800f44f3550c8ced74fb2e2fd35f",
+          "status": "implemented_unverified",
+          "description": "Native Arrow write buffers and optional ABI1 serialized-footer metadata for upcoming flush",
+          "diff_sha256": "19f3220ec9312e21a0b029b45b3baf8ec7d822761b31eb4721916f0998ca8510",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "Prior committed bc315 SQL0.10 baseline66/2466 passed and strict evidence retained. Separate actual heap/Ustore converter prototypes38/39 and experimental footer6-file/old C11 reader+writer checks support preparation only. Native integrated source adds pre-detoast budget checks and optional-prefix read compatibility; official full build/runtime/component acceptance pending. No product flush entry, catalog publication or remote/RAC qualification."
+        },
+        {
+          "commit": "815fde00cc8d780cb3352deae4bcc2858fcf5206",
+          "status": "implemented_unverified",
+          "description": "Optional lifecycle ABI2 finished-candidate abort and native post-lock transaction/savepoint resolution",
+          "diff_sha256": "866118262624dfa882d6621b214feefb7be24f5588edafc9c2d87d321a5ab147",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "19be full and affected9/360 plus actual Arrow heap/Ustore39/39 passed separately. Actual experimental SDK abort retained finished files incorrectly before retained/inode-anchor repair; original failure preserved. New committed lifecycle source has standalone IO/ABI compatibility evidence; official full running and actual native transactions pending. No complete flush entry/publication, crash GC or remote/RAC qualification."
+        },
+        {
+          "commit": "1e07bb4323211d4249e21707f91df3958587df85",
+          "status": "implemented_unverified",
+          "description": "SQL0.11 bounded inline historical-data flush with standard explicit identities/deletes and atomic metadata/inline publication",
+          "diff_sha256": "a8ea7cfb47991b0a7e0210d7b92cf7738e9cda57082f6b6ab3c1552e26845fc7",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "Prior815fde full, actual candidate37 and old-provider9 plus affected15/565 passed separately. New bounded administrator local flush source unbuilt:262144 versions, one data+optional historical-delete file; existing file-delete carriers retained. Requires official full and actual end-to-end/concurrency/history/failure verification. No complete N5, multi-output flush, crash orphan GC, remote or RAC qualification."
+        },
+        {
+          "commit": "bec119633addb1a9feb2b896087b5d4b089798df",
+          "status": "implemented_unverified",
+          "description": "Reclaim every failed inline flush preparation context, including early construction/OOM errors, before savepoint retry",
+          "diff_sha256": "57aeee8bc6dedafd6890871979f0864b3d861c9759954c564a461cb63b187cd2",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "Actual1e07 normal bounded flush9/360, legacy66/2466 and self-contained post-inline-delete cancellation21 passed. A new identical-input negative test measured transaction context630784 ->811576 ->992368 ->1173160 ->1353952 after four oversized-row flush failures and savepoint rollbacks. Context ownership repair is CPP-only; official incremental running and exact memory/rerun acceptance pending. Original negative and invalidated external-intervention test kept. No complete N5/GC/RAC or commercial qualification."
+        },
+        {
+          "commit": "81de4f2433b01903ced81cb2838dd091dc8f2a3e",
+          "status": "implemented_unverified",
+          "description": "Bounded standard inline file-position deletion flush with shared exact decoder and atomic metadata retirement",
+          "diff_sha256": "674d211cbf4465b389c22d6efa28845ba31cd665b5bb4eb675aef9eb9a125c37",
+          "diff_command": "git diff --binary COMMIT^ COMMIT",
+          "validation_note": "Priorbec119 actual memory23 stable, bounded flush9/360, post-inline-delete cancel21 and affected15/565 passed with strict evidence. New source merges old Parquet/inline delete positions using earliest original snapshot, writes replacements, schedules old catalog-relative paths for deferred GC and atomically clears inline marks. Existing reader limits and16 candidate outputs remain. Native headers changed: official full running; no fresh native acceptance. Not unbounded flush, physical GC, remote/RAC or commercial qualification."
+        }
+      ],
+      "remote_baseline_availability": "not_verified; local commit is the authoritative baseline"
+    },
+    "ducklake": {
+      "url": "https://github.com/duckdb/ducklake.git",
+      "commit": "0aaa8e10d4adfe2ca37da77134e991d20106d0e7",
+      "path": ".reference/opengauss-native-lake/ducklake",
+      "role": "reference_candidate",
+      "license": {
+        "spdx": "MIT",
+        "file": "LICENSE",
+        "sha256": "a457b2e4e0dafab867e52b8deeaac344681706c5020b91556f69d90dbc973894"
+      },
+      "patches": [],
+      "submodules": {
+        "duckdb": "d54cbbe3df17e8e5ce68312f483b4155836112aa",
+        "extension-ci-tools": "795096d04b009c0d087468439ebb526a5460dfac"
+      }
+    },
+    "duckdb": {
+      "url": "https://github.com/duckdb/duckdb.git",
+      "commit": "d54cbbe3df17e8e5ce68312f483b4155836112aa",
+      "path": ".reference/opengauss-native-lake/ducklake/duckdb",
+      "role": "reference_only",
+      "license": {
+        "spdx": "MIT",
+        "file": "LICENSE",
+        "sha256": "075c33400ffcb0c586dd106a029d3e733e9da3693f8fcb9cebfc651c8a2f14e3"
+      },
+      "patches": []
+    },
+    "extension_ci_tools": {
+      "url": "https://github.com/duckdb/extension-ci-tools.git",
+      "commit": "795096d04b009c0d087468439ebb526a5460dfac",
+      "path": ".reference/opengauss-native-lake/ducklake/extension-ci-tools",
+      "role": "reference_build_tools",
+      "license": {
+        "spdx": null,
+        "file": null,
+        "sha256": null,
+        "status": "No license file or README license declaration found at this commit; reference direct-CMake build does not invoke its scripts."
+      },
+      "patches": []
+    },
+    "pg_ducklake": {
+      "url": "https://github.com/relytcloud/pg_ducklake.git",
+      "commit": "0daf5bbc1020dad4b531b842ad6f82e68287a845",
+      "path": ".reference/opengauss-native-lake/pg_ducklake",
+      "role": "host_integration_reference",
+      "license": {
+        "spdx": "MIT",
+        "file": "LICENSE",
+        "sha256": "6e1cb56ca7b63daeb198070bc064e39896f9a4df3d961a9dc08a883c015b982d"
+      },
+      "patches": [],
+      "submodules": {
+        "pg_ducklake/third_party/ducklake": "93cc490d9b5554f6fd5322dbef23f41d4fa91bb8",
+        "duckdb": "069cc9f9b5be802405797faecc284961b07c70ef"
+      }
+    },
+    "pg_lake": {
+      "url": "https://github.com/Snowflake-Labs/pg_lake.git",
+      "commit": "873f51037f40af5cf8b3b3330e919a835bfd8c71",
+      "path": ".reference/opengauss-native-lake/pg_lake",
+      "role": "capability_reference",
+      "license": {
+        "spdx": "Apache-2.0",
+        "file": "LICENSE",
+        "sha256": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594"
+      },
+      "patches": [],
+      "submodules": {
+        "avro": "2b11dba4fb28c7bb6ff08b40509a6a71fcaf4c21",
+        "duckdb_pglake/duckdb": "069cc9f9b5be802405797faecc284961b07c70ef",
+        "duckdb_pglake/duckdb-postgres": "41223e51559cd581f1c06e170b71c71df25bbaac",
+        "test_common/rest_catalog/polaris": "821d2a2357ba338a32a5e20b9ca3a247ad15ed68"
+      }
+    },
+    "croaring": {
+      "url": "https://github.com/RoaringBitmap/CRoaring.git",
+      "commit": "2e8395f1dbf286d7944a7276195a7c40cbcbfd4a",
+      "path": ".reference/opengauss-native-lake/croaring",
+      "role": "reference_build_dependency",
+      "license": {
+        "spdx": "Apache-2.0 OR MIT",
+        "file": "LICENSE",
+        "sha256": "f8e1f16a3f22e001b44ae9b12625420b9a0c4dbb7ec0e9f83b6a3d38a9525411"
+      },
+      "patches": [],
+      "tag": "v4.7.2"
+    }
+  },
+  "product_baseline": {
+    "opengauss": "ba1e4ad2f99295b1b0f65e3880a05cb75a1121d4",
+    "ducklake": null,
+    "sdk": null,
+    "ograc": null
+  },
+  "sdk": null,
+  "ograc": null,
+  "unresolved_dependencies": [
+    "DEP-02: private Parquet SDK not supplied",
+    "DEP-03: target OGRAC source and contracts not supplied"
+  ],
+  "reference_build": {
+    "compiler": "/usr/bin/c++",
+    "c_compiler": "/usr/bin/cc",
+    "compiler_version": "c++ (GCC) 10.3.1",
+    "cmake_version": "cmake version 3.22.0",
+    "generator": "Ninja",
+    "build_type": "Release",
+    "optimization": "-O1 -DNDEBUG",
+    "jobs_limit": 3,
+    "jobs_default": 1,
+    "ducklake_version": "1.1",
+    "automatic_migration": false,
+    "disable_extensions_for_test": true,
+    "script_sha256": "43f10b1bdb5ceaf3d0ed4c2bab891ff8112008d9fc9565ded47577035bb62906",
+    "optimization_note": "DuckDB appends -O3; CXX_EXTRA repeats the intended -O1 after the upstream flags.",
+    "croaring_compilers": {
+      "c": "/usr/bin/cc",
+      "cxx": "/usr/bin/c++"
+    },
+    "build_subdir": "build/duckdb-gcc10",
+    "compiler_note": "GCC 10.3.1 accepts pinned source C++17 constexpr integer-mask conditions unchanged. Clang 12 failed its narrowing diagnostic; no source patch or disabled diagnostic is used.",
+    "architecture_profile": "NONE",
+    "architecture_note": "Use upstream NONE profile (portable baseline); GCC 10.3.1 does not recognize the newer x86-64-v3 -march spelling. Reference correctness build, not performance evidence.",
+    "jobs_limit_note": "Parent authorized at most 3 jobs after OG full build completed; retain existing GCC build objects. Reduce concurrency if memory available approaches 1.5GiB.",
+    "fixture_profiles": [
+      "F",
+      "I",
+      "N",
+      "HISTORY",
+      "TYPED",
+      "INLINE_HISTORY",
+      "SCHEMA",
+      "LONG_TEXT",
+      "ALL_NULL",
+      "UNKNOWN_BOUNDS",
+      "USTORE_STREAM",
+      "EMPTY_TABLE",
+      "EMPTY_NO_INLINE",
+      "ANALYZE_DISTRIBUTION"
+    ],
+    "empty_profile_contract": "N is empty after legal committed INSERT then DELETE; pinned reference retains record_count=1 and next_row_id=1. Live expected rows are empty; no catalog row fabrication.",
+    "long_text_profile_contract": "Legal reference INSERT of three TYPED-schema rows: note in row 1 is 512 deterministic SHA256 hex blocks each suffixed with 湖 (34304 UTF-8 bytes, 33280 characters); row 2 NULL, row 3 empty. Actual host TOAST coverage requires separate OG test evidence.",
+    "all_null_profile_contract": "Normal format-1.1 CREATE plus committed three-row INSERT; id=1,2,3 and val/flag/bigval/note all NULL. Actual record_count=3, next_row_id=3 and NULL bounds are observed, never manufactured.",
+    "unknown_bounds_profile_contract": "Normal set_option(skip_stats_columns) for val/flag/bigval/note, then committed INSERT with row1 containing 0/false/0/empty-string and two NULL rows; clear the option normally with NULL before export. Unknown old bounds and cleared option are observed from the actual reference catalog, never manufactured.",
+    "ustore_stream_profile_contract": "Normal format-1.1 CREATE plus one legal 1024-row INSERT SELECT, id 1..1024, val=id*10, note is concatenation of six deterministic SHA256 hex strings, inline limit 1000000. Actual complete values, inline layout, record_count and next_row_id=1024 are observed. The fixture itself uses DuckDB-local metadata; native Ustore/page behavior requires separate OG acceptance.",
+    "empty_table_profile_contract": "EMPTY_TABLE is genuine never-inserted CREATE with data_inlining_row_limit=100: actual empty inline carrier/registration, no table or column statistics and no file/data rows. EMPTY_NO_INLINE is genuine never-inserted CREATE with limit=0: no carrier, statistics or data. Neither profile is synthesized by editing protocol rows or by INSERT/DELETE.",
+    "analyze_distribution_profile_contract": "Normal format-1.1 CREATE plus one legal 12000-row INSERT SELECT with inline limit 1000000: id=1..12000; val=1 for first6000 else id; flag=NULL every fourth row else parity; note=NULL every fifth row else hot for first6000 and k||(id%100). Actual business rows, stable row IDs, inline versions and record_count/next_row_id=12000 are observed; this is reference input, not proof of native ANALYZE/MCV use."
+  },
+  "evidence_root": "公共文档/openGauss原生湖存储/验证",
+  "notes": [
+    "Candidate reference commits are not yet a verified product baseline.",
+    "No private SDK version is inferred from available source trees.",
+    "Reference DuckDB is never part of the native openGauss execution path.",
+    "Host-reference submodule gitlinks are recorded; only dependencies required by the standalone candidate are fetched and built.",
+    "extension-ci-tools has no verified license at the locked commit; do not copy it into product sources."
+  ]
+}

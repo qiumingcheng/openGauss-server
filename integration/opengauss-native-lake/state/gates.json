@@ -1,0 +1,214 @@
+{
+  "schema_version": 1,
+  "gates": {
+    "GH": {
+      "cases": [
+        "RUN-01"
+      ],
+      "gates": [],
+      "requires": [],
+      "scope": "harness_only"
+    },
+    "G0": {
+      "cases": [
+        "BOOT-01",
+        "REF-01",
+        "ABI-01",
+        "RUN-01"
+      ],
+      "gates": [],
+      "requires": [
+        "DEP-01"
+      ]
+    },
+    "G1": {
+      "cases": [
+        "META-01/read_only",
+        "SNAP-01/read_only",
+        "SCAN-01/row",
+        "SCAN-02/read_only",
+        "SCAN-04/read_only",
+        "API-01/install_bind"
+      ],
+      "gates": [],
+      "requires": [
+        "DEP-01",
+        "DEP-02"
+      ]
+    },
+    "G2": {
+      "cases": [
+        "ID-01",
+        "ID-02",
+        "ID-03",
+        "TX-01",
+        "TX-02",
+        "DML-01",
+        "DML-02",
+        "TX-PRECOMMIT",
+        "TX-03",
+        "TX-04",
+        "TX-05",
+        "LOC-01",
+        "LOC-02",
+        "ID-04"
+      ],
+      "gates": [
+        "G1"
+      ],
+      "requires": [
+        "DEP-01",
+        "DEP-02",
+        "DEP-04"
+      ]
+    },
+    "G3": {
+      "cases": [
+        "FLUSH-01",
+        "FLUSH-02",
+        "FLUSH-03",
+        "FLUSH-04",
+        "FLUSH-05",
+        "FLUSH-06",
+        "FLUSH-07",
+        "LOCK-01",
+        "LOCK-02",
+        "FLUSH-09",
+        "REC-01",
+        "REC-02"
+      ],
+      "gates": [
+        "G2"
+      ],
+      "requires": [
+        "DEP-01",
+        "DEP-02"
+      ]
+    },
+    "G4": {
+      "cases": [
+        "SCAN-01",
+        "SCAN-02",
+        "SCAN-03",
+        "SCAN-04",
+        "SMP-01",
+        "VEC-01",
+        "SMP-02",
+        "STAT-01",
+        "STAT-02",
+        "STAT-04",
+        "STAT-05",
+        "STAT-06",
+        "STAT-07",
+        "STAT-08",
+        "STAT-09",
+        "STAT-10"
+      ],
+      "gates": [
+        "G1"
+      ],
+      "requires": [
+        "DEP-02",
+        "DEP-07"
+      ]
+    },
+    "G5": {
+      "cases": [
+        "RAC-01",
+        "JOB-01",
+        "GC-01",
+        "SDK-01",
+        "GC-02",
+        "PORT-01",
+        "JOB-02",
+        "GC-03",
+        "GC-04",
+        "GC-05",
+        "STAT-03",
+        "DDL-02"
+      ],
+      "gates": [
+        "G3"
+      ],
+      "requires": [
+        "DEP-03",
+        "DEP-05",
+        "DEP-06",
+        "DEP-08"
+      ]
+    },
+    "G6": {
+      "cases": [
+        "PERF-01",
+        "SEC-01",
+        "UPG-01",
+        "OPS-01",
+        "REC-03",
+        "REC-04"
+      ],
+      "gates": [
+        "G3"
+      ],
+      "requires": [
+        "DEP-10"
+      ]
+    },
+    "GX": {
+      "cases": [
+        "IDX-01",
+        "IDX-02",
+        "IDX-03",
+        "IDX-04",
+        "IDX-05",
+        "IDX-07",
+        "IDX-06",
+        "TYPE-02",
+        "PLAN-01"
+      ],
+      "gates": [
+        "G1"
+      ],
+      "requires": [
+        "DEP-09"
+      ]
+    },
+    "GP": {
+      "cases": [
+        "PART-01",
+        "PART-02",
+        "PART-03",
+        "PART-04",
+        "PART-05",
+        "PART-06",
+        "PART-07",
+        "PART-08",
+        "PART-09",
+        "PART-10",
+        "PART-11"
+      ],
+      "gates": [
+        "G2"
+      ],
+      "requires": [
+        "DEP-11"
+      ]
+    },
+    "GO": {
+      "cases": [
+        "API-01"
+      ],
+      "gates": [
+        "G0",
+        "G1",
+        "G2",
+        "G3",
+        "G4",
+        "G5",
+        "G6",
+        "GX",
+        "GP"
+      ],
+      "requires": []
+    }
+  }
+}
