@@ -53,4 +53,6 @@ done
 - scale/soak 的 `EXPECTED_SDK54`、`EXPECTED_SDK6`、`EXPECTED_RELEASE_CONF` 及旧 `build.json` 路径是历史身份约束。新机器应先形成真实构建回执，再明确更新引用和预期值；不能删除校验、伪造收据或把原机 hash 当作新构建验收。
 - **完整运行 `verify_074_suite.py` 的 Part B 必须准备 DuckDB/DuckLake 参考构建**，不只是可选性能对拍依赖。参考版本按 `source-lock.json` 和迁移指南锁定；脚本当前指向 `$CPP_WORKSPACE/.reference/opengauss-native-lake/build/duckdb-gcc10/duckdb`。
 
+本次文档补充保留脚本原始内容及历史指纹：`pq_native_build_inputs.py`、`pq_sql020_build_inputs.py` 涉及历史收据的 `invariant_guards`，`reference.sh` 涉及 `source-lock.json` 的 `script_sha256`。路径参数化尚未完成；确需修改时应保留旧回执，审查改动后为新环境重新生成并核验依赖及构建身份，不能删除校验或把旧 SHA 当成新环境已通过的证据。两仓登记与完整操作说明见[迁移与异地复测指南](../../公共文档/openGauss原生湖存储/迁移与异地复测指南.md)。
+
 迁移指南及设计文档的历史绝对路径、`file://` 链接、旧 bundle/patch 运输包是原机证据定位。它们不表示引用附件均在 Git 仓库中，也不表示相应数据库、二进制、日志或完整 `验证/` 已随仓发布。后续运行验证必须记录实际远端提交、本机源码差异、构建与测试结果。
