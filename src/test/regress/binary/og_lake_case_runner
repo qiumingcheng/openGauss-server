@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+here=$(cd -- "$(dirname -- "$0")" && pwd -P)
+name=${0##*/}
+name=${name#og_lake_}
+name=${name%_bin.out}
+exec "${OG_LAKE_FASTCHECK_PYTHON:-python3}" "$here/../../../../integration/opengauss-native-lake/fastcheck/run.py" "$name"

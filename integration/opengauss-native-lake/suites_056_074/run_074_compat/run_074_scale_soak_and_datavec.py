@@ -26,7 +26,7 @@ import time
 import psycopg2
 from psycopg2 import sql
 
-ROOT = Path('/home/qiumc/data/code/cpp')
+ROOT = Path(os.environ.get('CPP_WORKSPACE', '/home/qiumc/data/code/cpp')).expanduser().resolve()
 INTEGRATION = ROOT / 'integration/opengauss-native-lake'
 VERIF = ROOT / '公共文档/openGauss原生湖存储/验证'
 REPLAY_DIR = Path(__file__).resolve().parent / 'replay_056_074'

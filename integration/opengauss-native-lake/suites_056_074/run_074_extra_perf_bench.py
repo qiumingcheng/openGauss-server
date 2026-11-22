@@ -14,20 +14,20 @@ from pathlib import Path
 
 import psycopg2
 
-ROOT = Path('/home/qiumc/data/code/cpp')
+ROOT = Path(os.environ.get('CPP_WORKSPACE', '/home/qiumc/data/code/cpp')).expanduser().resolve()
 
 
 def md5_role_pw(password, role):
     return 'md5' + hashlib.md5((password + role).encode('utf-8')).hexdigest()
 
 
-def pg_connect(profile, dbname, user='qiumc', password=None):
+def pg_connect(profile, dbname, user=None, password=None):
     port = {'debug': 55560, 'release': 55570, 'ann-debug': 55580}[profile]
     kw = {
         'host': str(ROOT / '.runtime/opengauss-native-lake' / profile / 'socket'),
         'port': port,
         'dbname': dbname,
-        'user': user,
+        'user': user if user is not None else os.environ.get('PGUSER', 'qiumc'),
         'connect_timeout': 15,
     }
     if password is not None:

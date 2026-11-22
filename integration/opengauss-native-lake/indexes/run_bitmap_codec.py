@@ -19,8 +19,12 @@ from lake_harness import sha256,validate_run_id,write_json
 
 def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--run-id',required=True)
-    p.add_argument('--dependency-build',type=Path,required=True);a=p.parse_args();validate_run_id(a.run_id)
-    out=ROOT/'公共文档/openGauss原生湖存储/验证'/a.run_id;out.mkdir(exist_ok=False)
+    p.add_argument('--dependency-build',type=Path,required=True)
+    p.add_argument('--source',type=Path,default=ROOT/'.worktrees/opengauss-native-lake-inline-index/contrib/og_lake')
+    p.add_argument('--evidence',type=Path)
+    a=p.parse_args();validate_run_id(a.run_id)
+    out=a.evidence.resolve() if a.evidence else ROOT/'公共文档/openGauss原生湖存储/验证'/a.run_id
+    out.mkdir(exist_ok=False)
     r=dict(status='fail',scope=__doc__,limitations=['No native/Parquet/dictionary/publication/query qualification',
       'No injected allocation failures or whole-query allocator accounting','No source authentication in portable bytes; verified outer source/key manifest required'])
     try:
@@ -28,7 +32,7 @@ def main():
         assert dep.get('source_patch_sha256')=='291aca7744394c6658dd2316972f6cc465f04461c0dec7c4a5c5885ee4e2441f','Requires qualified run-preallocation dependency variant'
         assert sha256(prefix/'owner.json')==dep['owner_sha256']
         for name,h in dep['files'].items():assert sha256(prefix/name)==h
-        source=ROOT/'.worktrees/opengauss-native-lake-inline-index/contrib/og_lake';probe=D/'tests/bitmap_codec_probe.cpp'
+        source=a.source.resolve(strict=True);probe=D/'tests/bitmap_codec_probe.cpp'
         files=[Path(__file__),source/'lake_bitmap_codec.cpp',source/'lake_bitmap_codec.h',source/'sdk/lake_parquet_sdk.h',probe,D/'source-lock.json']
         r['inputs']={str(f):sha256(f)for f in files};archive=out/'executed-inputs';archive.mkdir()
         for f in files:shutil.copy2(f,archive/f.name)

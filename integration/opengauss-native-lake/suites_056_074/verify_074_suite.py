@@ -25,7 +25,7 @@ from pathlib import Path
 import numpy as np
 import psycopg2
 
-ROOT = Path('/home/qiumc/data/code/cpp')
+ROOT = Path(os.environ.get('CPP_WORKSPACE', '/home/qiumc/data/code/cpp')).expanduser().resolve()
 DRIVER = ROOT / 'integration/opengauss-native-lake'
 sys.path.insert(0, str(DRIVER))
 sys.path.insert(0, str(DRIVER / 'tests'))
@@ -108,7 +108,7 @@ def seed_unbound_duckdb_tables(profile: str, db: str, tmp_root: Path, table_spec
 def connect_profile(profile: str, dbname: str = 'postgres'):
     sock = str(ROOT / '.runtime/opengauss-native-lake' / profile / 'socket')
     port = {'debug': 55560, 'release': 55570, 'ann-debug': 55580}[profile]
-    conn = psycopg2.connect(host=sock, port=port, dbname=dbname, user='qiumc', connect_timeout=15)
+    conn = psycopg2.connect(host=sock, port=port, dbname=dbname, user=os.environ.get('PGUSER', 'qiumc'), connect_timeout=15)
     conn.autocommit = True
     return conn
 
@@ -710,6 +710,7 @@ def main():
     ap.add_argument('--dims', default='32,128,384,768,1536')
     ap.add_argument('--index-fixture-timeout-ms', type=int, default=300000,
                     help='Timeout only while building fixture indexes; query assertions/timeouts are unchanged')
+    ap.add_argument('--out', type=Path, help='Save the completed check results as JSON')
     args = ap.parse_args()
     if not 1 <= args.index_fixture_timeout_ms <= 2147483647:
         ap.error('--index-fixture-timeout-ms must be between 1 and 2147483647')
@@ -722,6 +723,9 @@ def main():
         out['active_h'] = run_active_h_suite(args.profile)
     if args.mode in ('full', 'pgl0'):
         out['pgl0'] = run_pgl0_suite(args.profile)
+    if args.out is not None:
+        with args.out.open('x', encoding='utf-8') as result:
+            result.write(json.dumps(out, indent=2) + '\n')
     print('\n=== ALL REQUESTED 0.74 VERIFICATIONS PASSED ===')
     print(json.dumps(out, indent=2))
 

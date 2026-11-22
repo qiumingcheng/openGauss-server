@@ -1,0 +1,4 @@
+test: og_lake_main_debug_bin
+test: og_lake_main_release_bin
+test: og_lake_compat_bin
+test: og_lake_release_truncate_pq_bin

@@ -17,14 +17,18 @@ from lake_harness import sha256,validate_run_id,write_json
 
 
 def main():
-    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--run-id',required=True);p.add_argument('--dependency-build',type=Path,required=True);a=p.parse_args();validate_run_id(a.run_id)
-    out=ROOT/'公共文档/openGauss原生湖存储/验证'/a.run_id;out.mkdir(exist_ok=False)
+    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--run-id',required=True);p.add_argument('--dependency-build',type=Path,required=True)
+    p.add_argument('--source',type=Path,default=ROOT/'.worktrees/opengauss-native-lake-inline-index/contrib/og_lake')
+    p.add_argument('--evidence',type=Path)
+    a=p.parse_args();validate_run_id(a.run_id)
+    out=a.evidence.resolve() if a.evidence else ROOT/'公共文档/openGauss原生湖存储/验证'/a.run_id
+    out.mkdir(exist_ok=False)
     result=dict(status='fail',scope=__doc__,cases=[],limitations=['No native/Parquet/full-query allocator qualification','No production global/threaded memory-hook installation','calloc/realloc hooks installed but not reached by these decode fixtures'])
     try:
         dep=json.loads(a.dependency_build.read_text());assert dep['status']=='built_unlinked';prefix=Path(dep['prefix']);assert sha256(prefix/'owner.json')==dep['owner_sha256']
         assert dep.get('source_patch_sha256')=='291aca7744394c6658dd2316972f6cc465f04461c0dec7c4a5c5885ee4e2441f', 'Exact qualified run-preallocation patch required'
         for n,h in dep['files'].items():assert sha256(prefix/n)==h
-        src=ROOT/'.worktrees/opengauss-native-lake-inline-index/contrib/og_lake';probe=D/'tests/bitmap_codec_alloc_probe.cpp'
+        src=a.source.resolve(strict=True);probe=D/'tests/bitmap_codec_alloc_probe.cpp'
         inputs=[Path(__file__),probe,src/'lake_bitmap_codec.cpp',src/'lake_bitmap_codec.h',src/'sdk/lake_parquet_sdk.h',D/'source-lock.json']
         result['inputs']={str(f):sha256(f)for f in inputs};archive=out/'executed-inputs';archive.mkdir()
         for f in inputs:shutil.copy2(f,archive/f.name)

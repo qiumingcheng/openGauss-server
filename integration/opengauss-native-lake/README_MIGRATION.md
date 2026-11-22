@@ -226,3 +226,10 @@ SDK6 隔离 SQL 可以由 openGauss FastCheck 调度。在已配置源码树执�
 `make -C src/test/regress fastcheck PART=.og_lake_sdk6`。此分组沿用原有
 17 项断言并保存逐项结果。构建收据、SDK6 库及环境参数见
 [SDK6 FastCheck 配置](sdk_external_tests/README.md#fastcheck-sdk6-sql-lane)。
+
+原生湖的完整用例入口是 `make -C src/test/regress fastcheck PART=.og_lake`，
+共 41 个调度条目，覆盖 SQL074 主套、兼容与历史回归、规模和性能测试、SDK/PQ/位图、
+175 个已实现的任务用例和 130 个独立测试脚本。另有资格门分组 `.og_lake_gates`。
+各组的实际安装、构建回执、历史夹具和逐脚本参数见
+[原生湖 FastCheck 配置](fastcheck/README.md)。从 `.og_lake_smoke` 开始核对本机环境。
+缺少前置条件时调度会报失败并保留明细。已有原生断言与固定输入由原驱动执行。

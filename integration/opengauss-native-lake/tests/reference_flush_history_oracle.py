@@ -3,11 +3,13 @@
 import argparse
 from collections import Counter
 import json
+from os import environ
 from pathlib import Path
 import shutil
 import sys
 import traceback
-ROOT=Path('/home/qiumc/data/code/cpp');DRIVER=ROOT/'integration/opengauss-native-lake'
+ROOT=Path(environ.get('CPP_WORKSPACE',Path(__file__).resolve().parents[3])).resolve()
+DRIVER=ROOT/'integration/opengauss-native-lake'
 sys.path[:0]=[str(DRIVER),str(DRIVER/'tests')]
 from lake_harness import sha256,write_json
 from reverse_reference import Reference,literal,qi
