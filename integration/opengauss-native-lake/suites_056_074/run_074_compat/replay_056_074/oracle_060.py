@@ -7,6 +7,8 @@ its retained Parquet files, not a re-created dataset or independent writer run.
 from contextlib import contextmanager, nullcontext
 from hashlib import file_digest
 import json
+import os
+import getpass
 from pathlib import Path
 import subprocess
 import sys
@@ -15,7 +17,7 @@ from uuid import UUID
 from psycopg2 import sql
 from psycopg2.extensions import TRANSACTION_STATUS_IDLE
 
-ROOT = Path('/home/qiumc/data/code/cpp')
+ROOT = Path(os.environ.get('CPP_WORKSPACE', str(Path(__file__).resolve().parents[5]))).expanduser().resolve()
 DRIVER = ROOT / 'integration/opengauss-native-lake'
 sys.path[:0] = [str(DRIVER), str(DRIVER / 'tests')]
 from empty_catalog_oracle import read_native_catalog, transport_native

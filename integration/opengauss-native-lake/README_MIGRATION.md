@@ -156,3 +156,63 @@ ann-debug复用已验证Debug ELF及独立数据库；全部实例已停止，�
 完整五档维度主套Recall为1.0属于不同固定输入。详细数值、6项迁移修复和未验证边界见
 [迁移指南本机复测记录](../../公共文档/openGauss原生湖存储/迁移与异地复测指南.md#2026-11-22-openeuler-wsl2-异地重建复测结果)。
 72小时生产长稳、真实S3/OGRAC等原后置边界不因本轮通过而关闭。
+
+## P1 补充测试资产（2026-11-22，静态迁移）
+
+本次新增 16 个文件：原盘点的 14 份脚本/探针/原型，加 SDK6 构建助手和 README。
+测试目录共 357 文件。为调用链配套修改 16 份 replay 和 3 份兼容脚本的路径配置；
+本轮没有编译或运行新增用例，历史成功数字不作为这些适配后文件的运行结果。
+全部映射见[待提交与补充测试用例清单](../../公共文档/openGauss原生湖存储/原生湖SQL074待提交与补充测试用例清单.md)。
+
+| 入口 | 用途 |
+|---|---|
+| `suites_056_074/run_074_compat/run_074_smp_closure_suite.py` | N7-SMP 闭环、故障注入、PREPARE/ReScan、扩展类型与宽列 |
+| `suites_056_074/run_074_release_perf_bench.py` | Release 主性能、240k 行 SMP 与并发 flush 读延迟 |
+| `suites_056_074/run_074_debug_history_campaign.py` | SQL056～070 Debug/线程池/ann-debug 历史回归与 datavec |
+| `suites_056_074/run_074_compat_campaign.py` | 三画像 SQL071～073 兼容性＋SMP 闭环编排 |
+| `suites_056_074/run_074_release_campaign.py` | Release 兼容性、SMP 和主性能编排 |
+| `sdk_external_tests/run_probe.sh` | SDK6 ordinal、fd、openat2 锚点和宿主路径准入四探针 |
+| `sdk_external_tests/build_sql_prototype.py`、`run_sql_prototype.py` | 私有 SQL 测试模块构建与隔离实例探针；不属于生产接口 |
+
+沿用文首的真实 `cpp/integration/opengauss-native-lake` 目录副本，不能软链；
+设置 `CPP_WORKSPACE`，数据库用户通过 `PGUSER` 或 `--user` 指定。
+SMP 和性能入口可单独指定 host/port；总编排会管理已有固定画像端口与配置，
+须在专用测试工作区运行。Debug 历史编排还保留结束后无 gaussdb 的原断言。
+尚未修改的其他旧 helper 继续遵循上文的路径/冻结指纹限制，不能把此次小范围适配称为全部测试可移植。
+
+基础入口示例（须先准备匹配安装、实例及依赖；以下命令本轮未执行）：
+
+```bash
+export S="$CPP_WORKSPACE/integration/opengauss-native-lake/suites_056_074"
+python3 "$S/run_074_compat/run_074_smp_closure_suite.py" --profile debug --out "$OUT/smp.json"
+python3 "$S/run_074_release_perf_bench.py" --profile release --out-dir "$OUT/performance"
+
+python3 "$S/run_074_debug_history_campaign.py" \
+  --workspace "$CPP_WORKSPACE" --source "$CODE_BASE" \
+  --build-receipt "$DEBUG_BUILD_RECEIPT" \
+  --build-entry "$CPP_WORKSPACE/integration/opengauss-native-lake/native_build_entry.sh" \
+  --roaring-build "$ROARING_BUILD_RECEIPT" \
+  --blas-build "$BLAS_BUILD_RECEIPT" --blas-build-sha256 "$BLAS_BUILD_RECEIPT_SHA256" \
+  --expected-sdk54 "$SDK54_SHA256" --expected-sdk6 "$SDK6_SHA256" \
+  --expected-debug-conf "$DEBUG_CONF_SHA256" --expected-ann-debug-conf "$ANN_DEBUG_CONF_SHA256"
+
+python3 "$S/run_074_compat_campaign.py" \
+  --workspace "$CPP_WORKSPACE" --build-receipt "$DEBUG_BUILD_RECEIPT" \
+  --immutable-manifest "$IMMUTABLE_MANIFEST" --campaign-id native_074_compat_repro_01
+python3 "$S/run_074_release_campaign.py" \
+  --workspace "$CPP_WORKSPACE" --build-receipt "$RELEASE_BUILD_RECEIPT" \
+  --expected-sdk54-sha256 "$SDK54_SHA256" --expected-sdk6-sha256 "$SDK6_SHA256" \
+  --out-dir "$OUT/release_campaign"
+```
+
+`IMMUTABLE_MANIFEST` 是四键 JSON：`SDK54_SO`、`SDK6_SO`、`DEBUG_CONF`、
+`ANN_DEBUG_CONF`，值为从真实构建/原始配置独立记录的 SHA256 字符串。
+不得在失败后用实际值替换预期值。Release 编排沿用 SDK 部署步骤：若 Release
+安装缺失或指纹不同，从 Debug 安装复制 SDK 目录，复制前后均核验指定 SHA；
+执行完停止 Release。兼容编排结束停止 debug/ann-debug 并恢复原始配置。
+Debug 历史编排使用仓内 PQ 及显式 BLAS/CRoaring 收据，保留原 SDK/配置校验。
+
+SDK6 夹具与私有模块命令见 [sdk_external_tests/README.md](sdk_external_tests/README.md)。
+探针需要锁定 DuckDB、已构建 SDK6 与实际输入 SHA；私有模块还需匹配 Debug
+源码/安装的 CMake `compile_commands.json`。脚本创建新的输出与独立实例，
+保留失败回执；原机 Parquet、二进制、旧模块和历史日志没有作为发布文件上传。

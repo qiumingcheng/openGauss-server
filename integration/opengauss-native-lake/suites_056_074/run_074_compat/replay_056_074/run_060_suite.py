@@ -8,6 +8,7 @@ from hashlib import file_digest
 import hashlib
 import json
 import os
+import getpass
 from pathlib import Path
 import secrets
 import sys
@@ -18,7 +19,7 @@ from uuid import uuid4
 import psycopg2
 from psycopg2 import sql
 
-ROOT = Path('/home/qiumc/data/code/cpp')
+ROOT = Path(os.environ.get('CPP_WORKSPACE', str(Path(__file__).resolve().parents[5]))).expanduser().resolve()
 DRIVER = ROOT / 'integration/opengauss-native-lake'
 sys.path[:0] = [str(DRIVER), str(DRIVER / 'tests')]
 from native_runtime import INSTALL, PORT, PROFILE, RUNTIME, SOURCE
@@ -62,7 +63,7 @@ def write_json(path, obj):
 
 def connect(database, user=None, password=None):
     conn = psycopg2.connect(host=str(RUNTIME / 'socket'), port=PORT, dbname=database,
-                            user=user or os.environ['USER'], password=password, connect_timeout=10,
+                            user=user or os.environ.get('PGUSER') or getpass.getuser(), password=password, connect_timeout=10,
                             application_name='og_lake_sql060')
     conn.autocommit = True
     query(conn, "SET statement_timeout = '60s'")

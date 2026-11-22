@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import json
 import os
+import getpass
 import shutil
 import subprocess
 import sys
@@ -14,7 +15,7 @@ from pathlib import Path
 
 import psycopg2
 
-ROOT = Path('/home/qiumc/data/code/cpp')
+ROOT = Path(os.environ.get('CPP_WORKSPACE', str(Path(__file__).resolve().parents[5]))).expanduser().resolve()
 INTEGRATION = ROOT / 'integration/opengauss-native-lake'
 sys.path.insert(0, str(INTEGRATION))
 from native_runtime import RUNTIME
@@ -57,14 +58,14 @@ def duckdb_exec(sql_text):
         raise RuntimeError(f'DuckDB exec failed ({proc.returncode}): {proc.stderr}\nSQL:\n{sql_text}')
 
 
-def pg_connect(profile, dbname, user='qiumc', password=None):
+def pg_connect(profile, dbname, user=None, password=None):
     port = 55560 if profile == 'debug' else (55570 if profile == 'release' else 55580)
     sock_dir = str((RUNTIME.parent / profile / 'socket').resolve())
     kwargs = {
         'host': sock_dir,
         'port': port,
         'dbname': dbname,
-        'user': user,
+        'user': user or os.environ.get('PGUSER') or getpass.getuser(),
         'connect_timeout': 15,
         'application_name': 'sql062_verify',
     }

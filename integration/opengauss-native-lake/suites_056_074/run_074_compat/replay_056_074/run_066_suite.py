@@ -21,6 +21,7 @@ import decimal
 import hashlib
 import json
 import os
+import getpass
 import shutil
 import subprocess
 import tempfile
@@ -29,7 +30,7 @@ from pathlib import Path
 
 import psycopg2
 
-ROOT = Path('/home/qiumc/data/code/cpp')
+ROOT = Path(os.environ.get('CPP_WORKSPACE', str(Path(__file__).resolve().parents[5]))).expanduser().resolve()
 DUCKDB_BIN = ROOT / '.reference/opengauss-native-lake/build/duckdb-gcc10/duckdb'
 
 
@@ -37,13 +38,13 @@ def md5_role_pw(password, role):
     return 'md5' + hashlib.md5((password + role).encode('utf-8')).hexdigest()
 
 
-def pg_connect(profile, dbname, user='qiumc', password=None):
+def pg_connect(profile, dbname, user=None, password=None):
     port = 55560 if profile == 'debug' else (55570 if profile == 'release' else 55580)
     kw = {
         'host': str(ROOT / '.runtime/opengauss-native-lake' / profile / 'socket'),
         'port': port,
         'dbname': dbname,
-        'user': user,
+        'user': user or os.environ.get('PGUSER') or getpass.getuser(),
         'connect_timeout': 15,
     }
     if password is not None:

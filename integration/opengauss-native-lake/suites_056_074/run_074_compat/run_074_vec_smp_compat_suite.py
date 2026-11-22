@@ -14,6 +14,7 @@
 
 import argparse
 import hashlib
+import getpass
 import json
 import os
 import shutil
@@ -26,12 +27,13 @@ from pathlib import Path
 
 import psycopg2
 
-ROOT = Path('/home/qiumc/data/code/cpp')
-DUCKDB_BIN = json.loads((ROOT / '.reference/opengauss-native-lake/build/receipt.json').read_text())['binary']
+ROOT = Path(os.getenv('CPP_WORKSPACE', str(Path(__file__).resolve().parents[4]))).expanduser().resolve()
+DUCKDB_BIN = os.getenv('OG_LAKE_DUCKDB_BIN')
 
 
 def duckdb_query(sql):
-    proc = subprocess.run([DUCKDB_BIN, '-json', '-c', sql], capture_output=True, text=True, check=False)
+    binary = DUCKDB_BIN or json.loads((ROOT / '.reference/opengauss-native-lake/build/receipt.json').read_text())['binary']
+    proc = subprocess.run([binary, '-json', '-c', sql], capture_output=True, text=True, check=False)
     if proc.returncode != 0:
         raise RuntimeError(f'DuckDB query failed ({proc.returncode}): {proc.stderr.strip()}')
     out = proc.stdout.strip()
@@ -42,10 +44,15 @@ def md5_role_pw(password, role):
     return 'md5' + hashlib.md5((password + role).encode('utf-8')).hexdigest()
 
 
-def pg_connect(profile, dbname, user='qiumc', password=None):
-    port = {'debug': 55560, 'release': 55570, 'ann-debug': 55580}[profile]
+def pg_connect(profile, dbname, user=None, password=None):
+    suffix = profile.upper().replace('-', '_')
+    default_port = {'debug': 55560, 'release': 55570, 'ann-debug': 55580}[profile]
+    port = int(os.getenv('OG_LAKE_TEST_PORT_' + suffix, os.getenv('OG_LAKE_TEST_PORT', str(default_port))))
+    host = os.getenv('OG_LAKE_TEST_HOST_' + suffix, os.getenv('OG_LAKE_TEST_HOST', str(ROOT / '.runtime/opengauss-native-lake' / profile / 'socket')))
+    if user is None:
+        user = os.getenv('OG_LAKE_TEST_USER', os.getenv('PGUSER', getpass.getuser()))
     kw = {
-        'host': str(ROOT / '.runtime/opengauss-native-lake' / profile / 'socket'),
+        'host': host,
         'port': port,
         'dbname': dbname,
         'user': user,

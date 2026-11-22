@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 import hashlib
 import json
 import os
+import getpass
 from pathlib import Path
 import secrets
 import shutil
@@ -14,7 +15,7 @@ import uuid
 import psycopg2
 from psycopg2 import sql
 
-ROOT = Path('/home/qiumc/data/code/cpp')
+ROOT = Path(os.environ.get('CPP_WORKSPACE', str(Path(__file__).resolve().parents[5]))).expanduser().resolve()
 TESTS_DIR = ROOT / 'integration/opengauss-native-lake'
 sys.path.insert(0, str(TESTS_DIR))
 from native_runtime import INSTALL, PORT, PROFILE, RUNTIME, SOURCE
@@ -33,7 +34,7 @@ def connect(dbname='postgres', user=None, password=None, autocommit=True):
         host=str(RUNTIME / 'socket'),
         port=PORT,
         dbname=dbname,
-        user=user or os.getenv('USER', 'qiumc'),
+        user=user or (os.environ.get('PGUSER') or getpass.getuser()),
         connect_timeout=10,
         application_name='og_lake_test_056',
     )
