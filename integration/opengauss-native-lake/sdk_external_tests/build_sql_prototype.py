@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build (without loading) the private SQL probe using an actual CMake compile entry."""
+"""Build (without loading) the private SQL probe using an actual Debug compile entry."""
 import argparse
 from datetime import datetime, timezone
 from hashlib import file_digest
@@ -21,7 +21,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--code-base', type=Path, required=True)
     parser.add_argument('--compile-commands', type=Path, required=True,
-                        help='compile_commands.json from the matching configured Debug CMake build')
+                        help='compile database entry from the matching configured Debug build')
     parser.add_argument('--prefix', type=Path, required=True)
     parser.add_argument('--gaussdb-sha256', required=True)
     parser.add_argument('--sdk-library', type=Path, required=True)

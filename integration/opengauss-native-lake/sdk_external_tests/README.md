@@ -4,7 +4,7 @@ This directory preserves the six PGL-2 probe sources/drivers and three private
 host-admission prototype sources listed in the SQL074 migration inventory.
 The prototype is test-only: it is not installed into `og_lake` and is not a
 production SQL interface. The migration added path/input configuration and a
-private-module build helper; these migrated files have not been compiled or run.
+private-module build helper.
 
 ## Four standalone probes
 
@@ -25,7 +25,15 @@ bash "$P/run_probe.sh" sdk6_repro_01
 ```
 
 `CC`, `GCC_LIB`, `PROBE_LD_LIBRARY_PATH`, and `PROBE_OUTPUT_ROOT` are optional
-environment overrides. The output run directory must not already exist.
+environment overrides. With the bundled GCC10.3, include its compiler support
+libraries if they are not on the system loader path:
+
+```bash
+toolchain="$CPP_WORKSPACE/binarylibs/buildtools/gcc10.3"
+export PROBE_LD_LIBRARY_PATH="$toolchain/gcc/lib64:$toolchain/isl/lib:$toolchain/mpc/lib:$toolchain/mpfr/lib:$toolchain/gmp/lib"
+```
+
+The output run directory must not already exist.
 The driver generates a 5,000-row Parquet fixture with row-group size 2,048;
 the existing probes require three row groups and retain the exact NULL,
 empty-string, UTF-8, ordinal ordering, descriptor identity, and rejection checks.
@@ -38,11 +46,18 @@ run's `sha256sums.txt`. Nothing from an old output directory is reused or delete
 
 `build_sql_prototype.py` only builds the private shared object; it never loads it
 or connects to a database. It reuses the `lake_file_sdk.cpp` compiler entry from
-a matching **Debug** CMake configuration exported with
-`CMAKE_EXPORT_COMPILE_COMMANDS=ON`, preserving the database header definitions
-and include paths. The installed Debug binary, configured source, and compile
-database must describe the same build. Compiler wrapper or response-file entries
-are rejected; provide an entry with the actual compiler and expanded arguments.
+the matching **Debug** build to preserve the header definitions and include
+paths. For CMake, export it with `CMAKE_EXPORT_COMPILE_COMMANDS=ON`. For Make,
+use `make -n -W lake_file_sdk.cpp lake_file_sdk.o` from the configured
+`contrib/og_lake` directory with the build's toolchain and dependency inputs.
+Record the expanded compile recipe as a single entry in a JSON array with
+`directory`, `file`, and `arguments` fields. Use the actual compiler path and
+expanded argument list. The installed Debug binary, configured source, and
+compile entry must describe the same build.
+
+Use Python 3.11 or later for both helpers. When compiling with the bundled
+GCC10.3, pass `LD_LIBRARY_PATH="$PROBE_LD_LIBRARY_PATH"` to the build helper if
+the compiler support libraries are needed.
 
 ```bash
 python3 "$P/build_sql_prototype.py" \
@@ -61,9 +76,11 @@ python3 "$P/run_sql_prototype.py" --run-id sdk6_sql_repro_01 \
 
 The SQL driver requires `psycopg2`, the sibling migrated `build_driver.py`, and
 matching installed openGauss executables. It verifies the module, SDK6, fixture,
-and actual running `gaussdb` digests. It creates a new owned cluster, runs the
-original materialization and negative/privilege checks, stops only that cluster,
-and retains the runtime and output directories. Optional arguments are `--port`,
+and actual running `gaussdb` digests. It copies the matching Debug installation
+into the new owned runtime, so allow space for one installation and one cluster.
+The driver stages the verified module in the private install's `proc_srclib`
+and uses that install's `gsql` for the password-authenticated nonadmin check.
+It runs the original materialization and negative/privilege checks, stops the
+owned cluster, and retains the runtime and output directories. Optional arguments are `--port`,
 `--user`, `--out-dir`, and `--runtime-root`. It does not require an existing
-`og_lake` extension or reuse user databases. The complete workspace/driver
-dependencies and actual runtime compatibility still require later verification.
+`og_lake` extension or reuse user databases. On 2026-11-22 the four standalone probes and all 17 private SQL checks passed with the matching openEuler WSL2 Debug Make build.

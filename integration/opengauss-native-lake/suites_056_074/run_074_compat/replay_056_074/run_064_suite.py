@@ -260,6 +260,7 @@ def main():
     created_roles = []
     stages = {}
     duckdb_checks = 0
+    completed = False
 
     try:
         admin = pg_connect(args.profile, 'postgres')
@@ -518,6 +519,13 @@ def main():
                     q(cm, 'SET enable_indexscan = on')
                     q(cm, 'SET enable_seqscan = off')
 
+                    def force_ann_smp(dop):
+                        # Both profiles qualify an admitted parallel ANN route.
+                        # Debug query_dop=1000+dop alone still permits serial ANN.
+                        q(cm, 'SET enable_force_smp = off')
+                        q(cm, f'SET query_dop = {dop}')
+                        q(cm, 'SET enable_force_smp = on')
+
                     # 3a: Unfiltered PQ ANN SMP (dop=2 and dop=4) across 4 files + inline (no CoerceViaIO ::text)
                     zero_vec = '[' + ','.join(['0'] * 16) + ']'
                     unfiltered_q = f"""
@@ -531,12 +539,7 @@ def main():
                         for r in q(cm, f"SELECT id, encode(raw,'hex'), u, j, num, (vec <-> '{zero_vec}'::vector(16)) AS dist FROM exact_pq WHERE vec IS NOT NULL")
                     }
                     for dop in (2, 4):
-                        if args.profile == 'release':
-                            q(cm, 'SET enable_force_smp = off')
-                            q(cm, f'SET query_dop = {dop}')
-                            q(cm, 'SET enable_force_smp = on')
-                        else:
-                            q(cm, f'SET query_dop = {1000 + dop}')
+                        force_ann_smp(dop)
                         exp_u = explain_lines(cm, unfiltered_q)
                         assert f'Lake SMP Planned DOP: {dop}' in exp_u, (dop, exp_u)
                         assert 'Lake SMP ANN: raw L2 unfiltered' in exp_u, (dop, exp_u)
@@ -569,12 +572,7 @@ def main():
                         """)
                     }
                     for dop in (2, 4):
-                        if args.profile == 'release':
-                            q(cm, 'SET enable_force_smp = off')
-                            q(cm, f'SET query_dop = {dop}')
-                            q(cm, 'SET enable_force_smp = on')
-                        else:
-                            q(cm, f'SET query_dop = {1000 + dop}')
+                        force_ann_smp(dop)
                         exp_b = explain_lines(cm, bool_q, (zero_vec,))
                         assert f'Lake SMP Planned DOP: {dop}' in exp_b, (dop, exp_b)
                         assert 'boolean-filter' in exp_b, (dop, exp_b)
@@ -625,12 +623,7 @@ def main():
                               AND ((grp = 2 AND flag IN (1, 3)) OR (grp = 0 AND score > 9.0::float8))
                         """)
                     }
-                    if args.profile == 'release':
-                        q(cm, 'SET enable_force_smp = off')
-                        q(cm, 'SET query_dop = 4')
-                        q(cm, 'SET enable_force_smp = on')
-                    else:
-                        q(cm, 'SET query_dop = 1004')
+                    force_ann_smp(4)
                     exp_cos = explain_lines(cm, cos_q)
                     assert 'Lake SMP Planned DOP: 4' in exp_cos and 'raw cosine boolean-filter' in exp_cos, exp_cos
                     assert 'Verified ANN File Coverage: 4' in exp_cos, exp_cos
@@ -649,12 +642,7 @@ def main():
                     q(cm, 'SELECT og_lake.build_lake_index(%s::uuid)', (ix_pq_l2,))
                     q(cm, 'SET statement_timeout = 120000')
                     assert s(cm, 'SELECT definition_generation FROM og_lake_internal.index_definition WHERE index_uuid = %s::uuid', (ix_pq_l2,)) == 2
-                    if args.profile == 'release':
-                        q(cm, 'SET enable_force_smp = off')
-                        q(cm, 'SET query_dop = 4')
-                        q(cm, 'SET enable_force_smp = on')
-                    else:
-                        q(cm, 'SET query_dop = 1004')
+                    force_ann_smp(4)
                     res_after_rebuild = q(cm, bool_q, (zero_vec,))
                     assert len(res_after_rebuild) == 5 and 3001 in [r[0] for r in res_after_rebuild] and 700 in [r[0] for r in res_after_rebuild]
                     q(cm, 'SET enable_force_smp = off')
@@ -685,20 +673,28 @@ def main():
         }
         Path(args.out).write_text(json.dumps(res, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
         print(json.dumps(res, ensure_ascii=False))
+        completed = True
+    except BaseException as error:
+        failure = {
+            'status': 'failed',
+            'profile': args.profile,
+            'ix5_only': args.ix5_only,
+            'error': repr(error),
+            'stages': stages,
+            'retained_databases': created_dbs,
+            'retained_roles': created_roles,
+            'retained_fixture': str(tmp_root),
+        }
+        failure_path = Path(args.out).with_name(Path(args.out).name + '.' + tag + '.failed.json')
+        failure_path.parent.mkdir(parents=True, exist_ok=True)
+        failure_path.write_text(json.dumps(failure, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
+        print(f'Failure evidence: {failure_path}', flush=True)
+        raise
     finally:
         if admin is not None:
-            for dbn in list(created_dbs):
-                try:
-                    q(admin, f'DROP DATABASE IF EXISTS {dbn}')
-                except Exception:
-                    pass
-            for rn in list(created_roles):
-                try:
-                    q(admin, f'DROP ROLE IF EXISTS {rn}')
-                except Exception:
-                    pass
             admin.close()
-        shutil.rmtree(tmp_root, ignore_errors=True)
+        if completed:
+            shutil.rmtree(tmp_root, ignore_errors=True)
 
 
 if __name__ == '__main__':

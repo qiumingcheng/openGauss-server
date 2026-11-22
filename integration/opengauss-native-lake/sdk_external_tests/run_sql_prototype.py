@@ -8,6 +8,7 @@ import getpass
 import json
 import os
 from pathlib import Path
+import re
 import secrets
 import shutil
 import subprocess
@@ -59,7 +60,10 @@ def main():
     runtime = ((args.runtime_root or ROOT / '.runtime/opengauss-native-lake') /
                ('pgl2-' + sha256(args.run_id.encode()).hexdigest()[:12])).resolve()
     data, socket_dir = runtime / 'data', runtime / 'socket'
-    prefix = args.prefix.expanduser().resolve()
+    installed_prefix = args.prefix.expanduser().resolve()
+    prefix = runtime / 'install'
+    if prefix.is_relative_to(installed_prefix):
+        parser.error('the private runtime must be outside the supplied installation')
     assert sha(args.module_build) == args.module_build_sha256, 'module build receipt digest'
     qualified = json.loads(args.module_build.read_text())
     assert qualified['status'] == 'built_unloaded'
@@ -67,7 +71,8 @@ def main():
     fixture = args.fixture.expanduser().resolve()
     assert sha(fixture) == args.fixture_sha256, 'fixture digest'
     module = args.module_build.resolve().with_name('lake_external_sql_probe.so')
-    assert sha(module) == qualified['module_sha256'] and sha(prefix / 'bin/gaussdb') == qualified['gaussdb_sha256']
+    assert sha(module) == qualified['module_sha256']
+    assert sha(installed_prefix / 'bin/gaussdb') == qualified['gaussdb_sha256']
     assert not runtime.exists() and not out.exists()
     port = args.port
     assert 1024 <= port <= 65533
@@ -77,6 +82,7 @@ def main():
     out.mkdir(mode=0o700)
     runtime.mkdir(mode=0o700)
     state = {'status': 'running', 'runtime': str(runtime), 'port': port, 'owned': True,
+             'installed_prefix': str(installed_prefix), 'private_prefix': str(prefix),
              'module_sha256': sha(module), 'module_build_sha256': sha(args.module_build),
              'fixture_sha256': args.fixture_sha256, 'sdk_sha256': qualified['sdk_sha256'],
              'binary_sha256': qualified['gaussdb_sha256'], 'commands': [], 'checks': [],
@@ -105,13 +111,28 @@ def main():
             check(False, label)
 
     try:
+        # CREATE FUNCTION copies C libraries from proc_srclib into pg_plugin.
+        # Keep both directories private to this run and preserve the original install.
+        shutil.copytree(installed_prefix, prefix, symlinks=True)
+        assert sha(prefix / 'bin/gaussdb') == qualified['gaussdb_sha256'], 'private Debug ELF digest'
+        pkglib = prefix / 'lib/postgresql'
+        source_lib, plugin_lib = pkglib / 'proc_srclib', pkglib / 'pg_plugin'
+        for directory in (source_lib, plugin_lib):
+            assert directory.is_dir() and directory.resolve().is_relative_to(prefix)
+        staged_module = source_lib / module.name
+        with module.open('rb') as src, staged_module.open('xb') as dst:
+            shutil.copyfileobj(src, dst)
+        assert sha(staged_module) == qualified['module_sha256'], 'staged private module digest'
+        state['staged_module'] = str(staged_module)
         bootstrap(data, runtime, out, prefix=prefix)
         with (data / 'postgresql.conf').open('a') as conf:
             conf.write('\nenable_lake_maintenance = off\n')
         service('start', [ctl, 'start', '-w', '-t', '60', '-D', data, '-Z', 'single_node',
                           '-l', runtime/'server.log', '-o', f'-p {port}'])
         pid = int((data / 'postmaster.pid').read_text().splitlines()[0])
-        check(sha(Path('/proc')/str(pid)/'exe') == qualified['gaussdb_sha256'], 'actual owned Debug ELF')
+        running_binary = Path('/proc') / str(pid) / 'exe'
+        check(running_binary.resolve() == (prefix / 'bin/gaussdb').resolve() and
+              sha(running_binary) == qualified['gaussdb_sha256'], 'actual owned Debug ELF')
         state['pid'] = pid
         root = out / 'external'
         (root / 'nested').mkdir(parents=True)
@@ -131,7 +152,7 @@ def main():
             query(db, 'CREATE SCHEMA lab_external')
             query(db, sql.SQL("CREATE FUNCTION lab_external.read_it(text,text) RETURNS SETOF record "
                               "AS {}, 'lake_external_parquet_probe' LANGUAGE C VOLATILE NOT FENCED SECURITY INVOKER")
-                  .format(sql.Literal(str(module))))
+                  .format(sql.Literal('$libdir/proc_srclib/' + staged_module.name)))
             query(db, 'REVOKE ALL ON FUNCTION lab_external.read_it(text,text) FROM PUBLIC')
             pwd = 'Pg6!' + secrets.token_hex(12)
             query(db, sql.SQL('CREATE ROLE lab_external_reader LOGIN PASSWORD {}').format(sql.Literal(pwd)))
@@ -148,11 +169,32 @@ def main():
             reject(db, '42703', 'SELECT * FROM lab_external.read_it(%s,%s) AS r(no_such_field text)', params, 'missing field')
             reject(db, '42804', 'SELECT * FROM lab_external.read_it(%s,%s) AS r(id bigint)', params, 'physical type mismatch')
             reject(db, '0A000', 'SELECT * FROM lab_external.read_it(%s,%s) AS r(id numeric)', params, 'unsupported type')
-            other_args = {**dbargs, 'user': 'lab_external_reader', 'password': pwd}
-            with closing(psycopg2.connect(**other_args)) as other:
-                other.autocommit = True
-                check(query(other, 'SELECT current_user') == [('lab_external_reader',)], 'real nonadmin session')
-                reject(other, '42501', scan, params, 'admin-only guard even with SQL EXECUTE grant')
+            # Use the matching openGauss client for the server's noninitial-user
+            # password authentication exchange.
+            with db.cursor() as cursor:
+                nonadmin_scan = cursor.mogrify(scan, params).decode('utf-8')
+            nonadmin_file = out / 'nonadmin.sql'
+            nonadmin_file.write_text(f'SELECT current_user;\n{nonadmin_scan};\n', encoding='utf-8')
+            nonadmin_cmd = [str(prefix / 'bin/gsql'), '-X', '-A', '-t', '-q',
+                            '-v', 'ON_ERROR_STOP=1', '-v', 'VERBOSITY=verbose',
+                            '-h', str(socket_dir), '-p', str(port), '-d', 'postgres',
+                            '-U', 'lab_external_reader', '-2', '-f', str(nonadmin_file)]
+            state['commands'].append(nonadmin_cmd)
+            nonadmin = subprocess.run(
+                nonadmin_cmd, env={**env, 'LC_ALL': 'C'}, input=pwd + '\n',
+                text=True, encoding='utf-8', capture_output=True, timeout=20)
+            (out / 'nonadmin.stdout').write_text(nonadmin.stdout)
+            (out / 'nonadmin.stderr').write_text(nonadmin.stderr)
+            state['nonadmin_client_returncode'] = nonadmin.returncode
+            rows = nonadmin.stdout.splitlines()
+            if rows and re.fullmatch(r'total time:\s+[0-9]+\s+ms', rows[-1]):
+                rows.pop()
+            check(rows == ['lab_external_reader'], 'real nonadmin session')
+            codes = re.findall(r'^SQLSTATE:\s+([0-9A-Z]{5})$', nonadmin.stderr, re.MULTILINE)
+            message = 'ERROR:  external Parquet probe requires the invoking initial administrator'
+            check(nonadmin.returncode != 0 and codes == ['42501'] and
+                  any(line.endswith(message) for line in nonadmin.stderr.splitlines()),
+                  'admin-only guard even with SQL EXECUTE grant')
             for attempt in range(3):
                 check(query(db, scan, params) == expected, f'same connection after errors, scan {attempt}')
             check(query(db, "SELECT count(*) FROM pg_extension WHERE extname='og_lake'") == [(0,)],

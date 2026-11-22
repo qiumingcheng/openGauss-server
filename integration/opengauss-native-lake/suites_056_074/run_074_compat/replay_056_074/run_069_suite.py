@@ -136,6 +136,8 @@ def run_suite(args):
     created_roles = []
     conns = []
     stages = {}
+    xmin_evidence = {}
+    completed = False
 
     try:
         role_main = f'u069_{tag}'
@@ -189,6 +191,17 @@ def run_suite(args):
         for batch in range(1, 5):
             q(cm, f"INSERT INTO biz.t_gc SELECT g, 'b{batch}_' || g FROM generate_series({(batch-1)*10+1}, {batch*10}) g")
             q(cm, "SELECT og_lake.flush('biz.t_gc')")
+        # Hold a host snapshot before any file can be retired, including
+        # position-delete replacement during flush. This session reads no lake data
+        # and therefore takes neither a lake snapshot pin nor the catalog guard.
+        r_hold = pg_connect(args.profile, db_main)
+        conns.append(r_hold)
+        q(r_hold, "BEGIN ISOLATION LEVEL REPEATABLE READ")
+        hold_xid, hold_snapshot_xmin = q(r_hold, """
+            SELECT txid_current(), txid_snapshot_xmin(txid_current_snapshot())
+        """)[0]
+        xmin_evidence.update(holder_xid=hold_xid, holder_snapshot_xmin=hold_snapshot_xmin)
+
         # Trigger position deletes + flush replacement delete file + merge_adjacent_files (retiring old data files)
         q(cm, "DELETE FROM biz.t_gc WHERE id IN (2, 12, 22)")
         q(cm, "SELECT og_lake.flush('biz.t_gc')")
@@ -215,13 +228,6 @@ def run_suite(args):
         assert same_txn_blocked
         q(cm, "ROLLBACK")
         c2 += 2
-
-        # Open XID holder BEFORE committing snapshot expiry so GetOldestXmin stays <= schedRel.xmin!
-        r_hold = pg_connect(args.profile, db_main)
-        conns.append(r_hold)
-        q(r_hold, "BEGIN")
-        q(r_hold, "CREATE TEMP TABLE _hold_xid(a int)")
-        q(r_hold, "INSERT INTO _hold_xid VALUES (1)")
 
         # Commit snapshot expiry -> schedules unused merged data files into ducklake_files_scheduled_for_deletion
         q(cm, "SELECT snapshot_id FROM og_lake.expire_snapshots('c_m'::name, %s::bigint[], NULL, false)", (exp_cands,))
@@ -277,7 +283,19 @@ def run_suite(args):
         c2 += 2
 
         # Protection 3: GetOldestXmin watermark holds newly retired items until blocking XID transaction completes & Xmin advances
+        retired_xids = q(cm, """
+            SELECT data_file_id, path, xmin::text::bigint
+            FROM lake_metadata.ducklake_files_scheduled_for_deletion
+            ORDER BY data_file_id
+        """)
+        oldest_xmin = s(cm, "SELECT pg_catalog.gs_txid_oldestxmin()")
+        xmin_evidence.update(oldest_xmin_before_cleanup=oldest_xmin,
+                             scheduled_retirement_xids=retired_xids)
+        assert [(file_id, path) for file_id, path, _ in retired_xids] == sched_rows, xmin_evidence
+        assert 0 < oldest_xmin <= hold_xid, xmin_evidence
+        assert all(hold_xid < retired_xmin for _, _, retired_xmin in retired_xids), xmin_evidence
         res_xmin = q(cm, "SELECT data_file_id, deleted, status FROM og_lake.cleanup_old_files('c_m'::name, NULL, true, false)")
+        xmin_evidence['cleanup_while_held'] = res_xmin
         assert len(res_xmin) >= 1 and all((not dl and st == 'deferred_oldest_xmin') for _, dl, st in res_xmin), res_xmin
         for spath in sched_disk_paths:
             assert spath.is_file(), f'Deferred OldestXmin file was deleted prematurely: {spath}'
@@ -412,10 +430,28 @@ def run_suite(args):
             'enable_thread_pool': pool_state,
             'stages': stages,
             'total_checks': total_checks,
+            'oldest_xmin_evidence': xmin_evidence,
         }
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
         Path(args.out).write_text(json.dumps(result, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
         print(json.dumps(result, indent=2, ensure_ascii=False))
+        completed = True
+    except BaseException as error:
+        result = {
+            'status': 'failed',
+            'profile': args.profile,
+            'error': repr(error),
+            'stages': stages,
+            'oldest_xmin_evidence': xmin_evidence,
+            'retained_databases': created_dbs,
+            'retained_roles': created_roles,
+            'retained_fixture': str(tmp_root),
+        }
+        failure_path = Path(args.out).with_name(Path(args.out).name + '.' + tag + '.failed.json')
+        failure_path.parent.mkdir(parents=True, exist_ok=True)
+        failure_path.write_text(json.dumps(result, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
+        print(f'Failure evidence: {failure_path}', flush=True)
+        raise
     finally:
         for c in list(conns):
             try:
@@ -423,21 +459,23 @@ def run_suite(args):
             except Exception:
                 pass
         if admin is not None:
-            for dbn in list(created_dbs):
-                try:
-                    q(admin, f'DROP DATABASE IF EXISTS {dbn}')
-                except Exception:
-                    pass
-            for rn in list(created_roles):
-                try:
-                    q(admin, f'DROP ROLE IF EXISTS {rn}')
-                except Exception:
-                    pass
+            if completed:
+                for dbn in list(created_dbs):
+                    try:
+                        q(admin, f'DROP DATABASE IF EXISTS {dbn}')
+                    except Exception:
+                        pass
+                for rn in list(created_roles):
+                    try:
+                        q(admin, f'DROP ROLE IF EXISTS {rn}')
+                    except Exception:
+                        pass
             try:
                 admin.close()
             except Exception:
                 pass
-        shutil.rmtree(tmp_root, ignore_errors=True)
+        if completed:
+            shutil.rmtree(tmp_root, ignore_errors=True)
 
 
 def main():

@@ -163,9 +163,14 @@ def native_build_config_inputs():
     This tree need not enable automatic header dependencies. A CPP-only repair
     after a failed full build can still reuse the correctly configured objects.
     """
+    # The separate SDK6 probe build never supplies compiler inputs to
+    # gaussdb. The native entry is recorded independently as build_entry_sha256.
+    # Keep both in native_source_inputs for full receipt verification.
     return {name: value for name, value in native_source_inputs().items()
-            if Path(name).suffix in {'.h', '.hpp', '.inc', '.in', '.cmake', '.sh'} or
-            Path(name).name in {'Makefile', 'CMakeLists.txt', 'configure'}}
+            if not name.startswith('integration/opengauss-native-lake/sdk_external_tests/')
+            and name != 'integration/opengauss-native-lake/native_build_entry.sh'
+            and (Path(name).suffix in {'.h', '.hpp', '.inc', '.in', '.cmake', '.sh'}
+                 or Path(name).name in {'Makefile', 'CMakeLists.txt', 'configure'})}
 
 
 def check_roaring_config(mode, profile, dependency, bitmap_sources, pq_dependency=None):

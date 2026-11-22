@@ -103,6 +103,7 @@ def sha256_file(path: Path) -> str:
 
 def driver_env():
     env = os.environ.copy()
+    env.pop('OG_LAKE_060_ISOLATED_RUNTIME', None)
     env['OG_LAKE_SOURCE'] = str(SOURCE)
     env['CPP_WORKSPACE'] = str(ROOT)
     env['PGUSER'] = CONFIG.user
@@ -177,10 +178,8 @@ def make_live_receipt(base_receipt_path: Path, profile: str, out_path: Path) -> 
 
 
 def run_output_suite(script_name: str, profile: str, out_json: Path):
-    env = os.environ.copy()
-    env['OG_LAKE_TEST_PROFILE'] = profile
     run_cmd([sys.executable, str(REPLAY_DIR / script_name), '--output', str(out_json)],
-            env=env, label=f'{profile}:{script_name}')
+            env={'OG_LAKE_TEST_PROFILE': profile}, label=f'{profile}:{script_name}')
     return json.loads(out_json.read_text(encoding='utf-8'))
 
 
@@ -201,7 +200,7 @@ def run_060_isolated_pool_worker(base_receipt: Path, p_out: Path, stamp: str):
     iso_data = iso_path / 'data'
     iso_boot = p_out / f'iso_boot_{stamp}'
     iso_boot.mkdir(parents=True, exist_ok=True)
-    iso_path.mkdir(mode=0o700, parents=True, exist_ok=True)
+    iso_path.mkdir(mode=0o700)
     base_meta = json.loads(base_receipt.read_text(encoding='utf-8'))
     (iso_path / 'owner.json').write_text(json.dumps({
         'project': 'opengauss-native-lake-sql060-pool',
@@ -211,26 +210,32 @@ def run_060_isolated_pool_worker(base_receipt: Path, p_out: Path, stamp: str):
         'install': str(INSTALL),
         'build_sha256': sha256_file(base_receipt),
     }, indent=2) + '\n', encoding='utf-8')
+    build_driver.port_check(55560)
     build_driver.bootstrap(iso_data, iso_path, iso_boot, prefix=INSTALL)
     iso_conf = iso_data / 'postgresql.conf'
     iso_conf.write_bytes(patch_conf(iso_conf.read_bytes(), POOL_060))
     os.chmod(iso_conf, 0o600)
 
     gcc = ROOT / 'binarylibs/buildtools/gcc10.3/gcc/lib64'
-    env = driver_env()
-    env.update(GAUSSHOME=str(INSTALL), PGDATA=str(iso_data), PGPORT='55560',
-               PGHOST=str(iso_path / 'socket'), LD_LIBRARY_PATH=f'{INSTALL}/lib:{gcc}',
-               OG_LAKE_TEST_PROFILE='debug', OG_LAKE_060_ISOLATED_RUNTIME=str(iso_path))
+    server_env = {
+        'GAUSSHOME': str(INSTALL), 'PGDATA': str(iso_data), 'PGPORT': '55560',
+        'PGHOST': str(iso_path / 'socket'), 'LD_LIBRARY_PATH': f'{INSTALL}/lib:{gcc}',
+    }
+    suite_env = {'OG_LAKE_TEST_PROFILE': 'debug', 'OG_LAKE_060_ISOLATED_RUNTIME': str(iso_path)}
     ctl = INSTALL / 'bin/gs_ctl'
+    pidfile = iso_data / 'postmaster.pid'
+    server = (INSTALL / 'bin/gaussdb').resolve(strict=True)
     try:
         run_cmd([str(ctl), 'start', '-w', '-t', '60', '-D', str(iso_data), '-Z', 'single_node',
-                 '-l', str(iso_path / 'server.log'), '-o', '-p 55560'],
-                env=env, label='start isolated sql060p pool+maint debug')
-        pid = int((iso_data / 'postmaster.pid').read_text().splitlines()[0])
+                 '-l', str(iso_boot / 'server.log'), '-o', '-p 55560'],
+                env=server_env, label='start isolated sql060p pool+maint debug')
+        pid = int(pidfile.read_text().splitlines()[0])
+        running_sha = sha256_file(Path(f'/proc/{pid}/exe'))
+        assert running_sha == base_meta['binary_sha256']
         live_rc = p_out / 'live_receipt_060_debug_on_on_iso.json'
         meta = dict(base_meta)
         meta.update(profile='debug', data=str(iso_data), port=55560, running_pid=pid,
-                    running_binary_sha256=sha256_file(INSTALL / 'bin/gaussdb'))
+                    running_binary_sha256=running_sha)
         live_rc.write_text(json.dumps(meta, indent=2), encoding='utf-8')
         run_cmd([
             sys.executable, str(REPLAY_DIR / 'run_060_suite.py'),
@@ -238,28 +243,38 @@ def run_060_isolated_pool_worker(base_receipt: Path, p_out: Path, stamp: str):
             '--output', str(out_dir),
             '--pool', 'on',
             '--maintenance', 'on',
-        ], env=env, label='debug:run_060_suite(pool=on,maint=on,isolated)', timeout=900)
-        return json.loads((out_dir / 'result.json').read_text(encoding='utf-8'))
+        ], env=suite_env, label='debug:run_060_suite(pool=on,maint=on,isolated)', timeout=900)
+        result = json.loads((out_dir / 'result.json').read_text(encoding='utf-8'))
+        assert result['status'] == 'passed', result
     finally:
-        if (iso_data / 'postmaster.pid').exists():
-            subprocess.run([str(ctl), 'stop', '-D', str(iso_data), '-m', 'fast', '-w'],
-                           env=env, check=False, capture_output=True, text=True)
-        shutil.rmtree(iso_path, ignore_errors=True)
+        if pidfile.exists():
+            pid = int(pidfile.read_text().splitlines()[0])
+            exe = Path(f'/proc/{pid}/exe')
+            if exe.exists() and exe.resolve(strict=True) != server:
+                raise RuntimeError(f'Isolated SQL0.60 pidfile points to another executable: {pid}')
+            env = driver_env()
+            env.update(server_env)
+            with (iso_boot / 'stop.log').open('w', encoding='utf-8') as stop_log:
+                subprocess.run([str(ctl), 'stop', '-D', str(iso_data), '-m', 'fast', '-w', '-t', '60'],
+                               env=env, stdout=stop_log, stderr=subprocess.STDOUT, check=True, timeout=70)
+            if pidfile.exists():
+                raise RuntimeError(f'Isolated SQL0.60 pidfile remains: {pidfile}')
+    shutil.rmtree(iso_path)
+    return result
 
 
 def run_060_suite(base_receipt: Path, profile: str, pool: str, maint: str, out_dir: Path):
     if out_dir.exists():
         raise FileExistsError('Refusing to replace prior campaign evidence: ' + str(out_dir))
     live_rc = make_live_receipt(base_receipt, profile, out_dir.parent / f'live_receipt_060_{profile}_{pool}_{maint}.json')
-    env = os.environ.copy()
-    env['OG_LAKE_TEST_PROFILE'] = profile
     run_cmd([
         sys.executable, str(REPLAY_DIR / 'run_060_suite.py'),
         '--build', str(live_rc),
         '--output', str(out_dir),
         '--pool', pool,
         '--maintenance', maint,
-    ], env=env, label=f'{profile}:run_060_suite(pool={pool},maint={maint})', timeout=900)
+    ], env={'OG_LAKE_TEST_PROFILE': profile},
+        label=f'{profile}:run_060_suite(pool={pool},maint={maint})', timeout=900)
     return json.loads((out_dir / 'result.json').read_text(encoding='utf-8'))
 
 
@@ -374,6 +389,7 @@ MAINT_070 = {
     'lake_index_maintenance_naptime': '1000',
 }
 POOL_060 = {
+    'max_process_memory': "'3GB'",
     'enable_thread_pool': 'on',
     'thread_pool_attr': "'4, 1, (nobind)'",
     'enable_lake_maintenance': 'on',
