@@ -26,11 +26,6 @@
 /* Test hook has no installed SQL entry; separately reviewed native probe. */
 extern void LakeTestAnalyzeAfterRow(Oid relationOid, uint64 visibleRows);
 
-struct LakeAnalyzeSample {
-    HeapTuple tuple;
-    uint64 ordinal;
-};
-
 bool LakeIsNativeForeignRelation(Relation relation)
 {
     if (relation == NULL || RelationGetRelkind(relation) != RELKIND_FOREIGN_TABLE)
@@ -105,13 +100,6 @@ BlockNumber LakeInlinePhysicalPages(const LakeInlineBinding* binding)
     }
     PG_END_TRY();
     return (BlockNumber)pages;
-}
-
-static int LakeCompareSampleOrdinal(const void* left, const void* right)
-{
-    uint64 a = ((const LakeAnalyzeSample*)left)->ordinal;
-    uint64 b = ((const LakeAnalyzeSample*)right)->ordinal;
-    return a < b ? -1 : a > b ? 1 : 0;
 }
 
 static int LakeAcquireSampleRows(Relation relation, int elevel, HeapTuple* rows,

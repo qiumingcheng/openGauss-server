@@ -93,6 +93,12 @@ void LakeCostScalar(LakeCostLedger* ledger,bool bitmap,double selectivity,double
         source->prepare=LakeCostValue(prepare);source->run=LakeCostValue(candidate);
     }
 }
+/* Opening the manifest, model and codes incurs fixed work for every PQ
+ * segment before it can return its first row. Charge this in native random
+ * page cost units. The paired 8k/20k/50k measurements are in the SQL 0.74
+ * migration guide. These units estimate latency, not physical pages read. */
+static constexpr double LAKE_PQ_OPEN_COST_PAGES = 32.0;
+
 void LakeCostAnn(LakeCostLedger* ledger,uint32 beam,int dimension,int leaves)
 {
     double effEmit=Max((uint32)1,beam),dim=Max(1,dimension);
@@ -110,7 +116,8 @@ void LakeCostAnn(LakeCostLedger* ledger,uint32 beam,int dimension,int leaves)
         double groupFraction=1.0-pow(1.0-1.0/Max(1.0,source->groups),effRows);
         double ioShare=Min(1.0,0.15*groupFraction+0.85*rowFraction);
 
-        double lookupIo=LakeCostProduct(hasPq?4.0:6.0,ledger->random_page);
+        double lookupPages = hasPq ? 4.0 + LAKE_PQ_OPEN_COST_PAGES : 6.0;
+        double lookupIo = LakeCostProduct(lookupPages, ledger->random_page);
         double hops=Min(nodes,64.0+sqrt(nodes)*(hasPq?3.0:4.0));
         double traverseCpu=hasPq
             ?LakeCostProduct(hops,ledger->cpu_tuple*0.25+chunks*ledger->cpu_operator*0.02)

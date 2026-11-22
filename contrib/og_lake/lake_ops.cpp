@@ -32,7 +32,9 @@
 #include "utils/rel.h"
 #include "utils/snapmgr.h"
 #include "utils/tuplestore.h"
-#include <dirent.h>
+#include "lake_scalar_format.h"
+#include "lake_bitmap_format.h"
+#include "lake_file_pq.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -130,7 +132,8 @@ static bool LakeOpsAnchoredStatFile(const char* absRoot, const char* relPath, in
     return false;
 }
 
-static bool LakeOpsCheckIndexDir(const char* indexRoot, const char* artifactUri, const char** reasonOut)
+static bool LakeOpsCheckIndexDir(const char* indexRoot, const char* artifactUri, const char* method,
+    int format, const char** reasonOut)
 {
     if (reasonOut) *reasonOut = NULL;
     if (indexRoot == NULL || artifactUri == NULL || *indexRoot == '\0' || *artifactUri == '\0') {
@@ -147,34 +150,50 @@ static bool LakeOpsCheckIndexDir(const char* indexRoot, const char* artifactUri,
     }
     int dirFd = LakeOpenAnchoredDirectory(artifactUri);
     if (dirFd < 0) {
-        if (reasonOut) *reasonOut = "segment directory missing on disk";
+        if (errno != ENOENT && errno != ENOTDIR && errno != ELOOP)
+            ereport(ERROR, (errcode_for_file_access(), errmsg("could not inspect lake segment directory: %m")));
+        *reasonOut = "segment directory missing or invalid on disk";
         return false;
     }
-    int dupFd = dup(dirFd);
-    DIR* dir = dupFd >= 0 ? fdopendir(dupFd) : NULL;
-    if (dir == NULL) {
-        if (dupFd >= 0) close(dupFd);
+    static const char* const scalar[] = {OG_LAKE_SCALAR_DATA_FILE, OG_LAKE_SCALAR_LOOKUP_FILE};
+    static const char* const bitmap[] = {OG_LAKE_BITMAP_DATA_FILE};
+    static const char* const ann[] = {OG_LAKE_ANN_NODES_FILE, OG_LAKE_ANN_LOOKUP_FILE,
+        LAKE_PQ_MODEL_FILE, LAKE_PQ_CODES_FILE, LAKE_PQ_MANIFEST_FILE};
+    const char* const* members = NULL;
+    int count = 0;
+    if (strcmp(method, "btree") == 0 && format == 1) {
+        members = scalar;
+        count = lengthof(scalar);
+    } else if (strcmp(method, "bitmap") == 0 && format == 2) {
+        members = bitmap;
+        count = lengthof(bitmap);
+    } else if (strcmp(method, "diskann") == 0 && (format == 1 || format == 2)) {
+        members = ann;
+        count = format == 1 ? 2 : lengthof(ann);
+    } else {
         close(dirFd);
-        if (reasonOut) *reasonOut = "cannot enumerate segment directory";
-        return false;
+        ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+            errmsg("cannot verify lake index method %s format %d", method, format)));
     }
-    bool hasRegular = false;
-    struct dirent* ent;
-    while ((ent = readdir(dir)) != NULL) {
-        if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0)
-            continue;
+    for (int i = 0; i < count; ++i) {
         struct stat st;
-        if (fstatat(dirFd, ent->d_name, &st, AT_SYMLINK_NOFOLLOW) == 0 && S_ISREG(st.st_mode)) {
-            hasRegular = true;
-            break;
+        int rc;
+        do {
+            rc = fstatat(dirFd, members[i], &st, AT_SYMLINK_NOFOLLOW);
+        } while (rc < 0 && errno == EINTR);
+        if (rc < 0 && errno != ENOENT) {
+            int savedErrno = errno;
+            close(dirFd);
+            errno = savedErrno;
+            ereport(ERROR, (errcode_for_file_access(), errmsg("could not inspect lake segment member %s: %m", members[i])));
+        }
+        if (rc < 0 || !S_ISREG(st.st_mode) || st.st_size < 12) {
+            close(dirFd);
+            *reasonOut = psprintf("required segment member %s missing or invalid", members[i]);
+            return false;
         }
     }
-    closedir(dir);
     close(dirFd);
-    if (!hasRegular) {
-        if (reasonOut) *reasonOut = "segment directory contains no artifact files";
-        return false;
-    }
     return true;
 }
 
@@ -607,7 +626,7 @@ Datum og_lake_verify_catalog_integrity(PG_FUNCTION_ARGS)
                 indexRoot = TextDatumGetCString(rDat);
         }
         LakeMetaRows* segs = LakeMetadataQuery(
-            "SELECT s.segment_uuid::text, s.artifact_root_uri::text, s.state::text "
+            "SELECT s.segment_uuid::text, s.artifact_root_uri::text, d.definition->>'method', s.format_version, s.state::text "
             "FROM og_lake_internal.index_segment s JOIN og_lake_internal.index_definition d USING(index_uuid) "
             "WHERE d.server_oid=$1 AND s.state IN ('READY','BUILDING') ORDER BY s.build_snapshot, s.segment_uuid",
             1, &srvType, &srvArg, NULL, snapshot, true, SPI_OK_SELECT);
@@ -623,11 +642,17 @@ Datum og_lake_verify_catalog_integrity(PG_FUNCTION_ARGS)
         {
             for (uint32 i = 0; i < segs->count; ++i) {
                 CHECK_FOR_INTERRUPTS();
+                /* BUILDING is an outstanding reservation. Its worker may still
+                 * be creating members and owns the transition to READY/FAILED. */
+                if (strcmp(LakeMetadataText(segs, i, 5), "BUILDING") == 0)
+                    continue;
                 ++checkedSegs;
                 const char* segUuid = LakeMetadataText(segs, i, 1);
                 const char* artUri = LakeMetadataText(segs, i, 2);
                 const char* dirReason = NULL;
-                if (!LakeOpsCheckIndexDir(indexRoot, artUri, &dirReason)) {
+                const char* method = LakeMetadataText(segs, i, 3);
+                int format = DatumGetInt32(LakeMetadataValue(segs, i, 4, INT4OID));
+                if (!LakeOpsCheckIndexDir(indexRoot, artUri, method, format, &dirReason)) {
                     ++warnings;
                     if (repair) {
                         Oid ut = UUIDOID;
@@ -636,7 +661,7 @@ Datum og_lake_verify_catalog_integrity(PG_FUNCTION_ARGS)
                             "UPDATE og_lake_internal.index_coverage SET active=false WHERE segment_uuid=$1 AND active",
                             1, &ut, &ua, NULL, snapshot, false, SPI_OK_UPDATE);
                         (void)LakeMetadataQuery(
-                            "UPDATE og_lake_internal.index_segment SET state='FAILED' WHERE segment_uuid=$1 AND state IN ('READY','BUILDING')",
+                            "UPDATE og_lake_internal.index_segment SET state='FAILED' WHERE segment_uuid=$1 AND state='READY'",
                             1, &ut, &ua, NULL, snapshot, false, SPI_OK_UPDATE);
                         ++repaired;
                         LakeOpsPutIntegrityRow(store, descriptor, "index_segment", segUuid, "warning",
@@ -735,16 +760,30 @@ Datum og_lake_retention_status(PG_FUNCTION_ARGS)
             0, NULL, NULL, NULL, snapshot, true, SPI_OK_SELECT, ns);
         int64 totalSnaps = snapCnt->count == 1 ? DatumGetInt64(LakeMetadataValue(snapCnt, 0, 1, INT8OID)) : 0;
 
-        LakeMetaRows* schedStats = LakeMetadataQuery(psprintf(
-            "SELECT count(DISTINCT s.data_file_id), COALESCE(sum(COALESCE(df.file_size_bytes, dl.file_size_bytes, 0))::bigint, 0) "
-            "FROM %s s LEFT JOIN %s df ON df.data_file_id=s.data_file_id "
-            "LEFT JOIN %s dl ON dl.delete_file_id=s.data_file_id",
-            LakeMetadataRelation(ns, "ducklake_files_scheduled_for_deletion"),
-            LakeMetadataRelation(ns, "ducklake_data_file"),
-            LakeMetadataRelation(ns, "ducklake_delete_file")),
+        /* The DuckLake deletion queue outlives data/delete file metadata.
+         * Count physical paths once and report NULL if any size is unknown. */
+        LakeMetaRows* scheduled = LakeMetadataQuery(psprintf(
+            "SELECT DISTINCT path::text,path_is_relative FROM %s",
+            LakeMetadataRelation(ns, "ducklake_files_scheduled_for_deletion")),
             0, NULL, NULL, NULL, snapshot, true, SPI_OK_SELECT, ns);
-        int64 schedFiles = schedStats->count == 1 ? DatumGetInt64(LakeMetadataValue(schedStats, 0, 1, INT8OID)) : 0;
-        int64 schedBytes = schedStats->count == 1 ? DatumGetInt64(LakeMetadataValue(schedStats, 0, 2, INT8OID)) : 0;
+        int64 schedFiles = scheduled->count;
+        int64 schedBytes = 0;
+        bool bytesKnown = true;
+        for (uint32 i = 0; i < scheduled->count; ++i) {
+            CHECK_FOR_INTERRUPTS();
+            bool pathNull, relativeNull;
+            Datum path = LakeMetadataValue(scheduled, i, 1, TEXTOID, true, &pathNull);
+            Datum relative = LakeMetadataValue(scheduled, i, 2, BOOLOID, true, &relativeNull);
+            int64 size;
+            if (pathNull || relativeNull || !DatumGetBool(relative) ||
+                !LakeOpsAnchoredStatFile(binding->data_root, TextDatumGetCString(path), &size, NULL)) {
+                bytesKnown = false;
+                break;
+            }
+            if (size > PG_INT64_MAX - schedBytes)
+                ereport(ERROR, (errcode(ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE), errmsg("scheduled file sizes exceed bigint")));
+            schedBytes += size;
+        }
 
         int pinCount = 0;
         int64 minPin = -1;
@@ -787,6 +826,7 @@ Datum og_lake_retention_status(PG_FUNCTION_ARGS)
         outVals[2] = Int64GetDatum(totalSnaps);
         outVals[3] = Int64GetDatum(schedFiles);
         outVals[4] = Int64GetDatum(schedBytes);
+        outNulls[4] = !bytesKnown;
         outVals[5] = Int64GetDatum(pinCount);
         if (minPin >= 0) {
             outVals[6] = Int64GetDatum(minPin);

@@ -1,5 +1,10 @@
 # Local Parquet provider candidate
 
+The managed and external providers compile the same implementation in
+`../sdk/arrow_parquet_provider.cpp`. The external build also enables the
+borrowed-descriptor API and exports `og_lake_parquet_sdk_v6`. Keep both source
+directories side by side when building. The installed base C header is shared.
+
 The native executor owns planning, snapshots, row identity, deletes and catalog
 publication. This independently compiled library implements file operations
 using Apache Arrow/Parquet 20.0.0. Its C ABI and Arrow C Data batches keep Arrow

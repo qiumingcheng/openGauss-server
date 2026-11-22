@@ -483,7 +483,7 @@ static bool LakeCdcChangesHasRewriteForTable(const char* changes, int64 tableId)
 }
 
 static int64* LakeCdcLoadRewriteSnapshots(LakeInlineBinding* binding, Snapshot snapshot,
-    int64 endSnap, MemoryContext ownerCtx, int* countOut)
+    int64 startSnap, int64 endSnap, MemoryContext ownerCtx, int* countOut)
 {
     int64 tableId = LakePermanentTableId(binding);
     MemoryContext page = AllocSetContextCreate(ownerCtx, "Lake CDC rewrite scan page",
@@ -498,20 +498,20 @@ static int64* LakeCdcLoadRewriteSnapshots(LakeInlineBinding* binding, Snapshot s
         CHECK_FOR_INTERRUPTS();
         MemoryContextReset(page);
         MemoryContext prev = MemoryContextSwitchTo(page);
-        Oid types[3] = {INT8OID, BOOLOID, INT8OID};
-        Datum args[3] = {Int64GetDatum(endSnap), BoolGetDatum(first), Int64GetDatum(cursor)};
+        Oid types[4] = {INT8OID, BOOLOID, INT8OID, INT8OID};
+        Datum args[4] = {Int64GetDatum(endSnap), BoolGetDatum(first), Int64GetDatum(cursor), Int64GetDatum(startSnap)};
         LakeMetaRows* rows = LakeMetadataQuery(psprintf(
             "SELECT c.snapshot_id,c.changes_made::text,c.xmin FROM %s c "
-            "WHERE c.snapshot_id<=$1 AND ($2 OR c.snapshot_id>$3) "
+            "WHERE c.snapshot_id BETWEEN $4 AND $1 AND ($2 OR c.snapshot_id>$3) "
             "ORDER BY c.snapshot_id ASC LIMIT 512", changesRel),
-            3, types, args, NULL, snapshot, true, SPI_OK_SELECT, binding->metadata_schema_oid);
+            4, types, args, NULL, snapshot, true, SPI_OK_SELECT, binding->metadata_schema_oid);
         if (!rows->count) {
             MemoryContextSwitchTo(prev);
             break;
         }
         for (uint32 i = 0; i < rows->count; ++i) {
             int64 id = DatumGetInt64(LakeMetadataValue(rows, i, 1, INT8OID));
-            if (id < 0 || id > endSnap || (!first && id <= cursor))
+            if (id < startSnap || id > endSnap || (!first && id <= cursor))
                 ereport(ERROR, (errcode(ERRCODE_DATA_CORRUPTED),
                     errmsg("invalid ascending lake snapshot_changes identity")));
             first = false;
@@ -1507,7 +1507,7 @@ static Datum LakeCdcExecute(FunctionCallInfo fcinfo, LakeCdcMode mode, bool byTi
         if (startSnap <= endSnap) {
             int rewriteCount = 0;
             int64* rewriteSnaps = LakeCdcLoadRewriteSnapshots(
-                endBinding, snapshot, endSnap, scanCtx, &rewriteCount);
+                endBinding, snapshot, startSnap, endSnap, scanCtx, &rewriteCount);
 
             Datum* outValues = (Datum*)palloc0(sizeof(Datum) * outDesc->natts);
             bool* outNulls = (bool*)palloc0(sizeof(bool) * outDesc->natts);

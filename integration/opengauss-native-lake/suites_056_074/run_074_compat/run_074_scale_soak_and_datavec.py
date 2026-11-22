@@ -3,7 +3,7 @@
 1) Upstream openGauss datavec SQL regression (diskann_vector, hnsw_lsg_vector, hnsw_rabitq_vector)
 2) Core SQL0.56..0.70 historical suites replayed on Release -O2
 3) 1,000,000-row (1M) scale ingest, Row/Vec SMP DOP=1/4, truncate(1000)+bucket(4) pruning
-4) 20k & 50k DiskANN+PQ dim=32 crossover benchmark (build_ms, exact vs PQ DOP=1/4, Recall@10)
+4) 8k, 20k and 50k rows at 32 dimensions: natural plan, paired exact/PQ DOP 1/4 latency and Recall@10
 5) Thread-pool=on (4 workers) soak: 80-table >64 SPI_keepplan LRU eviction + DDL invalidation,
    multi-writer DML/flush/GC + concurrent Vec DOP=4 readers + pg_cancel_backend + VmRSS monitor.
 """
@@ -321,57 +321,53 @@ def bench_1m_scale(out_dir: Path):
             assert int(file_cnt) == 16, file_cnt
             expected = q(conn, 'SELECT count(*), sum(k), round(sum(v)::numeric, 4), min(num), max(num) FROM biz.exact1m')[0]
 
-            def measure_agg(setup_sql, agg_sql, repeats=4):
+            def measure_agg(setup_sql, agg_sql, expected_row, repeats=4):
                 times = []
-                res = None
                 for st in setup_sql:
                     q(conn, st)
                 for _ in range(repeats):
                     ts = time.monotonic()
                     res = q(conn, agg_sql)[0]
                     times.append((time.monotonic() - ts) * 1000.0)
-                return round(statistics.median(times[1:] if len(times) > 1 else times), 3), res
+                    assert res == expected_row, (res, expected_row)
+                return round(statistics.median(times[1:] if len(times) > 1 else times), 3)
 
             agg_sql = 'SELECT count(*), sum(k), round(sum(v)::numeric, 4), min(num), max(num) FROM biz.biz1m'
-            row_d1_ms, r1 = measure_agg([
+            row_d1_ms = measure_agg([
                 "SET try_vector_engine_strategy = 'off'",
                 'SET enable_vector_engine = off',
                 'SET enable_lake_smp = off',
                 'SET enable_force_smp = off',
                 'SET query_dop = 1',
-            ], agg_sql)
-            assert r1 == expected, (r1, expected)
+            ], agg_sql, expected)
 
-            row_d4_ms, r2 = measure_agg([
+            row_d4_ms = measure_agg([
                 "SET try_vector_engine_strategy = 'off'",
                 'SET enable_vector_engine = off',
                 'SET enable_lake_smp = on',
                 'SET enable_force_smp = off',
                 'SET query_dop = 4',
                 'SET enable_force_smp = on',
-            ], agg_sql)
-            assert r2 == expected, (r2, expected)
+            ], agg_sql, expected)
 
-            vec_d1_ms, r3 = measure_agg([
+            vec_d1_ms = measure_agg([
                 'SET enable_vector_engine = on',
                 "SET try_vector_engine_strategy = 'force'",
                 'SET enable_lake_smp = off',
                 'SET enable_force_smp = off',
                 'SET query_dop = 1',
-            ], agg_sql)
-            assert r3 == expected, (r3, expected)
+            ], agg_sql, expected)
             exp_vd1 = '\n'.join(explain_lines(conn, agg_sql))
             assert 'Lake Batch Delivery: native VecForeignScan / owned scalar VectorBatch' in exp_vd1, exp_vd1
 
-            vec_d4_ms, r4 = measure_agg([
+            vec_d4_ms = measure_agg([
                 'SET enable_vector_engine = on',
                 "SET try_vector_engine_strategy = 'force'",
                 'SET enable_lake_smp = on',
                 'SET enable_force_smp = off',
                 'SET query_dop = 4',
                 'SET enable_force_smp = on',
-            ], agg_sql)
-            assert r4 == expected, (r4, expected)
+            ], agg_sql, expected)
             exp_vd4 = '\n'.join(explain_lines(conn, agg_sql))
             assert 'Lake Batch Delivery: native VecForeignScan / owned scalar VectorBatch' in exp_vd4, exp_vd4
             assert 'Lake SMP Planned DOP: 4' in exp_vd4, exp_vd4
@@ -379,17 +375,16 @@ def bench_1m_scale(out_dir: Path):
             # Truncate + bucket pruning check on 1M rows under VecForeignScan DOP=1 (16 files -> 15 skipped, 1 admitted)
             prune_sql = 'SELECT count(*), sum(id) FROM biz.biz1m WHERE k BETWEEN 500000 AND 500999 AND b = 3'
             exp_prune = q(conn, 'SELECT count(*), sum(id) FROM biz.exact1m WHERE k BETWEEN 500000 AND 500999 AND b = 3')[0]
-            prune_ms, r_prune = measure_agg([
+            prune_ms = measure_agg([
                 'SET enable_vector_engine = on',
                 "SET try_vector_engine_strategy = 'force'",
                 'SET enable_lake_smp = off',
                 'SET enable_force_smp = off',
                 'SET query_dop = 1',
-            ], prune_sql, repeats=5)
+            ], prune_sql, exp_prune, repeats=5)
             plan_txt = '\n'.join(explain_lines(conn, prune_sql))
             assert 'Lake Batch Delivery: native VecForeignScan / owned scalar VectorBatch' in plan_txt, plan_txt
             assert 'Lake Partition Files Skipped: 15' in plan_txt and 'Lake Partition Files Admitted: 1' in plan_txt, plan_txt
-            assert r_prune == exp_prune, (r_prune, exp_prune)
 
             return {
                 'rows': 1000000,
@@ -417,7 +412,10 @@ def make_vec_lit(seed: int, dim: int = 32) -> str:
     return '[' + ','.join(f'{rng.uniform(-1.0, 1.0):.4f}' for _ in range(dim)) + ']'
 
 
-def bench_pq_scale(conn_db_prefix: str, total_rows: int, n_files: int = 4, dim: int = 32):
+def bench_pq_scale(conn_db_prefix: str, total_rows: int, n_files: int = 4, dim: int = 32,
+                   query_count: int = 100, expected_natural_pq=None):
+    if query_count < 2:
+        raise ValueError('paired PQ benchmarks require at least two queries')
     db_name = f'{conn_db_prefix}_{total_rows}_{os.getpid()}'
     root_dir = Path(tempfile.mkdtemp(prefix=f'og_pq{total_rows}_', dir='/tmp'))
     rows_per_file = total_rows // n_files
@@ -443,10 +441,11 @@ def bench_pq_scale(conn_db_prefix: str, total_rows: int, n_files: int = 4, dim: 
                 FROM generate_series(1, {total_rows}) g
             """)
             for fi in range(n_files):
-                lo = fi * rows_per_file + 1
-                hi = (fi + 1) * rows_per_file
+                lo = fi * total_rows // n_files + 1
+                hi = (fi + 1) * total_rows // n_files
                 q(conn, f'INSERT INTO biz.t_pq SELECT * FROM biz.staging_pq WHERE id BETWEEN {lo} AND {hi}')
                 q(conn, "SELECT og_lake.flush('biz.t_pq'::regclass)")
+            assert s(conn, 'SELECT count(*) FROM biz.t_pq') == total_rows
             q(conn, 'ANALYZE biz.t_pq')
 
             idx_uuid = s(conn, """
@@ -465,50 +464,77 @@ def bench_pq_scale(conn_db_prefix: str, total_rows: int, n_files: int = 4, dim: 
             done_cnt = s(conn, "SELECT count(*) FROM og_lake_internal.index_segment WHERE index_uuid=%s::uuid AND state='READY' AND format_version=2", (idx_uuid,))
             assert int(done_cnt) == n_files, f'Expected {n_files} READY format2 segments, got {done_cnt}'
 
-            queries = [make_vec_lit(1000 + i, dim) for i in range(5)]
-            recalls = []
-            exact_times = []
-            pq_d1_times = []
-            pq_d4_times = []
+            select = f"SELECT id FROM biz.t_pq WHERE v IS NOT NULL ORDER BY v <-> %s::vector({dim}) LIMIT 10"
+            warmup = make_vec_lit(999, dim)
+            q(conn, "SET enable_vector_engine=off; SET try_vector_engine_strategy='off'; SET enable_lake_smp=on; "
+                    "SET ann_orderby_distance_reuse=off; SET query_max_mem=0; SET enable_force_smp=off; "
+                    "SET query_dop=1; SET enable_lake_ann=on; SET enable_seqscan=on")
+            natural = explain_lines(conn, select.replace('%s', f"'{warmup}'"))
+            natural_pq = any(f'Verified PQ File Coverage: {n_files}' in line for line in natural)
+            if expected_natural_pq is not None:
+                assert natural_pq == expected_natural_pq, (total_rows, natural)
 
-            for qi, qv in enumerate(queries):
-                q(conn, "SET enable_vector_engine = off; SET try_vector_engine_strategy = 'off'; SET enable_lake_smp = on; SET ann_orderby_distance_reuse = off; SET query_max_mem = 0")
-                q(conn, 'SET enable_lake_ann = off; SET enable_seqscan = on; SET enable_force_smp = off; SET query_dop = 1')
+            settings = {
+                'exact': 'SET enable_force_smp=off; SET query_dop=1; SET enable_lake_ann=off; SET enable_seqscan=on',
+                'pq_dop1': 'SET enable_force_smp=off; SET query_dop=1; SET enable_lake_ann=on; SET enable_seqscan=off',
+                'pq_dop4': 'SET query_dop=4; SET enable_force_smp=on; SET enable_lake_ann=on; SET enable_seqscan=off',
+            }
+            plan_cost = {}
+            times = {route: [] for route in settings}
+            recalls = {route: [] for route in ('pq_dop1', 'pq_dop4')}
+            for route, options in settings.items():
+                q(conn, options)
+                estimate = q(conn, 'EXPLAIN (FORMAT JSON, COSTS ON) ' + select, (warmup,))[0][0][0]['Plan']
+                plan_cost[route] = estimate['Total Cost']
+                plan = '\n'.join(explain_lines(conn, select.replace('%s', f"'{warmup}'")))
+                if route == 'pq_dop4':
+                    assert 'Lake SMP Planned DOP: 4' in plan and 'Lake SMP ANN PQ: admitted' in plan, plan
+                else:
+                    coverage = n_files if route == 'pq_dop1' else 0
+                    assert f'Verified PQ File Coverage: {coverage}' in plan, plan
+                q(conn, select, (warmup,))
+
+            routes = list(settings)
+            for qi in range(query_count):
+                qv = make_vec_lit(1000 + qi, dim)
                 truth_rows = q(conn, f"SELECT id, (v <-> %s::vector({dim})) AS d FROM biz.staging_pq ORDER BY d, id LIMIT 10", (qv,))
-                te = time.monotonic()
-                _ = q(conn, f"SELECT id FROM biz.t_pq WHERE v IS NOT NULL ORDER BY v <-> %s::vector({dim}), id LIMIT 10", (qv,))
-                exact_times.append((time.monotonic() - te) * 1000.0)
-                k10_cutoff = truth_rows[-1][1] + 1e-6
-                truth_set = {r[0] for r in q(conn, f"SELECT id FROM biz.staging_pq WHERE (v <-> %s::vector({dim})) <= %s", (qv, k10_cutoff))}
+                cutoff = truth_rows[-1][1] + 1e-6
+                truth = {r[0] for r in q(conn, f"SELECT id FROM biz.staging_pq WHERE (v <-> %s::vector({dim})) <= %s", (qv, cutoff))}
+                # Identical SQL and warmed inputs, with rotating route order.
+                first = qi % len(routes)
+                for route in routes[first:] + routes[:first]:
+                    q(conn, settings[route])
+                    started = time.monotonic()
+                    result = q(conn, select, (qv,))
+                    times[route].append((time.monotonic() - started) * 1000.0)
+                    ids = {row[0] for row in result}
+                    assert len(ids) == 10, (route, len(ids))
+                    if route == 'exact':
+                        assert ids <= truth
+                    else:
+                        recalls[route].append(len(ids & truth) / 10.0)
 
-                q(conn, 'SET enable_lake_ann = on; SET enable_seqscan = off; SET enable_force_smp = off; SET query_dop = 1')
-                if qi == 0:
-                    q(conn, f"SELECT id FROM biz.t_pq WHERE v IS NOT NULL ORDER BY v <-> %s::vector({dim}) LIMIT 10", (qv,))
-                t1 = time.monotonic()
-                approx_d1 = q(conn, f"SELECT id FROM biz.t_pq WHERE v IS NOT NULL ORDER BY v <-> %s::vector({dim}) LIMIT 10", (qv,))
-                pq_d1_times.append((time.monotonic() - t1) * 1000.0)
-                hits = sum(1 for (aid,) in approx_d1 if aid in truth_set)
-                recalls.append(hits / 10.0)
-
-                q(conn, 'SET enable_force_smp = off; SET query_dop = 4; SET enable_force_smp = on')
-                if qi == 0:
-                    exp_pq = '\n'.join(explain_lines(conn, f"SELECT id FROM biz.t_pq WHERE v IS NOT NULL ORDER BY v <-> %s::vector({dim}) LIMIT 10".replace('%s', f"'{qv}'")))
-                    assert 'Lake SMP Planned DOP: 4' in exp_pq and 'Lake SMP ANN PQ: admitted' in exp_pq, exp_pq
-                t4 = time.monotonic()
-                approx_d4 = q(conn, f"SELECT id FROM biz.t_pq WHERE v IS NOT NULL ORDER BY v <-> %s::vector({dim}) LIMIT 10", (qv,))
-                pq_d4_times.append((time.monotonic() - t4) * 1000.0)
-                assert len(approx_d4) == 10
-
+            mean_recalls = {route: statistics.mean(samples) for route, samples in recalls.items()}
+            for route, mean in mean_recalls.items():
+                assert mean >= 0.88, (total_rows, route, mean, min(recalls[route]))
+            tails = {}
+            for route, samples in times.items():
+                percentiles = statistics.quantiles(samples, n=100, method='inclusive')
+                tails[route] = {'p50': round(statistics.median(samples), 3),
+                                'p95': round(percentiles[94], 3), 'p99': round(percentiles[98], 3)}
             return {
-                'rows': total_rows,
-                'files': n_files,
-                'dim': dim,
-                'build_ms': build_ms,
-                'exact_scan_median_ms': round(statistics.median(exact_times), 3),
-                'pq_warm_dop1_median_ms': round(statistics.median(pq_d1_times), 3),
-                'pq_warm_dop4_median_ms': round(statistics.median(pq_d4_times), 3),
-                'mean_recall_at_10': round(sum(recalls) / len(recalls), 4),
-                'min_recall_at_10': round(min(recalls), 4),
+                'rows': total_rows, 'files': n_files, 'dim': dim, 'build_ms': build_ms,
+                'paired_queries': query_count, 'natural_dop1_pq': natural_pq, 'warm_ms': tails,
+                'estimated_plan_cost': plan_cost,
+                'queries_per_second': {route: round(1000.0 / statistics.mean(samples), 3)
+                                       for route, samples in times.items()},
+                'exact_scan_median_ms': tails['exact']['p50'],
+                'pq_warm_dop1_median_ms': tails['pq_dop1']['p50'],
+                'pq_warm_dop4_median_ms': tails['pq_dop4']['p50'],
+                'mean_recall_at_10': round(mean_recalls['pq_dop1'], 4),
+                'min_recall_at_10': round(min(recalls['pq_dop1']), 4),
+                'dop4_mean_recall_at_10': round(mean_recalls['pq_dop4'], 4),
+                'dop4_min_recall_at_10': round(min(recalls['pq_dop4']), 4),
             }
     finally:
         with closing(connect()) as admin:
@@ -758,8 +784,9 @@ def main():
         dv_res = run_datavec_regress(args.out_dir)
         hist_res = run_release_history_suites(args.build_receipt, args.out_dir, orig_conf)
         scale1m_res = bench_1m_scale(args.out_dir)
-        pq20k_res = bench_pq_scale('rel_pq', 20000, n_files=4, dim=32)
-        pq50k_res = bench_pq_scale('rel_pq', 50000, n_files=4, dim=32)
+        pq8k_res = bench_pq_scale('rel_pq', 8000, n_files=4, dim=32, expected_natural_pq=False)
+        pq20k_res = bench_pq_scale('rel_pq', 20000, n_files=4, dim=32, expected_natural_pq=True)
+        pq50k_res = bench_pq_scale('rel_pq', 50000, n_files=4, dim=32, expected_natural_pq=True)
         soak_res = soak_threadpool_spi_cache_and_gc(args.build_receipt, orig_conf)
     finally:
         REL_CONF.write_bytes(orig_conf)
@@ -788,6 +815,7 @@ def main():
         'datavec_regress': dv_res,
         'history_suites_on_release': list(hist_res.keys()),
         'scale_1m_rows': scale1m_res,
+        'diskann_pq_8k_dim32': pq8k_res,
         'diskann_pq_20k_dim32': pq20k_res,
         'diskann_pq_50k_dim32': pq50k_res,
         'threadpool_soak_and_lru': soak_res,

@@ -11,6 +11,9 @@ import sys
 import tempfile
 import uuid
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from sdk.build_provider import source_files
+
 DRIVER = Path('integration/opengauss-native-lake')
 EVIDENCE = Path('公共文档/openGauss原生湖存储/验证')
 DUCKDB = Path('.reference/opengauss-native-lake/build/duckdb-gcc10/duckdb')
@@ -119,8 +122,7 @@ def support_path(workspace):
 
 
 def source_inputs(source):
-    return {item.name: sha256(item) for item in source.iterdir()
-            if item.is_file() and (item.suffix in ('.h', '.cpp', '.map') or item.name == 'CMakeLists.txt')}
+    return {name: sha256(path) for name, path in source_files(source).items()}
 
 
 def provider(ctx, cfg, key, sdk=None):

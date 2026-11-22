@@ -6,6 +6,7 @@
 - Part C: PGL-0 expanded native pg_partition (RANGE 4+ leaves, LIST, HASH,
           extended column/key types, DML, COPY, ANALYZE, row movement,
           0.73->0.74 upgrade, and pre-0.74 contract isolation).
+- Part D: CSV/JSONL/Parquet external files, maintenance and catalog integrity.
 """
 import argparse
 import hashlib
@@ -15,15 +16,18 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import threading
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
 import time
 import uuid
 from copy import deepcopy
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from pathlib import Path
 
 import numpy as np
 import psycopg2
+
+from file_contract_cases import external_files, managed_files
 
 ROOT = Path(os.environ.get('CPP_WORKSPACE', '/home/qiumc/data/code/cpp')).expanduser().resolve()
 DRIVER = ROOT / 'integration/opengauss-native-lake'
@@ -106,9 +110,13 @@ def seed_unbound_duckdb_tables(profile: str, db: str, tmp_root: Path, table_spec
 
 
 def connect_profile(profile: str, dbname: str = 'postgres'):
-    sock = str(ROOT / '.runtime/opengauss-native-lake' / profile / 'socket')
-    port = {'debug': 55560, 'release': 55570, 'ann-debug': 55580}[profile]
-    conn = psycopg2.connect(host=sock, port=port, dbname=dbname, user=os.environ.get('PGUSER', 'qiumc'), connect_timeout=15)
+    suffix = profile.upper().replace('-', '_')
+    default_socket = str(ROOT / '.runtime/opengauss-native-lake' / profile / 'socket')
+    default_port = {'debug': 55560, 'release': 55570, 'ann-debug': 55580}[profile]
+    sock = os.getenv('OG_LAKE_TEST_HOST_' + suffix, os.getenv('OG_LAKE_TEST_HOST', default_socket))
+    port = int(os.getenv('OG_LAKE_TEST_PORT_' + suffix, os.getenv('OG_LAKE_TEST_PORT', str(default_port))))
+    user = os.getenv('OG_LAKE_TEST_USER') or os.getenv('PGUSER')
+    conn = psycopg2.connect(host=sock, port=port, dbname=dbname, user=user, connect_timeout=15)
     conn.autocommit = True
     return conn
 
@@ -279,38 +287,43 @@ def run_ann_suite(profile: str, dims=(32, 128, 384, 768, 1536), index_timeout_ms
 
                 where_base = 'v IS NOT NULL' + (' AND vector_norm(v)>0' if metric == 'cosine' else '')
 
-                # Exact seq scan baseline
-                cur.execute('SET enable_lake_ann=off; SET enable_seqscan=on')
-                t0 = time.monotonic()
-                for ql in qlits[:5]:
-                    cur.execute(f"SELECT id FROM {tname} WHERE {where_base} ORDER BY v {op} '{ql}'::vector({dim}) LIMIT 10")
-                    cur.fetchall()
-                exact_ms = (time.monotonic() - t0) * 1000.0 / 5.0
+                def top10(vector, filtered=False):
+                    tag = ' AND tag=7' if filtered else ''
+                    query = f"SELECT id FROM {tname} WHERE {where_base}{tag} ORDER BY v {op} %s::vector({dim}) LIMIT 10"
+                    started = time.monotonic()
+                    cur.execute(query, (vector,))
+                    ids = {row[0] for row in cur.fetchall()}
+                    return ids, (time.monotonic() - started) * 1000
 
-                # Natural planner selection check (enable_seqscan=on, enable_lake_ann=on)
                 cur.execute('SET enable_lake_ann=on; SET enable_seqscan=on')
                 cur.execute(f"EXPLAIN (ANALYZE, COSTS ON) SELECT id FROM {tname} WHERE {where_base} ORDER BY v {op} '{qlits[0]}'::vector({dim}) LIMIT 10")
                 nat_plan = '\n'.join(r[0] for r in cur.fetchall())
                 assert 'Verified PQ File Coverage: 4' in nat_plan or 'Verified ANN File Coverage: 4' in nat_plan, f'Natural ANN not chosen for {tname}!\n{nat_plan}'
-
-                # Cold & Warm PQ ANN + recall
-                recalls = []
-                lat_ms = []
-                for qi, ql in enumerate(qlits):
-                    t0 = time.monotonic()
-                    cur.execute(f"SELECT id FROM {tname} WHERE {where_base} ORDER BY v {op} '{ql}'::vector({dim}) LIMIT 10")
-                    got = set(r[0] for r in cur.fetchall())
-                    lat_ms.append((time.monotonic() - t0) * 1000.0)
-                    recalls.append(len(got & truths[qi]) / 10.0)
-
-                # Filtered ANN check
                 cur.execute(f"EXPLAIN (ANALYZE, COSTS OFF) SELECT id FROM {tname} WHERE {where_base} AND tag=7 ORDER BY v {op} '{qlits[0]}'::vector({dim}) LIMIT 10")
                 flt_plan = '\n'.join(r[0] for r in cur.fetchall())
                 assert 'Verified PQ File Coverage: 4' in flt_plan or 'Verified ANN File Coverage: 4' in flt_plan, f'Filtered ANN not active:\n{flt_plan}'
-                cur.execute(f"SELECT id FROM {tname} WHERE {where_base} AND tag=7 ORDER BY v {op} '{qlits[0]}'::vector({dim}) LIMIT 10")
-                flt_rows = [r[0] for r in cur.fetchall()]
-                assert len(flt_rows) == 10 and all(rid % 10 == 7 for rid in flt_rows)
 
+                recalls, filtered_recalls, exact_lat_ms, lat_ms = [], [], [], []
+                for qi, ql in enumerate(qlits):
+                    # Alternate execution order so neither path always goes second.
+                    for ann_on in ((False, True) if qi % 2 == 0 else (True, False)):
+                        cur.execute('SET enable_lake_ann=' + ('on' if ann_on else 'off'))
+                        ids, elapsed = top10(ql)
+                        filtered, _ = top10(ql, filtered=True)
+                        assert len(filtered) == 10 and all(rid % 10 == 7 for rid in filtered)
+                        if ann_on:
+                            got, filtered_got = ids, filtered
+                            lat_ms.append(elapsed)
+                        else:
+                            exact, filtered_exact = ids, filtered
+                            exact_lat_ms.append(elapsed)
+                    assert len(exact) == len(got) == 10
+                    # Retain the independent numerical oracle as well as a paired
+                    # database baseline over exactly the persisted vector values.
+                    recalls.append(min(len(got & truths[qi]), len(got & exact)) / 10.0)
+                    filtered_recalls.append(len(filtered_got & filtered_exact) / 10.0)
+                assert np.mean(filtered_recalls) >= 0.88, (dim, metric, filtered_recalls)
+                exact_ms = float(np.mean(exact_lat_ms[1:]))
                 mean_recall = float(np.mean(recalls))
                 warm_ms = float(np.mean(lat_ms[1:]))
                 cold_ms = lat_ms[0]
@@ -320,6 +333,12 @@ def run_ann_suite(profile: str, dims=(32, 128, 384, 768, 1536), index_timeout_ms
                     pq_build_ms=round(pq_build_ms, 1), exact_ms=round(exact_ms, 2),
                     pq_cold_ms=round(cold_ms, 2), pq_warm_ms=round(warm_ms, 2),
                     mean_recall10=round(mean_recall, 4), min_recall10=round(min(recalls), 4),
+                    filtered_mean_recall10=round(float(np.mean(filtered_recalls)), 4),
+                    filtered_min_recall10=round(min(filtered_recalls), 4),
+                    warm_pairs=len(lat_ms) - 1,
+                    latency_method='First observation follows EXPLAIN ANALYZE. Warm times use identical remaining queries.',
+                    exact_warm_p95_p99_ms=np.percentile(exact_lat_ms[1:], [95, 99]).round(2).tolist(),
+                    pq_warm_p95_p99_ms=np.percentile(lat_ms[1:], [95, 99]).round(2).tolist(),
                     natural_seqscan_on_chose_ann=True, filtered_ok=True,
                 )
                 print(json.dumps(rec), flush=True)
@@ -364,6 +383,9 @@ def run_ann_suite(profile: str, dims=(32, 128, 384, 768, 1536), index_timeout_ms
             print(json.dumps(ip_rec), flush=True)
             assert ip_rec['mean_recall10'] >= 0.88, ip_rec
             results.append(ip_rec)
+            # Verify both raw and PQ format members after all vector indexes are ready.
+            cur.execute("SELECT object_kind,status FROM og_lake.verify_catalog_integrity('c_test',false)")
+            assert cur.fetchall() == [('summary', 'healthy')]
         return dict(status='passed', cases=results, index_fixture_timeout_ms=index_timeout_ms)
     finally:
         teardown_test_db(profile, conn, db, role, tmp_root)
@@ -395,44 +417,45 @@ def run_active_h_suite(profile: str):
             assert cur.fetchone()[0] is None, 'Expected H closed after draining remaining 2 groups'
 
             # Phase 2: Concurrency - simultaneous writers + flush loops across threads
-            errors = []
-            stop_flag = threading.Event()
+            start = Barrier(3, timeout=15)
 
-            def writer_worker(wid: int):
+            def writer_worker(wid):
                 wc = connect_profile(profile, db)
+                committed = retries = 0
+                deadline = time.monotonic() + 90
                 try:
                     with wc.cursor() as wcur:
                         wcur.execute('SET statement_timeout=60000')
-                        base = 1000 + wid * 1000
-                        for step in range(8):
-                            if stop_flag.is_set():
-                                break
-                            rid = base + step
+                        start.wait()
+                        while committed < 8:
+                            assert time.monotonic() < deadline, (wid, committed, retries)
+                            rid = 1000 + wid * 1000 + committed
                             try:
                                 wcur.execute('BEGIN')
                                 wcur.execute("INSERT INTO biz.part_h VALUES (%s, %s, %s)", (rid, rid % 4, rid))
                                 wcur.execute("INSERT INTO biz.ref_h VALUES (%s, %s, %s)", (rid, rid % 4, rid))
                                 wcur.execute('COMMIT')
+                                committed += 1
                             except psycopg2.Error as exc:
                                 wcur.execute('ROLLBACK')
-                                # Serialization retries are expected under concurrent flush/write
                                 if exc.pgcode not in ('40001', '55000'):
-                                    errors.append((wid, exc.pgcode, str(exc)))
-                                    break
+                                    raise
+                                retries += 1
+                                time.sleep(0.01 * wid)
+                    return {'writer': wid, 'commits': committed, 'retries': retries}
                 finally:
                     wc.close()
 
-            t1 = threading.Thread(target=writer_worker, args=(1,))
-            t2 = threading.Thread(target=writer_worker, args=(2,))
-            t1.start()
-            t2.start()
-            for _ in range(6):
-                cur.execute("SELECT og_lake.flush('biz.part_h'::regclass)")
-                time.sleep(0.02)
-            t1.join(timeout=30)
-            t2.join(timeout=30)
-            stop_flag.set()
-            assert not errors, f'Unexpected worker errors: {errors}'
+            with ThreadPoolExecutor(max_workers=2) as workers:
+                futures = [workers.submit(writer_worker, wid) for wid in (1, 2)]
+                start.wait()
+                for _ in range(6):
+                    cur.execute("SELECT og_lake.flush('biz.part_h'::regclass)")
+                    time.sleep(0.02)
+                writer_results = [future.result(timeout=100) for future in futures]
+            assert [w['commits'] for w in writer_results] == [8, 8], writer_results
+            cur.execute("SELECT id FROM biz.part_h WHERE id >= 2000 ORDER BY id")
+            assert [row[0] for row in cur.fetchall()] == list(range(2000, 2008)) + list(range(3000, 3008))
 
             for _ in range(64):
                 cur.execute("SELECT og_lake.flush('biz.part_h'::regclass)")
@@ -502,7 +525,7 @@ def run_active_h_suite(profile: str):
             assert cur.fetchone()[0] == 0
 
         print('active-H empty-input cleanup & concurrency PASSED', flush=True)
-        return dict(status='passed')
+        return dict(status='passed', writers=writer_results)
     finally:
         teardown_test_db(profile, conn, db, role, tmp_root)
 
@@ -703,10 +726,20 @@ def run_pgl0_suite(profile: str):
         teardown_test_db(profile, conn, db, role, tmp_root)
 
 
+def run_file_contract_suite(profile):
+    conn, db, role, root, _ = setup_test_db(profile)
+    try:
+        with conn.cursor() as cur, closing(connect_profile(profile, db)) as reader, reader.cursor() as observer:
+            return {'status': 'passed', 'external': external_files(cur, observer, root),
+                    'managed': managed_files(cur, observer, root)}
+    finally:
+        teardown_test_db(profile, conn, db, role, root)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--profile', choices=['debug', 'release', 'ann-debug'], default='release')
-    ap.add_argument('--mode', choices=['full', 'ann', 'active-h', 'pgl0'], default='full')
+    ap.add_argument('--mode', choices=['full', 'ann', 'active-h', 'pgl0', 'files'], default='full')
     ap.add_argument('--dims', default='32,128,384,768,1536')
     ap.add_argument('--index-fixture-timeout-ms', type=int, default=300000,
                     help='Timeout only while building fixture indexes; query assertions/timeouts are unchanged')
@@ -723,6 +756,8 @@ def main():
         out['active_h'] = run_active_h_suite(args.profile)
     if args.mode in ('full', 'pgl0'):
         out['pgl0'] = run_pgl0_suite(args.profile)
+    if args.mode in ('full', 'files'):
+        out['files'] = run_file_contract_suite(args.profile)
     if args.out is not None:
         with args.out.open('x', encoding='utf-8') as result:
             result.write(json.dumps(out, indent=2) + '\n')

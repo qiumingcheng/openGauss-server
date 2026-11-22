@@ -4,6 +4,18 @@
 #include "postgres.h"
 #include "utils/relcache.h"
 #include "storage/buf/block.h"
+struct LakeAnalyzeSample {
+    HeapTuple tuple;
+    uint64 ordinal;
+};
+
+static inline int LakeCompareSampleOrdinal(const void* left, const void* right)
+{
+    uint64 a = ((const LakeAnalyzeSample*)left)->ordinal;
+    uint64 b = ((const LakeAnalyzeSample*)right)->ordinal;
+    return a < b ? -1 : a > b ? 1 : 0;
+}
+
 struct LakeTxnTable;
 struct LakeInlineBinding;
 extern int LakeAcquireFileSampleRows(Relation relation,LakeTxnTable* table,CommandId commandLimit,

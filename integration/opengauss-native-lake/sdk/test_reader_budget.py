@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 import subprocess
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = Path(os.environ.get('CPP_WORKSPACE', Path(__file__).resolve().parents[3])).resolve()
 
 
 def sha(path):

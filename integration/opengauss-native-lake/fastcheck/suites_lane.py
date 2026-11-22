@@ -265,7 +265,7 @@ def _run_main(ctx, directory, name):
         _run(ctx, directory / 'verify_074_suite.py', args, f'main_{name}', env=env,
              timeout=4 * 3600)
     results = _read(result)
-    if set(results) != {'ann', 'active_h', 'pgl0'} or any(
+    if set(results) != {'ann', 'active_h', 'pgl0', 'files'} or any(
             item.get('status') != 'passed' for item in results.values()):
         raise RuntimeError('Incomplete final SQL074 main verification')
     ann = results['ann']['cases']
@@ -397,7 +397,7 @@ def _run_release_campaign(ctx, directory, case):
     else:
         if set(result['history_suites_on_release']) != RELEASE_HISTORY or set(result['datavec_regress']) != DATAVEC:
             raise RuntimeError('Incomplete original Release history or native datavec results')
-        for key in ('scale_1m_rows', 'diskann_pq_20k_dim32', 'diskann_pq_50k_dim32',
+        for key in ('scale_1m_rows', 'diskann_pq_8k_dim32', 'diskann_pq_20k_dim32', 'diskann_pq_50k_dim32',
                     'threadpool_soak_and_lru'):
             if not result[key]:
                 raise RuntimeError(f'Missing original scale/soak evidence: {key}')

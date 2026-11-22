@@ -1,5 +1,8 @@
 /* Apache Arrow20 file provider. Database APIs are deliberately absent. */
 #include "lake_parquet_sdk.h"
+#ifdef OG_LAKE_SDK_FD
+#include "lake_parquet_fd_sdk.h"
+#endif
 #include "lake_temporal_codec.h"
 #include <arrow/api.h>
 #include <arrow/c/abi.h>
@@ -154,6 +157,21 @@ public:
         if(::fstat(fd_,&identity_)!=0||!S_ISREG(identity_.st_mode)){
             int number=errno;::close(fd_);fd_=-1;throw Failure(OG_LAKE_SDK_IO,"Parquet object is not a regular local file",number);
         }
+    }
+    RangeFile(int source,OgLakeSdkLimits limits,std::shared_ptr<BudgetPool> pool):limits_(limits),pool_(std::move(pool))
+    {
+        Require(source>=0,"invalid borrowed Parquet descriptor");
+        Poll(limits_);
+        do{fd_=::fcntl(source,F_DUPFD_CLOEXEC,0);}while(fd_<0&&errno==EINTR);
+        if(fd_<0)throw Failure(OG_LAKE_SDK_IO,"cannot duplicate Parquet descriptor",errno);
+        try {
+            const int flags=::fcntl(fd_,F_GETFL);
+            if(flags<0)throw Failure(OG_LAKE_SDK_IO,"cannot inspect Parquet descriptor permissions",errno);
+            Require((flags&O_ACCMODE)==O_RDONLY&&(flags&O_PATH)==0,"Parquet descriptor must be readable and read-only");
+            if(::fstat(fd_,&identity_)!=0)throw Failure(OG_LAKE_SDK_IO,"cannot inspect Parquet descriptor identity",errno);
+            Require(S_ISREG(identity_.st_mode),"Parquet descriptor is not a regular file");
+            Poll(limits_);
+        } catch(...) {::close(fd_);fd_=-1;throw;}
     }
     ~RangeFile() override{(void)Close();}
     arrow::Status Close() override
@@ -440,11 +458,15 @@ struct OgLakeSdkFooter {
 };
 
 namespace {
-std::unique_ptr<OgLakeSdkFooter> OpenFooter(const char* path,const OgLakeSdkLimits& limits)
+std::unique_ptr<OgLakeSdkFooter> OpenFooter(const char* path,const OgLakeSdkLimits& limits,
+    const int* source_fd=nullptr,const char* expected_version=nullptr)
 {
     auto footer=std::make_unique<OgLakeSdkFooter>();
     footer->pool=std::make_shared<BudgetPool>(limits.memory_bytes);
-    footer->file=std::make_shared<RangeFile>(path,limits,footer->pool);
+    footer->file=source_fd?std::make_shared<RangeFile>(*source_fd,limits,footer->pool):
+        std::make_shared<RangeFile>(path,limits,footer->pool);
+    if(expected_version)
+        Require(footer->file->ObjectVersion()==expected_version,"Parquet descriptor does not match the inspected object",OG_LAKE_SDK_STATE);
     int64_t size=Take(footer->file->GetSize());
     Require(size>=12,"Parquet object is too short");
     auto head=Take(footer->file->ReadAt(0,4));auto tail=Take(footer->file->ReadAt(size-8,8));
@@ -543,6 +565,14 @@ int FooterOpen(const char* path,const OgLakeSdkLimits* input,OgLakeSdkFooter** o
     if(output)*output=nullptr;
     return Guard(error,[&]{Require(output,"footer output pointer is required");*output=OpenFooter(path,Limits(input)).release();return OG_LAKE_SDK_OK;});
 }
+#ifdef OG_LAKE_SDK_FD
+int FooterOpenFd(int fd,const OgLakeSdkLimits* input,OgLakeSdkFooter** output,OgLakeSdkError* error)
+{
+    if(output)*output=nullptr;
+    return Guard(error,[&]{Require(output,"footer output pointer is required");
+        *output=OpenFooter(nullptr,Limits(input),&fd).release();return OG_LAKE_SDK_OK;});
+}
+#endif
 const OgLakeSdkFooterInfo* FooterInfo(const OgLakeSdkFooter* footer){return footer?&footer->info:nullptr;}
 void FooterClose(OgLakeSdkFooter** footer) noexcept
 {
@@ -581,11 +611,15 @@ struct OgLakeSdkReader {
 };
 
 namespace {
-int ReaderOpen(const OgLakeSdkReadOptions* options,OgLakeSdkReader** output,OgLakeSdkError* error)
+int ReaderOpenImpl(const OgLakeSdkReadOptions* options,OgLakeSdkReader** output,OgLakeSdkError* error,
+    const int* source_fd,const char* expected_version)
 {
     if(output)*output=nullptr;
     return Guard(error,[&]{
         Require(output&&options&&options->struct_size>=sizeof(*options),"invalid reader options/output ABI");
+        if(source_fd)
+            Require(!options->path&&expected_version&&expected_version[0]&&::strnlen(expected_version,256)<256,
+                "descriptor reader requires a null path and the bounded footer object version");
         Require(options->batch_rows>0&&options->batch_rows<=1048576,"invalid Parquet batch row limit");
         Require(options->num_field_ids>=-1&&options->num_row_groups>=-1,"invalid Parquet projection/selection count");
         Require(options->projection_kind==OG_LAKE_SDK_BY_FIELD_ID||options->projection_kind==OG_LAKE_SDK_BY_ORDINAL,
@@ -594,7 +628,7 @@ int ReaderOpen(const OgLakeSdkReadOptions* options,OgLakeSdkReader** output,OgLa
         Require(options->num_row_groups<=0||options->row_groups,"missing Parquet row-group vector");
         auto reader=std::make_unique<OgLakeSdkReader>();reader->limits=Limits(&options->limits);
         reader->batch_rows=options->batch_rows;reader->decode_batch_rows=options->batch_rows;
-        reader->footer=OpenFooter(options->path,reader->limits);
+        reader->footer=OpenFooter(options->path,reader->limits,source_fd,expected_version);
         auto& footer=*reader->footer;std::set<int> seen;
         int num_fields=options->num_field_ids<0?footer.info.num_fields:options->num_field_ids;
         Require(num_fields<=footer.info.num_fields,"too many projected Parquet fields");
@@ -630,6 +664,17 @@ int ReaderOpen(const OgLakeSdkReadOptions* options,OgLakeSdkReader** output,OgLa
         *output=reader.release();return OG_LAKE_SDK_OK;
     });
 }
+int ReaderOpen(const OgLakeSdkReadOptions* options,OgLakeSdkReader** output,OgLakeSdkError* error)
+{
+    return ReaderOpenImpl(options,output,error,nullptr,nullptr);
+}
+#ifdef OG_LAKE_SDK_FD
+int ReaderOpenFd(int fd,const char* version,const OgLakeSdkReadOptions* options,
+    OgLakeSdkReader** output,OgLakeSdkError* error)
+{
+    return ReaderOpenImpl(options,output,error,&fd,version);
+}
+#endif
 /* Reopening a RecordBatchReader creates fresh per-column/page decoder state.
  * Replay consumes only an immutable group's already-delivered prefix. A batch
  * straddling that exact prefix is sliced, never dropped or delivered twice. */
@@ -1437,3 +1482,13 @@ const OgLakeParquetDecimalApi* og_lake_parquet_sdk_v5(void)
         FooterDecimal,WriterOpenParameterized};
     return &api;
 }
+
+#ifdef OG_LAKE_SDK_FD
+extern "C" __attribute__((visibility("default")))
+const OgLakeParquetFdApi* og_lake_parquet_sdk_v6(void)
+{
+    static const OgLakeParquetFdApi api={OG_LAKE_PARQUET_FD_ABI,
+        sizeof(OgLakeParquetFdApi),og_lake_parquet_sdk_v1(),OG_LAKE_SDK_READONLY_FD,FooterOpenFd,ReaderOpenFd};
+    return &api;
+}
+#endif

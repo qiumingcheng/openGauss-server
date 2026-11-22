@@ -32,5 +32,6 @@ extern void LakeExternalCloseOpenedFile(LakeExternalOpenedFile* opened) noexcept
 extern void LakeExternalAuthorizePath(const char* rawPath, char** rootOut, char** relOut);
 
 /* Authorize a standalone non-existent local target file for exclusive creation. */
-extern char* LakeExternalAuthorizeWritePath(const char* rawPath);
+/* If requested, the caller owns the parent directory descriptor on success. */
+extern char* LakeExternalAuthorizeWritePath(const char* rawPath, int* parentOut = NULL);
 #endif

@@ -82,6 +82,85 @@ static char* LakeInstalledVersion(void)
     return version;
 }
 
+/* A cumulative feature requires every published contract from its own
+ * release through the installed release. Disabled/aliased build labels must
+ * break the chain. Earlier non-cumulative contracts retain their own rules. */
+static constexpr int LAKE_FIRST_CUMULATIVE_MINOR = 32;
+static constexpr bool LakeCanonicalSqlLabel(const char* label, int minor)
+{
+    return label != NULL && label[0] == '0' && label[1] == '.' &&
+        label[2] == '0' + minor / 10 && label[3] == '0' + minor % 10 && label[4] == '\0';
+}
+
+static bool LakeCumulativeContract(const char* version, int firstMinor)
+{
+    static constexpr bool declared[] = {
+        LakeCanonicalSqlLabel(OG_LAKE_TIME_PARTITION_SQL_VERSION, 32),
+        LakeCanonicalSqlLabel(OG_LAKE_TIME_PARTITION_PRUNE_SQL_VERSION, 33),
+        LakeCanonicalSqlLabel(OG_LAKE_PARTITION_EVOLUTION_SQL_VERSION, 34),
+        LakeCanonicalSqlLabel(OG_LAKE_CORE_FOLLOWUPS_SQL_VERSION, 35),
+        LakeCanonicalSqlLabel(OG_LAKE_LOGICAL_DROP_SQL_VERSION, 36),
+        LakeCanonicalSqlLabel(OG_LAKE_ADD_COLUMN_SQL_VERSION, 37),
+        LakeCanonicalSqlLabel(OG_LAKE_JOURNAL_SPILL_SQL_VERSION, 38),
+        LakeCanonicalSqlLabel(OG_LAKE_LITERAL_DEFAULT_SQL_VERSION, 39),
+        LakeCanonicalSqlLabel(OG_LAKE_NOT_NULL_SQL_VERSION, 40),
+        LakeCanonicalSqlLabel(OG_LAKE_ALTER_DEFAULT_SQL_VERSION, 41),
+        LakeCanonicalSqlLabel("0.42", 42),
+        LakeCanonicalSqlLabel("0.43", 43),
+        LakeCanonicalSqlLabel(OG_LAKE_BINARY_NOT_NULL_SQL_VERSION, 44),
+        LakeCanonicalSqlLabel(OG_LAKE_BINARY_DEFAULT_SQL_VERSION, 45),
+        LakeCanonicalSqlLabel(OG_LAKE_INT2_SCALAR_SQL_VERSION, 46),
+        LakeCanonicalSqlLabel(OG_LAKE_INT2_ROW_SMP_SQL_VERSION, 47),
+        LakeCanonicalSqlLabel(OG_LAKE_PARTITION_REWRITE_SQL_VERSION, 48),
+        LakeCanonicalSqlLabel(OG_LAKE_CREATE_LITERAL_DEFAULT_SQL_VERSION, 49),
+        LakeCanonicalSqlLabel(OG_LAKE_SNAPSHOT_EXPIRY_SQL_VERSION, 50),
+        LakeCanonicalSqlLabel(OG_LAKE_MULTI_FILE_REWRITE_SQL_VERSION, 51),
+        LakeCanonicalSqlLabel(OG_LAKE_UUID_BUSINESS_SQL_VERSION, 52),
+        LakeCanonicalSqlLabel(OG_LAKE_JSON_BUSINESS_SQL_VERSION, 53),
+        LakeCanonicalSqlLabel(OG_LAKE_NUMERIC_BUSINESS_SQL_VERSION, 54),
+        LakeCanonicalSqlLabel(OG_LAKE_SNAPSHOT_METADATA_SQL_VERSION, 55),
+        LakeCanonicalSqlLabel(OG_LAKE_LAST_COMMITTED_SQL_VERSION, 56),
+        LakeCanonicalSqlLabel(OG_LAKE_TIME_TRAVEL_SQL_VERSION, 57),
+        LakeCanonicalSqlLabel(OG_LAKE_TABLE_CHANGES_SQL_VERSION, 58),
+        LakeCanonicalSqlLabel(OG_LAKE_BIND_SNAPSHOT_SQL_VERSION, 59),
+        LakeCanonicalSqlLabel(OG_LAKE_MERGE_ADJACENT_SQL_VERSION, 60),
+        LakeCanonicalSqlLabel(OG_LAKE_EXTERNAL_FILE_SQL_VERSION, 61),
+        LakeCanonicalSqlLabel(OG_LAKE_COPY_IO_SQL_VERSION, 62),
+        LakeCanonicalSqlLabel(OG_LAKE_PARTITION_COMBO_SQL_VERSION, 63),
+        LakeCanonicalSqlLabel(OG_LAKE_IX_SMP_EXTENDED_SQL_VERSION, 64),
+        LakeCanonicalSqlLabel(OG_LAKE_STATS_EXTENDED_SQL_VERSION, 65),
+        LakeCanonicalSqlLabel(OG_LAKE_EXTENDED_DEFAULTS_SQL_VERSION, 66),
+        LakeCanonicalSqlLabel(OG_LAKE_IX_OBS_SQL_VERSION, 67),
+        LakeCanonicalSqlLabel(OG_LAKE_SNAPSHOT_PIN_SQL_VERSION, 68),
+        LakeCanonicalSqlLabel(OG_LAKE_PHYSICAL_CLEANUP_SQL_VERSION, 69),
+        LakeCanonicalSqlLabel(OG_LAKE_ALTER_TYPE_OPS_SQL_VERSION, 70),
+        LakeCanonicalSqlLabel(OG_LAKE_JSON_FORMAT_SQL_VERSION, 71),
+        LakeCanonicalSqlLabel(OG_LAKE_VECTOR_SMP_SQL_VERSION, 72),
+        LakeCanonicalSqlLabel(OG_LAKE_TRUNCATE_PARTITION_SQL_VERSION, 73),
+        LakeCanonicalSqlLabel(OG_LAKE_NATIVE_PARTITION_EXPANDED_SQL_VERSION, 74),
+    };
+    if (version == NULL || strlen(version) != 4 || version[0] != '0' || version[1] != '.' ||
+        version[2] < '0' || version[2] > '9' || version[3] < '0' || version[3] > '9')
+        return false;
+    int installed = (version[2] - '0') * 10 + version[3] - '0';
+    if (firstMinor < LAKE_FIRST_CUMULATIVE_MINOR || installed < firstMinor ||
+        installed >= LAKE_FIRST_CUMULATIVE_MINOR + (int)lengthof(declared))
+        return false;
+    for (int minor = firstMinor; minor <= installed; ++minor)
+        if (!declared[minor - LAKE_FIRST_CUMULATIVE_MINOR])
+            return false;
+    return true;
+}
+
+static bool LakeInstalledContractEnabled(int firstMinor)
+{
+    char* version = LakeInstalledVersion();
+    bool enabled = LakeCumulativeContract(version, firstMinor);
+    if (version != NULL)
+        pfree(version);
+    return enabled;
+}
+
 /* Root-coordinated installed SQL contracts, independent of the binary's
  * newest default. Keep retained23 READ/INSERT even before upgrade or rollback.
  * Empty/aliased future labels never grant new rights to23 or to each other. */
@@ -91,443 +170,232 @@ static char* LakeInstalledVersion(void)
  * Old installed SQL keeps its original two-file bound under this binary. */
 /* SQL74 (PGL-0 / IX5-N7): Expanded native pg_partition (RANGE/LIST/HASH, multi-leaf up to 64,
  * extended partition key & business column types) plus high-dim Vamana+PQ improvements. */
-static bool LakeNativePartitionExpandedContract(const char* version)
-{ return version!=NULL&&strcmp(OG_LAKE_NATIVE_PARTITION_EXPANDED_SQL_VERSION,"0.74")==0&&
-    strcmp(version,OG_LAKE_NATIVE_PARTITION_EXPANDED_SQL_VERSION)==0; }
 bool LakeNativePartitionExpandedVersionEnabled(void)
 {
     if(!OidIsValid(get_extension_oid("og_lake",true)))return false;
-    char* version=LakeInstalledVersion();bool enabled=LakeNativePartitionExpandedContract(version);
-    if(version)pfree(version);
-    return enabled;
+    return LakeInstalledContractEnabled(74);
 }
 /* SQL73 (PGL-3): truncate(N) partition transform across INT2/INT4/INT8/TEXT/BYTEA. */
-static bool LakeTruncatePartitionContract(const char* version)
-{ return version!=NULL&&strcmp(OG_LAKE_TRUNCATE_PARTITION_SQL_VERSION,"0.73")==0&&
-    (strcmp(version,OG_LAKE_TRUNCATE_PARTITION_SQL_VERSION)==0||LakeNativePartitionExpandedContract(version)); }
 bool LakeTruncatePartitionVersionEnabled(void)
 {
     if(!OidIsValid(get_extension_oid("og_lake",true)))return false;
-    char* version=LakeInstalledVersion();bool enabled=LakeTruncatePartitionContract(version);
-    if(version)pfree(version);
-    return enabled;
+    return LakeInstalledContractEnabled(73);
 }
 /* SQL72 (N7-VECTOR): SMP + Vectorized VecForeignScan parallel execution,
  * vectorized extended scalar/partition/temporal scans, and per-batch cleanup. */
-static bool LakeVectorSmpContract(const char* version)
-{ return version!=NULL&&strcmp(OG_LAKE_VECTOR_SMP_SQL_VERSION,"0.72")==0&&
-    (strcmp(version,OG_LAKE_VECTOR_SMP_SQL_VERSION)==0||LakeTruncatePartitionContract(version)); }
 bool LakeVectorSmpVersionEnabled(void)
 {
     if(!OidIsValid(get_extension_oid("og_lake",true)))return false;
-    char* version=LakeInstalledVersion();bool enabled=LakeVectorSmpContract(version);
-    if(version)pfree(version);
-    return enabled;
+    return LakeInstalledContractEnabled(72);
 }
 /* SQL71 (PGL-2 / PGL-6): local JSON / JSONL COPY FROM/TO, og_lake_file_fdw,
  * external schema inference, and file info. */
-static bool LakeJsonFormatContract(const char* version)
-{ return version!=NULL&&strcmp(OG_LAKE_JSON_FORMAT_SQL_VERSION,"0.71")==0&&
-    (strcmp(version,OG_LAKE_JSON_FORMAT_SQL_VERSION)==0||LakeVectorSmpContract(version)); }
 bool LakeJsonFormatVersionEnabled(void)
 {
     if(!OidIsValid(get_extension_oid("og_lake",true)))return false;
-    char* version=LakeInstalledVersion();bool enabled=LakeJsonFormatContract(version);
-    if(version)pfree(version);
-    return enabled;
+    return LakeInstalledContractEnabled(71);
 }
 /* SQL70 (N6 widening ALTER COLUMN TYPE evolution + OPS1 backup manifest,
  * catalog/index integrity verify/repair, and retention observability). */
-static bool LakeAlterTypeOpsContract(const char* version)
-{ return version!=NULL&&strcmp(OG_LAKE_ALTER_TYPE_OPS_SQL_VERSION,"0.70")==0&&
-    (strcmp(version,OG_LAKE_ALTER_TYPE_OPS_SQL_VERSION)==0||LakeJsonFormatContract(version)); }
 bool LakeAlterTypeOpsVersionEnabled(void)
 {
     if(!OidIsValid(get_extension_oid("og_lake",true)))return false;
-    char* version=LakeInstalledVersion();bool enabled=LakeAlterTypeOpsContract(version);
-    if(version)pfree(version);
-    return enabled;
+    return LakeInstalledContractEnabled(70);
 }
 /* SQL69 (N9b local physical GC / cleanup_old_files / delete_orphaned_files
  * protected by exclusive catalog guard, active snapshot pins, and OldestXmin). */
-static bool LakePhysicalCleanupContract(const char* version)
-{ return version!=NULL&&strcmp(OG_LAKE_PHYSICAL_CLEANUP_SQL_VERSION,"0.69")==0&&
-    (strcmp(version,OG_LAKE_PHYSICAL_CLEANUP_SQL_VERSION)==0||LakeAlterTypeOpsContract(version)); }
 bool LakePhysicalCleanupVersionEnabled(void)
 {
     if(!OidIsValid(get_extension_oid("og_lake",true)))return false;
-    char* version=LakeInstalledVersion();bool enabled=LakePhysicalCleanupContract(version);
-    if(version)pfree(version);
-    return enabled;
+    return LakeInstalledContractEnabled(69);
 }
 /* SQL68 (PGL-5 single-node active reader snapshot pin & maintenance resilience). */
-static bool LakeSnapshotPinContract(const char* version)
-{ return version!=NULL&&strcmp(OG_LAKE_SNAPSHOT_PIN_SQL_VERSION,"0.68")==0&&
-    (strcmp(version,OG_LAKE_SNAPSHOT_PIN_SQL_VERSION)==0||LakePhysicalCleanupContract(version)); }
 bool LakeSnapshotPinVersionEnabled(void)
 {
     if(!OidIsValid(get_extension_oid("og_lake",true)))return false;
-    char* version=LakeInstalledVersion();bool enabled=LakeSnapshotPinContract(version);
-    if(version)pfree(version);
-    return enabled;
+    return LakeInstalledContractEnabled(68);
 }
 /* SQL67 (IX5 remaining gaps + PGL-4 local observability/cache/EXPLAIN closure). */
-static bool LakeIxObsContract(const char* version)
-{ return version!=NULL&&strcmp(OG_LAKE_IX_OBS_SQL_VERSION,"0.67")==0&&
-    (strcmp(version,OG_LAKE_IX_OBS_SQL_VERSION)==0||LakeSnapshotPinContract(version)); }
 bool LakeIxObsVersionEnabled(void)
 {
     if(!OidIsValid(get_extension_oid("og_lake",true)))return false;
-    char* version=LakeInstalledVersion();bool enabled=LakeIxObsContract(version);
-    if(version)pfree(version);
-    return enabled;
+    return LakeInstalledContractEnabled(67);
 }
 /* SQL66 (N6 / PGL-1): Unlocks extended scalar/UUID/JSON/NUMERIC(p,s) literal defaults,
  * ADD COLUMN ... NOT NULL DEFAULT <literal>, and cross-session relcache invalidation. */
-static bool LakeExtendedDefaultsContract(const char* version)
-{ return version!=NULL&&strcmp(OG_LAKE_EXTENDED_DEFAULTS_SQL_VERSION,"0.66")==0&&
-    (strcmp(version,OG_LAKE_EXTENDED_DEFAULTS_SQL_VERSION)==0||LakeIxObsContract(version)); }
 bool LakeExtendedDefaultsVersionEnabled(void)
 {
     if(!OidIsValid(get_extension_oid("og_lake",true)))return false;
-    char* version=LakeInstalledVersion();bool enabled=LakeExtendedDefaultsContract(version);
-    if(version)pfree(version);
-    return enabled;
+    return LakeInstalledContractEnabled(66);
 }
 /* SQL65 (N7-STATS) unlocks exact NUMERIC(p,s) canonical min/max statistics
  * across ducklake_table_column_stats and ducklake_file_column_stats, plus
  * exact file-level bounds across direct INSERT, flush, and rewrite/merge. */
-static bool LakeStatsExtendedContract(const char* version)
-{ return version!=NULL&&strcmp(OG_LAKE_STATS_EXTENDED_SQL_VERSION,"0.65")==0&&
-    (strcmp(version,OG_LAKE_STATS_EXTENDED_SQL_VERSION)==0||LakeExtendedDefaultsContract(version)); }
 bool LakeStatsExtendedVersionEnabled(void)
 {
     if(!OidIsValid(get_extension_oid("og_lake",true)))return false;
-    char* version=LakeInstalledVersion();bool enabled=LakeStatsExtendedContract(version);
-    if(version)pfree(version);
-    return enabled;
+    return LakeInstalledContractEnabled(65);
 }
 /* SQL64 (IX1~IX5 & N7-SMP) unlocks extended payload columns across scalar/ANN
  * indexes and row SMP, plus PQ/Boolean/multi-file/DOP=4 parallel ANN SMP. */
-static bool LakeIxSmpExtendedContract(const char* version)
-{ return version!=NULL&&strcmp(OG_LAKE_IX_SMP_EXTENDED_SQL_VERSION,"0.64")==0&&
-    (strcmp(version,OG_LAKE_IX_SMP_EXTENDED_SQL_VERSION)==0||LakeStatsExtendedContract(version)); }
 bool LakeIxSmpExtendedVersionEnabled(void)
 {
     if(!OidIsValid(get_extension_oid("og_lake",true)))return false;
-    char* version=LakeInstalledVersion();bool enabled=LakeIxSmpExtendedContract(version);
-    if(version)pfree(version);
-    return enabled;
+    return LakeInstalledContractEnabled(64);
 }
 /* SQL63 (PGL-3) expands DuckLake file partitions to UUID/NUMERIC/DATE/temporal/BYTEA
  * keys and unlocks extended payload types, indexes, COPY, and row SMP combinations,
  * while keeping standard truncate(...) explicitly rejected with 0A000. */
-static bool LakePartitionComboContract(const char* version)
-{ return version!=NULL&&strcmp(OG_LAKE_PARTITION_COMBO_SQL_VERSION,"0.63")==0&&
-    (strcmp(version,OG_LAKE_PARTITION_COMBO_SQL_VERSION)==0||LakeIxSmpExtendedContract(version)); }
 bool LakePartitionComboVersionEnabled(void)
 {
     if(!OidIsValid(get_extension_oid("og_lake",true)))return false;
-    char* version=LakeInstalledVersion();bool enabled=LakePartitionComboContract(version);
-    if(version)pfree(version);
-    return enabled;
+    return LakeInstalledContractEnabled(63);
 }
 /* SQL62 adds controlled local Parquet/CSV COPY FROM/TO over openat2-confined paths
  * and exclusive candidate export with transaction/savepoint rollback cleanup. */
-static bool LakeCopyIoContract(const char* version)
-{ return version!=NULL&&strcmp(OG_LAKE_COPY_IO_SQL_VERSION,"0.62")==0&&
-    (strcmp(version,OG_LAKE_COPY_IO_SQL_VERSION)==0||LakePartitionComboContract(version)); }
 bool LakeCopyIoVersionEnabled(void)
 {
     if(!OidIsValid(get_extension_oid("og_lake",true)))return false;
-    char* version=LakeInstalledVersion();bool enabled=LakeCopyIoContract(version);
-    if(version)pfree(version);
-    return enabled;
+    return LakeInstalledContractEnabled(62);
 }
 /* SQL61 adds og_lake_file_fdw read-only external Parquet/CSV foreign tables
  * confined by kernel openat2 anchor-fd roots and public schema inference. */
-static bool LakeExternalFileContract(const char* version)
-{ return version!=NULL&&strcmp(OG_LAKE_EXTERNAL_FILE_SQL_VERSION,"0.61")==0&&
-    (strcmp(version,OG_LAKE_EXTERNAL_FILE_SQL_VERSION)==0||LakeCopyIoContract(version)); }
 bool LakeExternalFileVersionEnabled(void)
 {
     if(!OidIsValid(get_extension_oid("og_lake",true)))return false;
-    char* version=LakeInstalledVersion();bool enabled=LakeExternalFileContract(version);
-    if(version)pfree(version);
-    return enabled;
+    return LakeInstalledContractEnabled(61);
 }
 /* SQL60 adds og_lake.merge_adjacent_files, target_file_size/auto_compact options,
  * automatic background small-file merge, and cross-evolution rewrite_data_files. */
-static bool LakeMergeAdjacentContract(const char* version)
-{ return version!=NULL&&strcmp(OG_LAKE_MERGE_ADJACENT_SQL_VERSION,"0.60")==0&&
-    (strcmp(version,OG_LAKE_MERGE_ADJACENT_SQL_VERSION)==0||LakeExternalFileContract(version)); }
 bool LakeMergeAdjacentVersionEnabled(void)
 {
-    char* version=LakeInstalledVersion();bool enabled=LakeMergeAdjacentContract(version);
-    if(version)pfree(version);
-    return enabled;
+    return LakeInstalledContractEnabled(60);
 }
 /* SQL59 adds transaction-scoped read-only snapshot binding og_lake.bind_snapshot,
  * generational og_lake.rebuild_lake_index, and privilege-filtered public management views. */
-static bool LakeBindSnapshotContract(const char* version)
-{ return version!=NULL&&strcmp(OG_LAKE_BIND_SNAPSHOT_SQL_VERSION,"0.59")==0&&
-    (strcmp(version,OG_LAKE_BIND_SNAPSHOT_SQL_VERSION)==0||LakeMergeAdjacentContract(version)); }
 bool LakeBindSnapshotVersionEnabled(void)
 {
-    char* version=LakeInstalledVersion();bool enabled=LakeBindSnapshotContract(version);
-    if(version)pfree(version);
-    return enabled;
+    return LakeInstalledContractEnabled(59);
 }
 /* SQL58 adds serial read-only public CDC change-feed functions
  * table_insertions / table_deletions / table_changes over (regclass, bigint, bigint)
  * and (regclass, timestamptz, timestamptz). */
-static bool LakeTableChangesContract(const char* version)
-{ return version!=NULL&&strcmp(OG_LAKE_TABLE_CHANGES_SQL_VERSION,"0.58")==0&&
-    (strcmp(version,OG_LAKE_TABLE_CHANGES_SQL_VERSION)==0||LakeBindSnapshotContract(version)); }
 bool LakeTableChangesVersionEnabled(void)
 {
-    char* version=LakeInstalledVersion();bool enabled=LakeTableChangesContract(version);
-    if(version)pfree(version);
-    return enabled;
+    return LakeInstalledContractEnabled(58);
 }
 /* SQL57 adds serial read-only public time_travel(regclass, bigint/timestamptz)
  * with explicit AS historical column verification and journal-free read views. */
-static bool LakeTimeTravelContract(const char* version)
-{ return version!=NULL&&strcmp(OG_LAKE_TIME_TRAVEL_SQL_VERSION,"0.57")==0&&
-    (strcmp(version,OG_LAKE_TIME_TRAVEL_SQL_VERSION)==0||LakeTableChangesContract(version)); }
 bool LakeTimeTravelVersionEnabled(void)
 {
-    char* version=LakeInstalledVersion();bool enabled=LakeTimeTravelContract(version);
-    if(version)pfree(version);
-    return enabled;
+    return LakeInstalledContractEnabled(57);
 }
 /* SQL56 adds u_sess logical-session last_committed_snapshot across all10 business
  * and DDL publishers. Older installed SQL retains its exact pre-0.56 gates. */
-static bool LakeLastCommittedContract(const char* version)
-{ return version!=NULL&&strcmp(OG_LAKE_LAST_COMMITTED_SQL_VERSION,"0.56")==0&&
-    (strcmp(version,OG_LAKE_LAST_COMMITTED_SQL_VERSION)==0||LakeTimeTravelContract(version)); }
 bool LakeLastCommittedVersionEnabled(void)
 {
-    char* version=LakeInstalledVersion();bool enabled=LakeLastCommittedContract(version);
-    if(version)pfree(version);
-    return enabled;
+    return LakeInstalledContractEnabled(56);
 }
 /* SQL55 exposes only read-only public snapshot metadata. Older installed SQL
  * retains its own exact feature gates under the cumulative binary. */
-static bool LakeSnapshotMetadataContract(const char* version)
-{ return version!=NULL&&strcmp(OG_LAKE_SNAPSHOT_METADATA_SQL_VERSION,"0.55")==0&&
-    (strcmp(version,OG_LAKE_SNAPSHOT_METADATA_SQL_VERSION)==0||LakeLastCommittedContract(version)); }
 bool LakeSnapshotMetadataVersionEnabled(void)
 {
-    char* version=LakeInstalledVersion();bool enabled=LakeSnapshotMetadataContract(version);
-    if(version)pfree(version);return enabled;
+    return LakeInstalledContractEnabled(55);
 }
-static bool LakeNumericBusinessContract(const char* version)
-{ return version!=NULL&&strcmp(OG_LAKE_NUMERIC_BUSINESS_SQL_VERSION,"0.54")==0&&
-    (strcmp(version,OG_LAKE_NUMERIC_BUSINESS_SQL_VERSION)==0||LakeSnapshotMetadataContract(version)); }
 bool LakeNumericBusinessVersionEnabled(void)
 {
-    char* version=LakeInstalledVersion();bool enabled=LakeNumericBusinessContract(version);
-    if(version)pfree(version);return enabled;
+    return LakeInstalledContractEnabled(54);
 }
-static bool LakeJsonBusinessContract(const char* version)
-{ return version!=NULL&&strcmp(OG_LAKE_JSON_BUSINESS_SQL_VERSION,"0.53")==0&&
-    (strcmp(version,OG_LAKE_JSON_BUSINESS_SQL_VERSION)==0||LakeNumericBusinessContract(version)); }
 bool LakeJsonBusinessVersionEnabled(void)
 {
-    char* version=LakeInstalledVersion();bool enabled=LakeJsonBusinessContract(version);
-    if(version)pfree(version);return enabled;
+    return LakeInstalledContractEnabled(53);
 }
-static bool LakeUuidBusinessContract(const char* version)
-{ return version!=NULL&&strcmp(OG_LAKE_UUID_BUSINESS_SQL_VERSION,"0.52")==0&&
-    (strcmp(version,OG_LAKE_UUID_BUSINESS_SQL_VERSION)==0||LakeJsonBusinessContract(version)); }
 bool LakeUuidBusinessVersionEnabled(void)
 {
-    char* version=LakeInstalledVersion();bool enabled=LakeUuidBusinessContract(version);
-    if(version)pfree(version);return enabled;
+    return LakeInstalledContractEnabled(52);
 }
-static bool LakeMultiFileRewriteContract(const char* version)
-{ return version!=NULL&&strcmp(OG_LAKE_MULTI_FILE_REWRITE_SQL_VERSION,"0.51")==0&&
-    (strcmp(version,OG_LAKE_MULTI_FILE_REWRITE_SQL_VERSION)==0||LakeUuidBusinessContract(version)); }
 bool LakeMultiFileRewriteVersionEnabled(void)
 {
-    char* version=LakeInstalledVersion();
-    bool enabled=LakeMultiFileRewriteContract(version);
-    if(version)pfree(version);
-    return enabled;
+    return LakeInstalledContractEnabled(51);
 }
 int LakeRewriteSourceLimit(void)
 { return LakeMultiFileRewriteVersionEnabled()?OG_LAKE_REWRITE_MAX_SOURCES:2; }
 
 /* SQL50 adds only bounded metadata-only logical snapshot expiry. */
-static bool LakeSnapshotExpiryContract(const char* version)
-{ return version!=NULL&&strcmp(OG_LAKE_SNAPSHOT_EXPIRY_SQL_VERSION,"0.50")==0&&
-    (strcmp(version,OG_LAKE_SNAPSHOT_EXPIRY_SQL_VERSION)==0||LakeMultiFileRewriteContract(version)); }
 bool LakeSnapshotExpiryVersionEnabled(void)
 {
-    char* version=LakeInstalledVersion();
-    bool enabled=LakeSnapshotExpiryContract(version);
-    if(version)pfree(version);
-    return enabled;
+    return LakeInstalledContractEnabled(50);
 }
 
 /* SQL49 adds only authenticated protected-CREATE typed literal defaults. */
-static bool LakeCreateLiteralDefaultContract(const char* version)
-{ return version!=NULL&&strcmp(OG_LAKE_CREATE_LITERAL_DEFAULT_SQL_VERSION,"0.49")==0&&
-    (strcmp(version,OG_LAKE_CREATE_LITERAL_DEFAULT_SQL_VERSION)==0||LakeSnapshotExpiryContract(version)); }
 bool LakeCreateLiteralDefaultVersionEnabled(void)
 {
-    char* version=LakeInstalledVersion();
-    bool enabled=LakeCreateLiteralDefaultContract(version);
-    if(version)pfree(version);
-    return enabled;
+    return LakeInstalledContractEnabled(49);
 }
 
 /* SQL48 adds only same historical-spec/complete-key file rewrite. */
-static bool LakePartitionRewriteContract(const char* version)
-{ return version!=NULL&&strcmp(OG_LAKE_PARTITION_REWRITE_SQL_VERSION,"0.48")==0&&
-    (strcmp(version,OG_LAKE_PARTITION_REWRITE_SQL_VERSION)==0||LakeCreateLiteralDefaultContract(version)); }
 bool LakePartitionRewriteVersionEnabled(void)
 {
-    char* version=LakeInstalledVersion();
-    bool enabled=LakePartitionRewriteContract(version);
-    if(version)pfree(version);
-    return enabled;
+    return LakeInstalledContractEnabled(48);
 }
 
 /* SQL47 adds plain INT2 row SMP only. This exact leader predicate
  * never runs in a worker and grants no rights to future/aliased labels. */
-static bool LakeInt2RowSmpContract(const char* version)
-{ return version!=NULL&&strcmp(OG_LAKE_INT2_ROW_SMP_SQL_VERSION,"0.47")==0&&
-    (strcmp(version,OG_LAKE_INT2_ROW_SMP_SQL_VERSION)==0||LakePartitionRewriteContract(version)); }
 bool LakeInt2RowSmpVersionEnabled(void)
 {
-    char* version=LakeInstalledVersion();
-    bool enabled=LakeInt2RowSmpContract(version);
-    if(version)pfree(version);
-    return enabled;
+    return LakeInstalledContractEnabled(47);
 }
 
 /* Exact installed SQL46/47 retains serial same-type INT2 scalar indexes.
  * Read the current extension tuple for every boundary; no version cache. */
-static bool LakeInt2ScalarIndexContract(const char* version)
-{ return version!=NULL&&strcmp(OG_LAKE_INT2_SCALAR_SQL_VERSION,"0.46")==0&&
-    (strcmp(version,OG_LAKE_INT2_SCALAR_SQL_VERSION)==0||LakeInt2RowSmpContract(version)); }
 bool LakeInt2ScalarIndexVersionEnabled(void)
 {
-    char* version=LakeInstalledVersion();
-    bool enabled=LakeInt2ScalarIndexContract(version);
-    if(version)pfree(version);
-    return enabled;
+    return LakeInstalledContractEnabled(46);
 }
 
 /* Exact installed SQL45/46 adds BYTEA literal defaults. Later or
  * similarly spelled labels grant no rights. Physical SDK ABI is unchanged. */
-static bool LakeBinaryDefaultContract(const char* version)
-{ return version!=NULL&&strcmp(OG_LAKE_BINARY_DEFAULT_SQL_VERSION,"0.45")==0&&
-    (strcmp(version,OG_LAKE_BINARY_DEFAULT_SQL_VERSION)==0||LakeInt2ScalarIndexContract(version)); }
 bool LakeBinaryDefaultVersionEnabled(void)
 {
-    char* version=LakeInstalledVersion();
-    bool enabled=LakeBinaryDefaultContract(version);
-    if(version)pfree(version);
-    return enabled;
+    return LakeInstalledContractEnabled(45);
 }
 
 /* SQL45 inherits SQL44 logical constraints without changing retained
  * physical nullability or enabling ADD NOT NULL. */
-static bool LakeBinaryNotNullContract(const char* version)
-{ return version!=NULL&&strcmp(OG_LAKE_BINARY_NOT_NULL_SQL_VERSION,"0.44")==0&&
-    (strcmp(version,OG_LAKE_BINARY_NOT_NULL_SQL_VERSION)==0||LakeBinaryDefaultContract(version)); }
 bool LakeBinaryNotNullVersionEnabled(void)
 {
-    char* version=LakeInstalledVersion();
-    bool enabled=LakeBinaryNotNullContract(version);
-    if(version)pfree(version);
-    return enabled;
+    return LakeInstalledContractEnabled(44);
 }
 
-static bool LakeBinaryBusinessContract(const char* version)
-{ return version!=NULL&&(strcmp(version,"0.43")==0||LakeBinaryNotNullContract(version)); }
 bool LakeBinaryBusinessVersionEnabled(void)
-{ return LakeBinaryBusinessContract(LakeInstalledVersion()); }
+{ return LakeInstalledContractEnabled(43); }
 
-static bool LakeDropColumnContract(const char* version)
-{ return version!=NULL&&(strcmp(version,"0.42")==0||LakeBinaryBusinessContract(version)); }
 bool LakeDropColumnVersionEnabled(void)
-{ return LakeDropColumnContract(LakeInstalledVersion()); }
+{ return LakeInstalledContractEnabled(42); }
 
-static bool LakeAlterDefaultContract(const char* version)
-{ return version!=NULL&&strcmp(OG_LAKE_ALTER_DEFAULT_SQL_VERSION,"0.41")==0&&
-    (strcmp(version,OG_LAKE_ALTER_DEFAULT_SQL_VERSION)==0||LakeDropColumnContract(version)); }
 
 bool LakeAlterDefaultVersionEnabled(void)
-{ return LakeAlterDefaultContract(LakeInstalledVersion()); }
+{ return LakeInstalledContractEnabled(41); }
 
-static bool LakeNotNullContract(const char* version)
-{
-    return version!=NULL&&strcmp(OG_LAKE_NOT_NULL_SQL_VERSION,"0.40")==0&&
-        (strcmp(version,OG_LAKE_NOT_NULL_SQL_VERSION)==0||LakeAlterDefaultContract(version));
-}
 
 bool LakeNotNullVersionEnabled(void)
-{ return LakeNotNullContract(LakeInstalledVersion()); }
+{ return LakeInstalledContractEnabled(40); }
 
-static bool LakeLiteralDefaultContract(const char* version)
-{
-    return version!=NULL&&strcmp(OG_LAKE_LITERAL_DEFAULT_SQL_VERSION,"0.39")==0&&
-        (strcmp(version,OG_LAKE_LITERAL_DEFAULT_SQL_VERSION)==0||LakeNotNullContract(version));
-}
 
 bool LakeLiteralDefaultVersionEnabled(void)
-{ return LakeLiteralDefaultContract(LakeInstalledVersion()); }
+{ return LakeInstalledContractEnabled(39); }
 
-static bool LakeJournalPayloadSpillContract(const char* version)
-{
-    return version!=NULL&&strcmp(OG_LAKE_JOURNAL_SPILL_SQL_VERSION,"0.38")==0&&
-        (strcmp(version,OG_LAKE_JOURNAL_SPILL_SQL_VERSION)==0||LakeLiteralDefaultContract(version));
-}
 
-static bool LakeColumnEvolutionContract(const char* version)
-{
-    return version!=NULL&&strcmp(OG_LAKE_ADD_COLUMN_SQL_VERSION,"0.37")==0&&
-        (strcmp(version,OG_LAKE_ADD_COLUMN_SQL_VERSION)==0||LakeJournalPayloadSpillContract(version));
-}
 
-static bool LakeLogicalDropContract(const char* version)
-{
-    return version!=NULL&&strcmp(OG_LAKE_LOGICAL_DROP_SQL_VERSION,"0.36")==0&&
-        (strcmp(version,OG_LAKE_LOGICAL_DROP_SQL_VERSION)==0||LakeColumnEvolutionContract(version));
-}
 
-static bool LakeCoreFollowupsContract(const char* version)
-{
-    return version!=NULL&&strcmp(OG_LAKE_CORE_FOLLOWUPS_SQL_VERSION,"0.35")==0&&
-        (strcmp(version,OG_LAKE_CORE_FOLLOWUPS_SQL_VERSION)==0||LakeLogicalDropContract(version));
-}
 
 /* SQL34 adds versioned inline sources for ordinary native CREATE tables.
  * This exact label inherits SQL33 proofs and exactly SQL26 parent rights. */
-static bool LakePartitionEvolutionContract(const char* version)
-{
-    return version!=NULL&&strcmp(OG_LAKE_PARTITION_EVOLUTION_SQL_VERSION,"0.34")==0&&
-        (strcmp(version,OG_LAKE_PARTITION_EVOLUTION_SQL_VERSION)==0||LakeCoreFollowupsContract(version));
-}
 
 /* SQL33 adds only optional time-file query proofs. It inherits SQL32 data
  * rules and exactly the published SQL26 native-parent rights, not SQL27/28. */
-static bool LakeTimePartitionPruneContract(const char* version)
-{
-    return version!=NULL&&strcmp(OG_LAKE_TIME_PARTITION_PRUNE_SQL_VERSION,"0.33")==0&&
-        (strcmp(version,OG_LAKE_TIME_PARTITION_PRUNE_SQL_VERSION)==0||LakePartitionEvolutionContract(version));
-}
 
 /* File time transforms add no native-parent rights or producer provenance. */
-static bool LakeTimePartitionContract(const char* version)
-{
-    return version!=NULL&&strcmp(OG_LAKE_TIME_PARTITION_SQL_VERSION,"0.32")==0&&
-        (strcmp(version,OG_LAKE_TIME_PARTITION_SQL_VERSION)==0||LakeTimePartitionPruneContract(version));
-}
 
 uint32 LakeNativePartitionContractCapabilities(const char* version)
 {
@@ -565,9 +433,9 @@ uint32 LakeNativePartitionContractCapabilities(const char* version)
     if(strcmp(maintenance,"0.26")==0&&strcmp(OG_LAKE_FILE_PARTITION_KEYS_SQL_VERSION,"0.29")==0&&
        strcmp(OG_LAKE_BUCKET_PARTITION_SQL_VERSION,"0.30")==0&&
        strcmp(OG_LAKE_TEMPORAL_BUSINESS_SQL_VERSION,"0.31")==0&&
-       (strcmp(version,OG_LAKE_TEMPORAL_BUSINESS_SQL_VERSION)==0||LakeTimePartitionContract(version))){
+       (strcmp(version,OG_LAKE_TEMPORAL_BUSINESS_SQL_VERSION)==0||LakeCumulativeContract(version, 32))){
         uint32 caps=stats|LAKE_NATIVE_PARENT_ROW_HEAD_MAINTENANCE;
-        if(LakeNativePartitionExpandedContract(version))caps|=LAKE_NATIVE_PARENT_EXPANDED;
+        if(LakeCumulativeContract(version, 74))caps|=LAKE_NATIVE_PARENT_EXPANDED;
         return caps;
     }
     return 0;
@@ -598,7 +466,7 @@ bool LakeIdentityPartitionKeysVersionEnabled(void)
          (strcmp(OG_LAKE_BUCKET_PARTITION_SQL_VERSION,"0.30")==0&&
           (strcmp(version,OG_LAKE_BUCKET_PARTITION_SQL_VERSION)==0||
            (strcmp(OG_LAKE_TEMPORAL_BUSINESS_SQL_VERSION,"0.31")==0&&
-            (strcmp(version,OG_LAKE_TEMPORAL_BUSINESS_SQL_VERSION)==0||LakeTimePartitionContract(version))))));
+            (strcmp(version,OG_LAKE_TEMPORAL_BUSINESS_SQL_VERSION)==0||LakeCumulativeContract(version, 32))))));
     if(version)pfree(version);
     return enabled;
 }
@@ -611,7 +479,7 @@ bool LakeBucketPartitionVersionEnabled(void)
         strcmp(OG_LAKE_BUCKET_PARTITION_SQL_VERSION,"0.30")==0&&
         (strcmp(version,OG_LAKE_BUCKET_PARTITION_SQL_VERSION)==0||
          (strcmp(OG_LAKE_TEMPORAL_BUSINESS_SQL_VERSION,"0.31")==0&&
-          (strcmp(version,OG_LAKE_TEMPORAL_BUSINESS_SQL_VERSION)==0||LakeTimePartitionContract(version))));
+          (strcmp(version,OG_LAKE_TEMPORAL_BUSINESS_SQL_VERSION)==0||LakeCumulativeContract(version, 32))));
     if(version)pfree(version);
     return enabled;
 }
@@ -620,7 +488,7 @@ bool LakeTimePartitionVersionEnabled(void)
 {
     if(!OidIsValid(get_extension_oid("og_lake",true)))return false;
     char* version=LakeInstalledVersion();
-    bool enabled=LakeTimePartitionContract(version)&&
+    bool enabled=LakeCumulativeContract(version, 32)&&
         strcmp(OG_LAKE_TEMPORAL_BUSINESS_SQL_VERSION,"0.31")==0&&
         strcmp(OG_LAKE_BUCKET_PARTITION_SQL_VERSION,"0.30")==0&&
         strcmp(OG_LAKE_FILE_PARTITION_KEYS_SQL_VERSION,"0.29")==0;
@@ -635,7 +503,7 @@ bool LakeTimePartitionPruneVersionEnabled(void)
 {
     if(!OidIsValid(get_extension_oid("og_lake",true)))return false;
     char* version=LakeInstalledVersion();
-    bool enabled=LakeTimePartitionPruneContract(version)&&LakeTimePartitionContract(version)&&
+    bool enabled=LakeCumulativeContract(version, 33)&&LakeCumulativeContract(version, 32)&&
         strcmp(OG_LAKE_TEMPORAL_BUSINESS_SQL_VERSION,"0.31")==0&&
         strcmp(OG_LAKE_BUCKET_PARTITION_SQL_VERSION,"0.30")==0&&
         strcmp(OG_LAKE_FILE_PARTITION_KEYS_SQL_VERSION,"0.29")==0;
@@ -649,8 +517,8 @@ bool LakePartitionEvolutionVersionEnabled(void)
 {
     if(!OidIsValid(get_extension_oid("og_lake",true)))return false;
     char* version=LakeInstalledVersion();
-    bool enabled=LakePartitionEvolutionContract(version)&&
-        LakeTimePartitionPruneContract(version)&&LakeTimePartitionContract(version)&&
+    bool enabled=LakeCumulativeContract(version, 34)&&
+        LakeCumulativeContract(version, 33)&&LakeCumulativeContract(version, 32)&&
         strcmp(OG_LAKE_TEMPORAL_BUSINESS_SQL_VERSION,"0.31")==0&&
         strcmp(OG_LAKE_BUCKET_PARTITION_SQL_VERSION,"0.30")==0&&
         strcmp(OG_LAKE_FILE_PARTITION_KEYS_SQL_VERSION,"0.29")==0;
@@ -664,8 +532,8 @@ bool LakeCoreFollowupsVersionEnabled(void)
 {
     if(!OidIsValid(get_extension_oid("og_lake",true)))return false;
     char* version=LakeInstalledVersion();
-    bool enabled=LakeCoreFollowupsContract(version)&&LakePartitionEvolutionContract(version)&&
-        LakeTimePartitionPruneContract(version)&&LakeTimePartitionContract(version)&&
+    bool enabled=LakeCumulativeContract(version, 35)&&LakeCumulativeContract(version, 34)&&
+        LakeCumulativeContract(version, 33)&&LakeCumulativeContract(version, 32)&&
         strcmp(OG_LAKE_TEMPORAL_BUSINESS_SQL_VERSION,"0.31")==0&&
         strcmp(OG_LAKE_BUCKET_PARTITION_SQL_VERSION,"0.30")==0&&
         strcmp(OG_LAKE_FILE_PARTITION_KEYS_SQL_VERSION,"0.29")==0;
@@ -677,8 +545,8 @@ bool LakeLogicalDropVersionEnabled(void)
 {
     if(!OidIsValid(get_extension_oid("og_lake",true)))return false;
     char* version=LakeInstalledVersion();
-    bool enabled=LakeLogicalDropContract(version)&&LakeCoreFollowupsContract(version)&&
-        LakePartitionEvolutionContract(version)&&LakeTimePartitionPruneContract(version)&&LakeTimePartitionContract(version)&&
+    bool enabled=LakeCumulativeContract(version, 36)&&LakeCumulativeContract(version, 35)&&
+        LakeCumulativeContract(version, 34)&&LakeCumulativeContract(version, 33)&&LakeCumulativeContract(version, 32)&&
         strcmp(OG_LAKE_TEMPORAL_BUSINESS_SQL_VERSION,"0.31")==0&&
         strcmp(OG_LAKE_BUCKET_PARTITION_SQL_VERSION,"0.30")==0&&
         strcmp(OG_LAKE_FILE_PARTITION_KEYS_SQL_VERSION,"0.29")==0;
@@ -691,7 +559,7 @@ bool LakeTemporalBusinessVersionEnabled(void)
     if(!OidIsValid(get_extension_oid("og_lake",true)))return false;
     char* version=LakeInstalledVersion();
     bool enabled=version!=NULL&&strcmp(OG_LAKE_TEMPORAL_BUSINESS_SQL_VERSION,"0.31")==0&&
-        (strcmp(version,OG_LAKE_TEMPORAL_BUSINESS_SQL_VERSION)==0||LakeTimePartitionContract(version));
+        (strcmp(version,OG_LAKE_TEMPORAL_BUSINESS_SQL_VERSION)==0||LakeCumulativeContract(version, 32));
     if(version)pfree(version);
     return enabled;
 }
@@ -878,8 +746,8 @@ bool LakeColumnEvolutionVersionEnabled(void)
 {
     if(!OidIsValid(get_extension_oid("og_lake",true)))return false;
     char* version=LakeInstalledVersion();
-    bool enabled=LakeColumnEvolutionContract(version)&&LakeLogicalDropContract(version)&&
-        LakeCoreFollowupsContract(version)&&LakePartitionEvolutionContract(version)&&LakeTimePartitionContract(version)&&
+    bool enabled=LakeCumulativeContract(version, 37)&&LakeCumulativeContract(version, 36)&&
+        LakeCumulativeContract(version, 35)&&LakeCumulativeContract(version, 34)&&LakeCumulativeContract(version, 32)&&
         strcmp(OG_LAKE_TEMPORAL_BUSINESS_SQL_VERSION,"0.31")==0&&
         strcmp(OG_LAKE_BUCKET_PARTITION_SQL_VERSION,"0.30")==0&&
         strcmp(OG_LAKE_FILE_PARTITION_KEYS_SQL_VERSION,"0.29")==0;
@@ -891,8 +759,8 @@ bool LakeJournalPayloadSpillVersionEnabled(void)
 {
     if(!OidIsValid(get_extension_oid("og_lake",true)))return false;
     char* version=LakeInstalledVersion();
-    bool enabled=LakeJournalPayloadSpillContract(version)&&LakeColumnEvolutionContract(version)&&
-        LakeLogicalDropContract(version)&&LakeCoreFollowupsContract(version)&&LakePartitionEvolutionContract(version);
+    bool enabled=LakeCumulativeContract(version, 38)&&LakeCumulativeContract(version, 37)&&
+        LakeCumulativeContract(version, 36)&&LakeCumulativeContract(version, 35)&&LakeCumulativeContract(version, 34);
     if(version)pfree(version);
     return enabled;
 }

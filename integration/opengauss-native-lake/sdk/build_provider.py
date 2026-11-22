@@ -3,7 +3,7 @@
 import argparse, datetime, hashlib, json, os, shutil, subprocess, time
 from pathlib import Path
 
-ROOT=Path(__file__).resolve().parents[3]
+ROOT=Path(os.environ.get('CPP_WORKSPACE', Path(__file__).resolve().parents[3])).resolve()
 SDK=ROOT/'.reference/opengauss-native-lake/sdk'
 SOURCE=ROOT/'.worktrees/opengauss-native-lake/contrib/og_lake/sdk'
 BUILD=SDK/'build/og-lake-provider'
@@ -14,9 +14,17 @@ CMAKE=SDK/'build-tools/bin/cmake'
 def sha(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
+def source_files(source):
+    files = {p.name: p for p in sorted(source.iterdir())
+             if p.is_file() and (p.suffix in ('.h', '.cpp', '.map') or p.name == 'CMakeLists.txt')}
+    if '../sdk/arrow_parquet_provider.cpp' in (source / 'CMakeLists.txt').read_text():
+        for name in ('arrow_parquet_provider.cpp', 'lake_parquet_sdk.h', 'lake_temporal_codec.h'):
+            files['../sdk/' + name] = source.parent / 'sdk' / name
+    return files
+
+
 def inputs():
-    return {p.name:sha(p) for p in sorted(SOURCE.iterdir())
-            if p.is_file() and (p.suffix in ('.h','.cpp','.map') or p.name=='CMakeLists.txt')}
+    return {name: sha(path) for name, path in source_files(SOURCE).items()}
 
 def dependencies():
     headers={str(p.relative_to(PREFIX)):sha(p) for p in sorted((PREFIX/'include').rglob('*'))
@@ -44,7 +52,13 @@ def main():
              'sources_before':inputs(),'dependencies_before':dependencies(),
              'script_sha256':sha(__file__),'commands':[]}
     archive=evidence/'executed-inputs';archive.mkdir(exist_ok=False)
-    for name in receipt['sources_before']:shutil.copy2(SOURCE/name,archive/name)
+    files = source_files(SOURCE)
+    # Preserve the CMake sibling layout for external builds that use the shared provider.
+    archive_source = archive / SOURCE.name if any(name.startswith('../sdk/') for name in files) else archive
+    for name, path in files.items():
+        dest = archive_source / name
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(path, dest)
     shutil.copy2(__file__,evidence/'executed-build-driver.py')
     started=time.monotonic()
     env=os.environ.copy()

@@ -651,6 +651,9 @@ struct LakeCopyJsonOutState {
     MemoryContext row_context;
     char* path;
     FILE* fp;
+    int parent_fd;
+    struct stat identity;
+    bool owns_file;
     bool started;
     bool finished;
     int out_count;
@@ -1120,17 +1123,31 @@ bool LakeCopyNextJsonRow(void* opaque, Datum* values, bool* nulls)
     return obj != NULL;
 }
 
-static void LakeCopyJsonOutCleanupCallback(std::shared_ptr<void> arg)
+static void LakeCloseJsonOutput(LakeCopyJsonOutState* state)
 {
-    LakeCopyJsonOutState* state = (LakeCopyJsonOutState*)arg.get();
     if (state == NULL)
         return;
     if (state->fp != NULL) {
         (void)fclose(state->fp);
         state->fp = NULL;
     }
-    if (!state->finished && state->path != NULL)
-        (void)unlink(state->path);
+    if (state->parent_fd >= 0) {
+        if (state->owns_file && !state->finished) {
+            const char* name = strrchr(state->path, '/') + 1;
+            struct stat current;
+            if (fstatat(state->parent_fd, name, &current, AT_SYMLINK_NOFOLLOW) == 0 &&
+                current.st_dev == state->identity.st_dev && current.st_ino == state->identity.st_ino)
+                (void)unlinkat(state->parent_fd, name, 0);
+        }
+        (void)close(state->parent_fd);
+        state->parent_fd = -1;
+        state->owns_file = false;
+    }
+}
+
+static void LakeCopyJsonOutCleanupCallback(std::shared_ptr<void> arg)
+{
+    LakeCloseJsonOutput((LakeCopyJsonOutState*)arg.get());
 }
 
 void* LakeCopyBeginJsonOut(const char* filename, MemoryContext copyContext)
@@ -1145,13 +1162,11 @@ void* LakeCopyBeginJsonOut(const char* filename, MemoryContext copyContext)
         ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
             errmsg("JSON COPY TO requires a UTF8 database")));
 
-    char* cleanPath = LakeExternalAuthorizeWritePath(filename);
     MemoryContext caller = MemoryContextSwitchTo(copyContext);
     LakeCopyJsonOutState* state = (LakeCopyJsonOutState*)palloc0(sizeof(LakeCopyJsonOutState));
     state->copy_context = copyContext;
     state->row_context = AllocSetContextCreate(copyContext, "Lake JSON COPY OUT row", ALLOCSET_DEFAULT_SIZES);
-    state->path = pstrdup(cleanPath);
-    pfree(cleanPath);
+    state->parent_fd = -1;
 
     new(&state->cleanup_cb) MemoryContextCallback();
     state->cleanup_cb.func = LakeCopyJsonOutCleanupCallback;
@@ -1159,7 +1174,9 @@ void* LakeCopyBeginJsonOut(const char* filename, MemoryContext copyContext)
     MemoryContextRegisterResetCallback(copyContext, &state->cleanup_cb);
     state->cleanup_registered = true;
 
-    int fd = open(state->path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, S_IRUSR | S_IWUSR);
+    state->path = LakeExternalAuthorizeWritePath(filename, &state->parent_fd);
+    const char* name = strrchr(state->path, '/') + 1;
+    int fd = openat(state->parent_fd, name, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, S_IRUSR | S_IWUSR);
     if (fd < 0) {
         int err = errno;
         MemoryContextSwitchTo(caller);
@@ -1167,11 +1184,23 @@ void* LakeCopyBeginJsonOut(const char* filename, MemoryContext copyContext)
         ereport(ERROR, (errcode(err == EEXIST ? ERRCODE_DUPLICATE_FILE : ERRCODE_IO_ERROR),
             errmsg("could not open JSON COPY TO file \"%s\" for writing: %m", state->path)));
     }
+    int rc;
+    do {
+        rc = fstat(fd, &state->identity);
+    } while (rc < 0 && errno == EINTR);
+    if (rc < 0) {
+        int err = errno;
+        (void)close(fd);
+        MemoryContextSwitchTo(caller);
+        errno = err;
+        ereport(ERROR, (errcode_for_file_access(), errmsg("could not identify new JSON COPY TO file: %m")));
+    }
+    state->owns_file = true;
     state->fp = fdopen(fd, "wb");
     if (state->fp == NULL) {
         int err = errno;
         (void)close(fd);
-        (void)unlink(state->path);
+        LakeCloseJsonOutput(state);
         MemoryContextSwitchTo(caller);
         errno = err;
         ereport(ERROR, (errcode_for_file_access(),
@@ -1272,6 +1301,25 @@ void LakeCopyStartJsonOut(void* opaque, TupleDesc tupDesc)
     MemoryContextSwitchTo(caller);
 }
 
+/* json_out preserves user whitespace and duplicate object keys. Remove only
+ * JSON whitespace outside strings, including inside arrays and composites. */
+static void LakeAppendJsonLineValue(StringInfo buf, const char* value, Size len)
+{
+    bool quoted = false;
+    for (Size i = 0; i < len; ++i) {
+        char c = value[i];
+        if (!quoted && (c == ' ' || c == '\t' || c == '\r' || c == '\n'))
+            continue;
+        appendStringInfoCharMacro(buf, c);
+        if (quoted && c == '\\' && i + 1 < len) {
+            ++i;
+            appendStringInfoCharMacro(buf, value[i]);
+        } else if (c == '"') {
+            quoted = !quoted;
+        }
+    }
+}
+
 void LakeCopyReceiveJsonSlot(void* opaque, TupleTableSlot* slot)
 {
     LakeCopyJsonOutState* state = (LakeCopyJsonOutState*)opaque;
@@ -1308,19 +1356,21 @@ void LakeCopyReceiveJsonSlot(void* opaque, TupleTableSlot* slot)
                 case LAKE_JSON_OUT_NUMBER:
                     AppendJsonNormalizedNumber(buf, OutputFunctionCall((FmgrInfo*)&col->out_func, val));
                     break;
-                case LAKE_JSON_OUT_RAW_JSON:
-                    appendStringInfoString(buf, OutputFunctionCall((FmgrInfo*)&col->out_func, val));
+                case LAKE_JSON_OUT_RAW_JSON: {
+                    char* raw = OutputFunctionCall((FmgrInfo*)&col->out_func, val);
+                    LakeAppendJsonLineValue(buf, raw, strlen(raw));
                     break;
+                }
                 case LAKE_JSON_OUT_ARRAY: {
                     Datum jd = DirectFunctionCall1(array_to_json, val);
                     text* jt = DatumGetTextP(jd);
-                    appendBinaryStringInfo(buf, VARDATA_ANY(jt), VARSIZE_ANY_EXHDR(jt));
+                    LakeAppendJsonLineValue(buf, VARDATA_ANY(jt), VARSIZE_ANY_EXHDR(jt));
                     break;
                 }
                 case LAKE_JSON_OUT_COMPOSITE: {
                     Datum jd = DirectFunctionCall1(row_to_json, val);
                     text* jt = DatumGetTextP(jd);
-                    appendBinaryStringInfo(buf, VARDATA_ANY(jt), VARSIZE_ANY_EXHDR(jt));
+                    LakeAppendJsonLineValue(buf, VARDATA_ANY(jt), VARSIZE_ANY_EXHDR(jt));
                     break;
                 }
                 case LAKE_JSON_OUT_STRING:
@@ -1373,13 +1423,7 @@ void LakeCopyEndJsonState(void* opaque, bool isFrom)
         LakeJsonSourceClose(&inState->src);
         return;
     }
-    LakeCopyJsonOutState* outState = (LakeCopyJsonOutState*)opaque;
-    if (outState->fp != NULL) {
-        (void)fclose(outState->fp);
-        outState->fp = NULL;
-    }
-    if (!outState->finished && outState->path != NULL)
-        (void)unlink(outState->path);
+    LakeCloseJsonOutput((LakeCopyJsonOutState*)opaque);
 }
 
 /* Shared JSON Schema Inference & Info Inspection */

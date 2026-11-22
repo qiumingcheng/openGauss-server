@@ -10,6 +10,7 @@
 #include "lake_types.h"
 #include "lake_vector_codec.h"
 #include "lake_version.h"
+#include "lake_sample.h"
 #include "access/datavec/vector.h"
 #include "access/og_lake.h"
 #include "access/reloptions.h"
@@ -49,6 +50,7 @@
 #include "utils/acl.h"
 #include "utils/builtins.h"
 #include "utils/date.h"
+#include "utils/datetime.h"
 #include "utils/lsyscache.h"
 #include "utils/memutils.h"
 #include "utils/rel.h"
@@ -121,7 +123,6 @@ struct LakeExternalScanState {
     /* JSON / JSONL streaming state (SQL0.71) */
     void* json_state;
     MemoryContextCallback cleanup_cb;
-    bool cleanup_registered;
 };
 
 static bool LakeExternalTrustedWrapper(Oid fdwOid)
@@ -955,11 +956,15 @@ static void LakeExternalBeginForeignScan(ForeignScanState* node, int eflags)
     state->row_context = AllocSetContextCreate(estate->es_query_cxt,
         "Lake external scan row", ALLOCSET_DEFAULT_SIZES);
 
-    new (&state->cleanup_cb) MemoryContextCallback();
-    state->cleanup_cb.func = LakeExternalCleanupCallback;
-    state->cleanup_cb.arg = std::shared_ptr<void>(std::shared_ptr<void>(), state);
-    MemoryContextRegisterResetCallback(estate->es_query_cxt, &state->cleanup_cb);
-    state->cleanup_registered = true;
+    /* COPY's transaction-owned file and query memory are released by the host
+     * on abort. JSON owns its own reset callback. Only the Parquet SDK handles
+     * need an FDW callback after the query's child contexts have been deleted. */
+    if (state->is_parquet) {
+        new (&state->cleanup_cb) MemoryContextCallback();
+        state->cleanup_cb.func = LakeExternalCleanupCallback;
+        state->cleanup_cb.arg = std::shared_ptr<void>(std::shared_ptr<void>(), state);
+        MemoryContextRegisterResetCallback(estate->es_query_cxt, &state->cleanup_cb);
+    }
     node->fdw_state = (void*)state;
 
     PG_TRY();
@@ -1085,9 +1090,12 @@ static void LakeExternalReScanForeignScan(ForeignScanState* node)
         LakeExternalOpenParquetReader(state, node->ss.ss_currentRelation, false);
     else if (state->is_json)
         LakeExternalOpenJsonReader(state, node->ss.ss_currentRelation, node->ss.ps.state->es_query_cxt, true);
-    else
+    else {
+        MemoryContext previous = MemoryContextSwitchTo(node->ss.ps.state->es_query_cxt);
         state->cstate = LakeExternalOpenCsvCopy(node->ss.ss_currentRelation, state->root,
             state->relative_path, state->format, state->copy_options);
+        MemoryContextSwitchTo(previous);
+    }
 }
 
 static void LakeExternalEndForeignScan(ForeignScanState* node)
@@ -1116,6 +1124,42 @@ static void LakeExternalExplainForeignScan(ForeignScanState* node, ExplainState*
     }
 }
 
+/* One reservoir for all formats. Parquet can skip decoding a row that was
+ * not selected, while CSV and JSON have to parse it to reach the next row. */
+struct LakeExternalReservoir {
+    LakeAnalyzeSample* samples;
+    int target;
+    int count;
+    uint64 seen;
+    double skip;
+    double random_state;
+};
+
+static int LakeExternalSampleSlot(LakeExternalReservoir* reservoir)
+{
+    uint64 ordinal = reservoir->seen++;
+    if (reservoir->count < reservoir->target)
+        return reservoir->count++;
+    if (reservoir->skip < 0)
+        reservoir->skip = anl_get_next_S((double)ordinal, reservoir->target, &reservoir->random_state);
+    if (reservoir->skip-- > 0)
+        return -1;
+    return (int)(reservoir->target * anl_random_fract());
+}
+
+static void LakeExternalStoreSample(LakeExternalReservoir* reservoir, int slot,
+    TupleDesc desc, Datum* values, bool* nulls)
+{
+    if (slot < 0)
+        return;
+    LakeAnalyzeSample* sample = &reservoir->samples[slot];
+    HeapTuple tuple = heap_form_tuple(desc, values, nulls);
+    if (sample->tuple != NULL)
+        heap_freetuple(sample->tuple);
+    sample->tuple = tuple;
+    sample->ordinal = reservoir->seen - 1;
+}
+
 static int LakeExternalAcquireSampleRows(Relation onerel, int elevel, HeapTuple* rows, int targrows,
     double* totalrows, double* totaldeadrows, void* additionalData, bool estimate_table_rownum)
 {
@@ -1127,9 +1171,10 @@ static int LakeExternalAcquireSampleRows(Relation onerel, int elevel, HeapTuple*
     char* extRoot = LakeExternalServerRoot(foreign->serverid);
     LakeExternalTableOptions opts = LakeExternalParseTableOptions(foreign->options, relid);
 
-    int numrows = 0;
-    double rowstoskip = -1.0;
-    double rstate = anl_init_selection_state(targrows);
+    if (targrows <= 0 || (Size)targrows > MaxAllocSize / sizeof(LakeAnalyzeSample))
+        ereport(ERROR, (errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED), errmsg("invalid external ANALYZE sample size")));
+    LakeExternalReservoir reservoir = {(LakeAnalyzeSample*)palloc0(targrows * sizeof(LakeAnalyzeSample)),
+        targrows, 0, 0, -1, anl_init_selection_state(targrows)};
     *totalrows = 0.0;
     *totaldeadrows = 0.0;
 
@@ -1160,20 +1205,8 @@ static int LakeExternalAcquireSampleRows(Relation onerel, int elevel, HeapTuple*
                 MemoryContextSwitchTo(oldCtx);
                 if (!found)
                     break;
-                if (numrows < targrows) {
-                    rows[numrows++] = heap_form_tuple(tupDesc, values, nulls);
-                } else {
-                    if (rowstoskip < 0)
-                        rowstoskip = anl_get_next_S(*totalrows, targrows, &rstate);
-                    if (rowstoskip <= 0) {
-                        int k = (int)(targrows * anl_random_fract());
-                        Assert(k >= 0 && k < targrows);
-                        heap_freetuple(rows[k]);
-                        rows[k] = heap_form_tuple(tupDesc, values, nulls);
-                    }
-                    rowstoskip -= 1.0;
-                }
-                *totalrows += 1.0;
+                int slot = LakeExternalSampleSlot(&reservoir);
+                LakeExternalStoreSample(&reservoir, slot, tupDesc, values, nulls);
             }
         }
         PG_CATCH();
@@ -1203,20 +1236,8 @@ static int LakeExternalAcquireSampleRows(Relation onerel, int elevel, HeapTuple*
                 MemoryContextSwitchTo(oldCtx);
                 if (!found)
                     break;
-                if (numrows < targrows) {
-                    rows[numrows++] = heap_form_tuple(tupDesc, values, nulls);
-                } else {
-                    if (rowstoskip < 0)
-                        rowstoskip = anl_get_next_S(*totalrows, targrows, &rstate);
-                    if (rowstoskip <= 0) {
-                        int k = (int)(targrows * anl_random_fract());
-                        Assert(k >= 0 && k < targrows);
-                        heap_freetuple(rows[k]);
-                        rows[k] = heap_form_tuple(tupDesc, values, nulls);
-                    }
-                    rowstoskip -= 1.0;
-                }
-                *totalrows += 1.0;
+                int slot = LakeExternalSampleSlot(&reservoir);
+                LakeExternalStoreSample(&reservoir, slot, tupDesc, values, nulls);
             }
         }
         PG_CATCH();
@@ -1268,17 +1289,8 @@ static int LakeExternalAcquireSampleRows(Relation onerel, int elevel, HeapTuple*
                 if (state.batch == NULL)
                     break;
                 int64 row = state.batch_row++;
-                bool take = false;
-                if (numrows < targrows) {
-                    take = true;
-                } else {
-                    if (rowstoskip < 0)
-                        rowstoskip = anl_get_next_S(*totalrows, targrows, &rstate);
-                    if (rowstoskip <= 0)
-                        take = true;
-                    rowstoskip -= 1.0;
-                }
-                if (take) {
+                int sampleSlot = LakeExternalSampleSlot(&reservoir);
+                if (sampleSlot >= 0) {
                     MemoryContextReset(tupCtx);
                     MemoryContextSwitchTo(tupCtx);
                     for (int i = 0; i < tupDesc->natts; ++i) {
@@ -1299,16 +1311,8 @@ static int LakeExternalAcquireSampleRows(Relation onerel, int elevel, HeapTuple*
                         }
                     }
                     MemoryContextSwitchTo(oldCtx);
-                    if (numrows < targrows) {
-                        rows[numrows++] = heap_form_tuple(tupDesc, values, nulls);
-                    } else {
-                        int k = (int)(targrows * anl_random_fract());
-                        Assert(k >= 0 && k < targrows);
-                        heap_freetuple(rows[k]);
-                        rows[k] = heap_form_tuple(tupDesc, values, nulls);
-                    }
+                    LakeExternalStoreSample(&reservoir, sampleSlot, tupDesc, values, nulls);
                 }
-                *totalrows += 1.0;
             }
         }
         PG_CATCH();
@@ -1323,6 +1327,12 @@ static int LakeExternalAcquireSampleRows(Relation onerel, int elevel, HeapTuple*
     }
 
     MemoryContextDelete(tupCtx);
+    int numrows = reservoir.count;
+    qsort(reservoir.samples, numrows, sizeof(LakeAnalyzeSample), LakeCompareSampleOrdinal);
+    for (int i = 0; i < numrows; ++i)
+        rows[i] = reservoir.samples[i].tuple;
+    *totalrows = (double)reservoir.seen;
+    pfree(reservoir.samples);
     pfree(values);
     pfree(nulls);
     ereport(elevel, (errmsg("\"%s\": file contains %.0f rows; %d rows in sample",
@@ -1439,7 +1449,7 @@ static bool LakeCsvIsDateToken(const char* tok)
     int y = (tok[0] - '0') * 1000 + (tok[1] - '0') * 100 + (tok[2] - '0') * 10 + (tok[3] - '0');
     int m = (tok[5] - '0') * 10 + (tok[6] - '0');
     int d = (tok[8] - '0') * 10 + (tok[9] - '0');
-    return y >= 1 && m >= 1 && m <= 12 && d >= 1 && d <= 31;
+    return y >= 1 && m >= 1 && m <= 12 && d >= 1 && d <= day_tab[isleap(y)][m - 1];
 }
 
 static LakeCsvColKind LakeCsvMergeKind(LakeCsvColKind existing, const char* tok)
@@ -1483,45 +1493,52 @@ static const char* LakeCsvKindName(LakeCsvColKind kind)
     }
 }
 
-static List* LakeCsvParseLine(const char* line, Size len, char delim)
+/* Return complete logical records only. The byte budget may end inside a
+ * quoted field, a doubled quote, or a multibyte character. */
+static List* LakeCsvSampleRecords(const char* buf, Size len, bool atEof, char delim)
 {
+    List* records = NIL;
     List* fields = NIL;
-    StringInfoData buf;
-    initStringInfo(&buf);
-    bool inQuote = false;
-    Size i = 0;
-    while (i < len) {
-        char c = line[i];
-        if (inQuote) {
-            if (c == '"') {
-                if (i + 1 < len && line[i + 1] == '"') {
-                    appendStringInfoChar(&buf, '"');
-                    i += 2;
-                    continue;
-                }
-                inQuote = false;
-                ++i;
-                continue;
-            }
-            appendStringInfoChar(&buf, c);
-            ++i;
-        } else {
-            if (c == delim) {
-                fields = lappend(fields, pstrdup(buf.data));
-                resetStringInfo(&buf);
-                ++i;
-            } else if (c == '"' && buf.len == 0) {
-                inQuote = true;
+    StringInfoData field;
+    initStringInfo(&field);
+    bool quoted = false;
+    Size start = 0;
+    for (Size i = 0; i < len && list_length(records) < 101; ++i) {
+        char c = buf[i];
+        if (c == '"') {
+            if (quoted && i + 1 < len && buf[i + 1] == '"') {
+                appendStringInfoChar(&field, '"');
                 ++i;
             } else {
-                appendStringInfoChar(&buf, c);
-                ++i;
+                quoted = !quoted;
             }
+        } else if (!quoted && c == delim) {
+            fields = lappend(fields, pstrdup(field.data));
+            resetStringInfo(&field);
+        } else if (!quoted && (c == '\n' || c == '\r')) {
+            pg_verify_mbstr(PG_UTF8, buf + start, i - start, false);
+            fields = lappend(fields, pstrdup(field.data));
+            records = lappend(records, fields);
+            fields = NIL;
+            resetStringInfo(&field);
+            if (c == '\r' && i + 1 < len && buf[i + 1] == '\n')
+                ++i;
+            start = i + 1;
+        } else {
+            appendStringInfoChar(&field, c);
         }
     }
-    fields = lappend(fields, pstrdup(buf.data));
-    pfree(buf.data);
-    return fields;
+    if (atEof && start < len && list_length(records) < 101) {
+        if (quoted)
+            ereport(ERROR, (errcode(ERRCODE_BAD_COPY_FILE_FORMAT), errmsg("unterminated CSV quoted field")));
+        pg_verify_mbstr(PG_UTF8, buf + start, len - start, false);
+        records = lappend(records, lappend(fields, pstrdup(field.data)));
+    }
+    pfree(field.data);
+    if (records == NIL)
+        ereport(ERROR, (errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
+            errmsg("CSV record exceeds schema inspection buffer")));
+    return records;
 }
 
 static void LakeDescribeParquetIntoStore(const LakeExternalFdSdk* sdk, int fd, Tuplestorestate* store, TupleDesc outDesc)
@@ -1580,8 +1597,8 @@ static void LakeDescribeCsvIntoStore(int fd, bool header, char delim, Tuplestore
     static const Size LAKE_CSV_SNIFF_BYTES = 65536;
     char* buf = (char*)palloc(LAKE_CSV_SNIFF_BYTES + 1);
     Size total = 0;
-    while (total < LAKE_CSV_SNIFF_BYTES) {
-        ssize_t n = pread(fd, buf + total, LAKE_CSV_SNIFF_BYTES - total, (off_t)total);
+    while (total <= LAKE_CSV_SNIFF_BYTES) {
+        ssize_t n = pread(fd, buf + total, LAKE_CSV_SNIFF_BYTES + 1 - total, (off_t)total);
         if (n < 0) {
             if (errno == EINTR)
                 continue;
@@ -1591,38 +1608,12 @@ static void LakeDescribeCsvIntoStore(int fd, bool header, char delim, Tuplestore
             break;
         total += (Size)n;
     }
-    buf[total] = '\0';
     if (total == 0)
         ereport(ERROR, (errcode(ERRCODE_NO_DATA), errmsg("cannot infer schema from empty external CSV file")));
 
-    /* Trim a trailing partial line only when buffer was saturated so UTF8/line checks stay bounded. */
-    Size usable = total;
-    if (total == LAKE_CSV_SNIFF_BYTES) {
-        while (usable > 0 && buf[usable - 1] != '\n')
-            --usable;
-        if (usable == 0)
-            ereport(ERROR, (errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
-                errmsg("CSV header or sample line exceeds schema inspection buffer")));
-    }
-    (void)pg_verify_mbstr(PG_UTF8, buf, (int)usable, false);
-
-    List* lines = NIL;
-    Size pos = 0;
-    while (pos < usable && list_length(lines) < 101) {
-        Size start = pos;
-        while (pos < usable && buf[pos] != '\n')
-            ++pos;
-        Size lineLen = pos - start;
-        if (lineLen > 0 && buf[start + lineLen - 1] == '\r')
-            --lineLen;
-        lines = lappend(lines, pnstrdup(buf + start, lineLen));
-        if (pos < usable && buf[pos] == '\n')
-            ++pos;
-    }
-    if (lines == NIL)
-        ereport(ERROR, (errcode(ERRCODE_NO_DATA), errmsg("external CSV file contains no rows")));
-
-    List* firstFields = LakeCsvParseLine((const char*)linitial(lines), strlen((const char*)linitial(lines)), delim);
+    List* records = LakeCsvSampleRecords(buf, Min(total, LAKE_CSV_SNIFF_BYTES),
+        total <= LAKE_CSV_SNIFF_BYTES, delim);
+    List* firstFields = (List*)linitial(records);
     int ncols = list_length(firstFields);
     if (ncols <= 0)
         ereport(ERROR, (errcode(ERRCODE_INVALID_TEXT_REPRESENTATION), errmsg("external CSV file has zero columns")));
@@ -1647,17 +1638,12 @@ static void LakeDescribeCsvIntoStore(int fd, bool header, char delim, Tuplestore
 
     int dataIdx = 0;
     ListCell* lc = NULL;
-    foreach(lc, lines) {
+    foreach(lc, records) {
         if (header && dataIdx == 0) {
             ++dataIdx;
             continue;
         }
-        const char* line = (const char*)lfirst(lc);
-        if (line[0] == '\0' && ncols > 1) {
-            ++dataIdx;
-            continue;
-        }
-        List* rowFields = LakeCsvParseLine(line, strlen(line), delim);
+        List* rowFields = (List*)lfirst(lc);
         if (list_length(rowFields) != ncols)
             ereport(ERROR, (errcode(ERRCODE_BAD_COPY_FILE_FORMAT),
                 errmsg("CSV row %d has %d columns, expected %d", dataIdx + 1, list_length(rowFields), ncols)));
@@ -1671,7 +1657,7 @@ static void LakeDescribeCsvIntoStore(int fd, bool header, char delim, Tuplestore
         ++dataIdx;
     }
 
-    int dataRows = header ? (list_length(lines) - 1) : list_length(lines);
+    int dataRows = header ? (list_length(records) - 1) : list_length(records);
     for (int i = 0; i < ncols; ++i) {
         if (dataRows == 0 || cols[i].kind == LAKE_CSV_UNKNOWN)
             cols[i].nullable = true;

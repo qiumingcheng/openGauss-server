@@ -398,7 +398,7 @@ void LakeExternalAuthorizePath(const char* rawPath, char** rootOut, char** relOu
     pfree(parent);
 }
 
-char* LakeExternalAuthorizeWritePath(const char* rawPath)
+char* LakeExternalAuthorizeWritePath(const char* rawPath, int* parentOut)
 {
     char* bestRoot = NULL;
     const char* path = LakeExternalAuthorizeLocalPath(rawPath, &bestRoot);
@@ -420,6 +420,7 @@ char* LakeExternalAuthorizeWritePath(const char* rawPath)
     char* validParent = LakeExternalValidateRoot(rawParent);
     pfree(rawParent);
 
+    char* canonical = psprintf("%s/%s", validParent, fileName);
     /* Reject symlinks along parent hierarchy and refuse overwriting existing entries. */
     volatile int fsFd = -1;
     volatile int parentFd = -1;
@@ -449,7 +450,10 @@ char* LakeExternalAuthorizeWritePath(const char* rawPath)
             ereport(ERROR, (errcode_for_file_access(),
                 errmsg("cannot inspect external COPY TO target path \"%s\": %m", path)));
         }
-        (void)close(parentFd);
+        if (parentOut != NULL)
+            *parentOut = parentFd;
+        else
+            (void)close(parentFd);
         parentFd = -1;
     }
     PG_CATCH();
@@ -462,7 +466,6 @@ char* LakeExternalAuthorizeWritePath(const char* rawPath)
     }
     PG_END_TRY();
 
-    char* canonical = psprintf("%s/%s", validParent, fileName);
     pfree(validParent);
     return canonical;
 }
