@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# FastCheck executes _bin cases directly instead of sending them to gsql.
+set -euo pipefail
+here=$(cd -- "$(dirname -- "$0")" && pwd -P)
+exec "${OG_LAKE_SDK6_PYTHON:-python3}" "$here/../../../../integration/opengauss-native-lake/sdk_external_tests/run_fastcheck.py"

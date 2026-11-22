@@ -6208,7 +6208,7 @@ static void LakeCheckCopyFromOptions(Relation rel,const char* filename,List* opt
     if(!nativeParent&&!LakeIsNativeForeignRelation(rel))return;
     if(nativeParent)LakeNativePartitionRequireCopyFrom(rel);
     const bool allowFileCopy=!nativeParent&&LakeCopyAllowLakeFileFrom();
-    if(!IS_SINGLE_NODE||StreamThreadAmI()||func!=NULL||(filename!=NULL&&!allowFileCopy))
+    if(g_instance.role!=VSINGLENODE||StreamThreadAmI()||func!=NULL||(filename!=NULL&&!allowFileCopy))
         ereport(ERROR,(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
             errmsg("native lake COPY currently requires single-node COPY FROM STDIN")));
     bool isParquet=false;

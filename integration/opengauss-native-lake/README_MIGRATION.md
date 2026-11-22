@@ -221,3 +221,8 @@ SDK6 夹具与私有模块命令见 [sdk_external_tests/README.md](sdk_external_
 历史回归三画像各 16 次套件调用、独立 SQL060 自动维护 10 阶段及 datavec 3/3，
 SDK6 独立探针 4/4、私有 SQL 17/17。目录修正、测试准备问题和两次历史非零退出
 见[迁移指南的 P1 增量复测记录](../../公共文档/openGauss原生湖存储/迁移与异地复测指南.md#2026-11-22-p1-增量复测)。
+
+SDK6 隔离 SQL 可以由 openGauss FastCheck 调度。在已配置源码树执行
+`make -C src/test/regress fastcheck PART=.og_lake_sdk6`。此分组沿用原有
+17 项断言并保存逐项结果。构建收据、SDK6 库及环境参数见
+[SDK6 FastCheck 配置](sdk_external_tests/README.md#fastcheck-sdk6-sql-lane)。

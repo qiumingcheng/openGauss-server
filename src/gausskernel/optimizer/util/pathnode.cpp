@@ -4220,7 +4220,7 @@ ForeignPath* create_foreignscan_path(PlannerInfo* root, RelOptInfo* rel, Cost st
         } else if (T_LAKE_SERVER == serverType) {
             /* The FDW adds only its independently admitted read-only path.
              * Use the path's selected degree, not a mutable query_dop. */
-            if (IS_SINGLE_NODE && CMD_SELECT == root->parse->commandType)
+            if (g_instance.role == VSINGLENODE && CMD_SELECT == root->parse->commandType)
                 pathnode->path.dop = dop;
         } else if (T_PGFDW_SERVER == serverType) {
             if ((CMD_SELECT == root->parse->commandType || CMD_INSERT == root->parse->commandType) &&

@@ -351,9 +351,31 @@ fastcheck_parallel_initdb: all tablespace-setup
 	$(call exception_arm_cases) && \
 	$(pg_regress_check) $(REGRESS_OPTS) --parallel_initdb -d 1 -c 0 -p $(p) -r $(runtest) -b $(dir) -n $(n) --abs_gausshome=$(abs_gausshome) --single_node --schedule=$(srcdir)/parallel_schedule$(PART) -w --keep_last_data=${keep_last_data} $(MAXCONNOPT) --temp-config=$(srcdir)/make_fastcheck_postgresql.conf $(EXTRA_TESTS) $(REG_CONF)
 
+ifeq ($(PART),.og_lake_sdk6)
+fastcheck: fastcheck_og_lake_sdk6
+else
 fastcheck: all tablespace-setup
 	export LD_LIBRARY_PATH=$(SSL_LIB_PATH):$(LD_LIBRARY_PATH) && \
 	$(pg_regress_check) $(REGRESS_OPTS) -d 1 -c 0 -p $(p) -r $(runtest) -b $(dir) -n $(n) --abs_gausshome=$(abs_gausshome) --single_node --schedule=$(srcdir)/parallel_schedule$(PART) -w --keep_last_data=${keep_last_data} $(MAXCONNOPT) --temp-config=$(srcdir)/make_fastcheck_postgresql.conf $(EXTRA_TESTS) $(REG_CONF)
+endif
+
+# This schedule owns its cluster. Run its executable case through the
+# regular pg_regress schedule and diff without creating a launcher cluster.
+OG_LAKE_SDK6_FASTCHECK_OUTPUT_ROOT ?= $(CURDIR)/results
+.PHONY: fastcheck_og_lake_sdk6
+fastcheck_og_lake_sdk6: pg_regress$(X)
+	@set -eu; \
+	mkdir -p "$(OG_LAKE_SDK6_FASTCHECK_OUTPUT_ROOT)"; \
+	out=$$(mktemp -d "$(abspath $(OG_LAKE_SDK6_FASTCHECK_OUTPUT_ROOT))/sdk6_fastcheck.XXXXXX"); \
+	for spec in input:sql output:expected; do \
+	  (cd "$(srcdir)/$${spec%:*}" && find . -type d) | while IFS= read -r subdir; do \
+	    mkdir -p "$$out/$${spec#*:}/$$subdir"; \
+	  done; \
+	done; \
+	echo "SDK6 FastCheck results: $$out"; \
+	export OG_LAKE_SDK6_FASTCHECK_ARTIFACTS="$$out/results"; \
+	$(pg_regress_installcheck) --top-builddir="$(top_builddir)" --outputdir="$$out" \
+	  --use-existing --single_node -d 1 -c 0 -r 1 --schedule="$(srcdir)/parallel_schedule.og_lake_sdk6"
 
 #Support QUnit check
 qunitcheck: all tablespace-setup

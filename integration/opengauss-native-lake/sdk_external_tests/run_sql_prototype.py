@@ -88,9 +88,20 @@ def main():
              'binary_sha256': qualified['gaussdb_sha256'], 'commands': [], 'checks': [],
              'started_at': datetime.now(timezone.utc).isoformat()}
     (runtime / 'owner.json').write_text(json.dumps(state, indent=2) + '\n')
-    env = {**os.environ, 'GAUSSHOME': str(prefix), 'PGDATA': str(data), 'PGHOST': str(socket_dir),
-           'PGPORT': str(port), 'LD_LIBRARY_PATH': f'{prefix}/lib:{ROOT}/binarylibs/buildtools/gcc10.3/gcc/lib64:' + os.environ.get('LD_LIBRARY_PATH', '')}
+    library_path = [str(prefix / 'lib')]
+    if inherited := os.environ.get('LD_LIBRARY_PATH'):
+        library_path.append(inherited)
+    workspace_gcc = ROOT / 'binarylibs/buildtools/gcc10.3/gcc/lib64'
+    if workspace_gcc.is_dir():
+        library_path.append(str(workspace_gcc))
+    env = dict(os.environ, GAUSSHOME=str(prefix), PGDATA=str(data), PGHOST=str(socket_dir),
+               PGPORT=str(port), LD_LIBRARY_PATH=':'.join(library_path))
     ctl = prefix / 'bin/gs_ctl'
+
+    def is_owned_binary(pid):
+        running_binary = Path('/proc') / str(pid) / 'exe'
+        return (running_binary.resolve(strict=True) == (prefix / 'bin/gaussdb').resolve(strict=True)
+                and sha(running_binary) == qualified['gaussdb_sha256'])
 
     def service(label, cmd):
         converted = [str(p) for p in cmd]
@@ -114,6 +125,9 @@ def main():
         # CREATE FUNCTION copies C libraries from proc_srclib into pg_plugin.
         # Keep both directories private to this run and preserve the original install.
         shutil.copytree(installed_prefix, prefix, symlinks=True)
+        for name in ('gaussdb', 'gs_initdb', 'gs_ctl', 'gsql'):
+            executable = (prefix / 'bin' / name).resolve(strict=True)
+            assert executable.is_relative_to(prefix), f'{name} points outside the private installation'
         assert sha(prefix / 'bin/gaussdb') == qualified['gaussdb_sha256'], 'private Debug ELF digest'
         pkglib = prefix / 'lib/postgresql'
         source_lib, plugin_lib = pkglib / 'proc_srclib', pkglib / 'pg_plugin'
@@ -124,15 +138,13 @@ def main():
             shutil.copyfileobj(src, dst)
         assert sha(staged_module) == qualified['module_sha256'], 'staged private module digest'
         state['staged_module'] = str(staged_module)
-        bootstrap(data, runtime, out, prefix=prefix)
+        bootstrap(data, runtime, out, prefix=prefix, env=env)
         with (data / 'postgresql.conf').open('a') as conf:
             conf.write('\nenable_lake_maintenance = off\n')
         service('start', [ctl, 'start', '-w', '-t', '60', '-D', data, '-Z', 'single_node',
                           '-l', runtime/'server.log', '-o', f'-p {port}'])
         pid = int((data / 'postmaster.pid').read_text().splitlines()[0])
-        running_binary = Path('/proc') / str(pid) / 'exe'
-        check(running_binary.resolve() == (prefix / 'bin/gaussdb').resolve() and
-              sha(running_binary) == qualified['gaussdb_sha256'], 'actual owned Debug ELF')
+        check(is_owned_binary(pid), 'actual owned Debug ELF')
         state['pid'] = pid
         root = out / 'external'
         (root / 'nested').mkdir(parents=True)
@@ -207,7 +219,7 @@ def main():
         try:
             if (data / 'postmaster.pid').exists():
                 owned_pid = int((data / 'postmaster.pid').read_text().splitlines()[0])
-                assert sha(Path('/proc')/str(owned_pid)/'exe') == qualified['gaussdb_sha256']
+                assert is_owned_binary(owned_pid), 'refusing to stop a process outside this installation'
                 service('stop', [ctl, 'stop', '-D', data, '-m', 'fast', '-w'])
             state['stopped'] = not (data / 'postmaster.pid').exists()
             assert state['stopped']

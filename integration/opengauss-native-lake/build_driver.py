@@ -292,7 +292,7 @@ def port_check(port):
                 raise RuntimeError(f'port {current} unavailable: {exc}') from exc
 
 
-def bootstrap(data, runtime, evidence, prefix=None):
+def bootstrap(data, runtime, evidence, prefix=None, env=None):
     if (data / 'PG_VERSION').is_file():
         return
     if data.exists() and any(data.iterdir()):
@@ -307,9 +307,10 @@ def bootstrap(data, runtime, evidence, prefix=None):
         raise RuntimeError('no compatible bootstrap gs_initdb; no fake PG_VERSION permitted')
     if not (prefix / 'bin/gs_initdb').is_file() or not (prefix / 'bin/gaussdb').is_file():
         raise RuntimeError('bootstrap prefix must contain both actual native executables')
-    env = os.environ.copy()
-    gcc = ROOT / 'binarylibs/buildtools/gcc10.3/gcc/lib64'
-    env.update(GAUSSHOME=str(prefix), LD_LIBRARY_PATH=f'{prefix}/lib:{gcc}')
+    if env is None:
+        gcc = ROOT / 'binarylibs/buildtools/gcc10.3/gcc/lib64'
+        env = dict(os.environ, LD_LIBRARY_PATH=f'{prefix}/lib:{gcc}')
+    env = dict(env, GAUSSHOME=str(prefix))
     sock = runtime / 'socket'
     sock.mkdir(exist_ok=True)
     with (evidence / 'bootstrap.log').open('w') as log:
@@ -321,10 +322,11 @@ def bootstrap(data, runtime, evidence, prefix=None):
             run([prefix / 'bin/gs_initdb', '-D', data, '--nodename=og_native_lake',
                  '--dbcompatibility=PG', '--locale=C', '-E', 'UTF8', '-A', 'trust',
                  '--pwfile', pw.name], env, log)
+    socket_setting = str(sock).replace('\\', '\\\\').replace("'", "''")
     with (data / 'postgresql.conf').open('a') as conf:
         conf.write("\n# Isolated native lake development instance.\n"
                    "listen_addresses = '127.0.0.1'\n"
-                   f"unix_socket_directory = '{sock}'\n"
+                   f"unix_socket_directory = '{socket_setting}'\n"
                    "shared_buffers = '128MB'\nmax_connections = 40\n"
                    "max_prepared_transactions = 10\nwork_mem = '16MB'\n"
                    "enable_thread_pool = off\n")
