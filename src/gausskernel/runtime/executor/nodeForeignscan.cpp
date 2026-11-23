@@ -21,6 +21,7 @@
  *		ExecEndForeignScan		releases any resources allocated.
  */
 #include "postgres.h"
+#include "access/og_lake.h"
 #include "knl/knl_variable.h"
 
 #include "executor/executor.h"
@@ -185,7 +186,7 @@ ForeignScanState* ExecInitForeignScan(ForeignScan* node, EState* estate, int efl
          * Acquire function pointers from the FDW's handler, and init fdw_state.
          */
         if (!node->rel) {
-            fdwroutine = GetFdwRoutineForRelation(currentRelation, true);
+            fdwroutine = LakeHasNativePartitionMarker(currentRelation) ? LakeNativePartitionRoutine(currentRelation) : GetFdwRoutineForRelation(currentRelation, true);
         } else {
             ForeignDataWrapper* fdw = NULL;
             if (node->options->stype == T_OBS_SERVER || node->options->stype == T_HDFS_SERVER) {

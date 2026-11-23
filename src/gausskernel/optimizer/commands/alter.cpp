@@ -58,6 +58,7 @@
 #include "commands/trigger.h"
 #include "commands/typecmds.h"
 #include "commands/user.h"
+#include "foreign/foreign.h"
 #include "miscadmin.h"
 #include "tcop/utility.h"
 #include "utils/builtins.h"
@@ -185,6 +186,16 @@ AlterObjectRename_internal(Relation rel, Oid objectId, const char *new_name)
                          RelationGetDescr(rel), &isnull);
     Assert(!isnull);
     old_name = NameStr(*(DatumGetName(datum)));
+
+    /* A wrapper rename must not bypass the native lake's binding checks. */
+    const char* lakeWrapperName = NULL;
+    if (classId == ForeignDataWrapperRelationId)
+        lakeWrapperName = old_name;
+    else if (classId == ForeignServerRelationId)
+        lakeWrapperName = GetForeignDataWrapper(((Form_pg_foreign_server)GETSTRUCT(oldtup))->srvfdw)->fdwname;
+    if (lakeWrapperName != NULL && strcmp(lakeWrapperName, "og_lake_fdw") == 0)
+        ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+            errmsg("RENAME of native lake wrappers and servers is not supported by the read-only inline prototype")));
 
     /* Get OID of namespace */
     if (Anum_namespace > 0) {

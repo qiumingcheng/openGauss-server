@@ -23,6 +23,7 @@
  * ---------------------------------------------------------------------------------------
  */
 #include "postgres.h"
+#include "access/og_lake.h"
 #include "knl/knl_variable.h"
 
 #include "executor/exec/execdebug.h"
@@ -78,6 +79,11 @@ static int GetScanPartitionNum(PartIteratorState* node, PlanState* noden)
     PartIterator* pi_node = (PartIterator*)node->ps.plan;
     int partitionScan;
     switch (nodeTag(noden)) {
+        case T_ForeignScanState:
+            if (!LakeIsNativePartitionRoutine(((ForeignScanState*)noden)->fdwroutine))
+                ereport(ERROR,(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),errmsg("native PartIterator ForeignScan is not a lake parent read")));
+            partitionScan = LakeNativePartitionScanCount((ForeignScanState*)noden);
+            break;
         case T_SeqScanState:
         case T_IndexScanState:
         case T_IndexOnlyScanState:
@@ -152,6 +158,9 @@ static void InitScanPartition(PartIteratorState* node, int partitionScan, PlanSt
     param->value = (Datum)itr_idx;
     node->ps.lefttree->chgParam = bms_add_member(node->ps.lefttree->chgParam, paramno);
 
+    /* Explicit initialized index; the FDW never guesses from ParamExecData0. */
+    if (IsA(noden, ForeignScanState) && LakeIsNativePartitionRoutine(((ForeignScanState*)noden)->fdwroutine))
+        LakeNativePartitionIteratorSelect((ForeignScanState*)noden,(int)itr_idx);
     /* reset the plan node so that next partition can be scanned */
     ExecReScan(node->ps.lefttree);
 }
@@ -289,6 +298,8 @@ void ExecReScanPartIterator(PartIteratorState* node)
     subPartParam->value = (Datum)0;
     node->ps.lefttree->chgParam = bms_add_member(node->ps.lefttree->chgParam, subPartParamno);
 
+    if (IsA(noden, ForeignScanState) && LakeIsNativePartitionRoutine(((ForeignScanState*)noden)->fdwroutine))
+        LakeNativePartitionIteratorSelect((ForeignScanState*)noden,0);
     /*
      * if the pruning result isnot null, Reset the subplan node so
      * that its output can be re-scanned.

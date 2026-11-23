@@ -65,6 +65,7 @@
  * -------------------------------------------------------------------------
  */
 #include "postgres.h"
+#include "access/og_lake_maintenance.h"
 #include "knl/knl_variable.h"
 #include "knl/knl_guc/knl_session_attr_security.h"
 #ifdef ENABLE_BBOX
@@ -532,6 +533,8 @@ static void StartTxnSnapWorker(void);
 static void StartAutovacuumWorker(void);
 static void StartUndoWorker(void);
 static void StartOgaiWorker(void);
+static void StartLakeWorker(void);
+static void SignalMaintenanceLaunchers(int signal);
 static void StartApplyWorker(void);
 static ThreadId StartCatchupWorker(void);
 static void InitPostmasterDeathWatchHandle(void);
@@ -4597,6 +4600,17 @@ static int ServerLoop(void)
         }
 #endif
 
+        if (g_instance.attr.attr_storage.enable_lake_maintenance &&
+            g_instance.pid_cxt.LakeLauncherPID == 0 && pmState == PM_RUN &&
+            g_instance.status == NoShutdown && g_instance.demotion == NoDemote && !SS_IN_REFORM) {
+            static TimestampTz lastLakeStart = 0;
+            TimestampTz now = GetCurrentTimestamp();
+            if (lastLakeStart == 0 || TimestampDifferenceExceeds(lastLakeStart, now, 5000)) {
+                lastLakeStart = now;
+                g_instance.pid_cxt.LakeLauncherPID = initialize_util_thread(LAKE_LAUNCHER);
+            }
+        }
+
         /*
          * If we have lost the job scheduler, try to start a new one.
          *
@@ -6281,8 +6295,7 @@ static void SIGHUP_handler(SIGNAL_ARGS)
         if (g_instance.pid_cxt.DataReceiverPID != 0)
             signal_child(g_instance.pid_cxt.DataReceiverPID, SIGHUP);
 
-        if (g_instance.pid_cxt.AutoVacPID != 0)
-            signal_child(g_instance.pid_cxt.AutoVacPID, SIGHUP);
+        SignalMaintenanceLaunchers(SIGHUP);
 
         if (g_instance.pid_cxt.PgJobSchdPID != 0)
             signal_child(g_instance.pid_cxt.PgJobSchdPID, SIGHUP);
@@ -6773,8 +6786,7 @@ static void pmdie(SIGNAL_ARGS)
                 ShutdownAllBgWorker();
 
                 /* and the autovac launcher too */
-                if (g_instance.pid_cxt.AutoVacPID != 0)
-                    signal_child(g_instance.pid_cxt.AutoVacPID, SIGTERM);
+                SignalMaintenanceLaunchers(SIGTERM);
 
                 if (g_instance.pid_cxt.PgJobSchdPID != 0)
                     signal_child(g_instance.pid_cxt.PgJobSchdPID, SIGTERM);
@@ -6993,8 +7005,7 @@ static void ProcessDemoteRequest(void)
                 /* autovacuum workers are told to shut down immediately */
                 (void)SignalSomeChildren(SIGTERM, BACKEND_TYPE_AUTOVAC);
                 /* and the autovac launcher too */
-                if (g_instance.pid_cxt.AutoVacPID != 0)
-                    signal_child(g_instance.pid_cxt.AutoVacPID, SIGTERM);
+                SignalMaintenanceLaunchers(SIGTERM);
 
                 if (g_instance.pid_cxt.PgJobSchdPID != 0)
                     signal_child(g_instance.pid_cxt.PgJobSchdPID, SIGTERM);
@@ -7270,9 +7281,7 @@ dms_demote:
                     (void)SignalSomeChildren(SIGTERM, BACKEND_TYPE_NORMAL | BACKEND_TYPE_AUTOVAC);
 
                     /* and the autovac launcher too */
-                    if (g_instance.pid_cxt.AutoVacPID != 0) {
-                        signal_child(g_instance.pid_cxt.AutoVacPID, SIGTERM);
-                    }
+                    SignalMaintenanceLaunchers(SIGTERM);
 
                     if (g_instance.pid_cxt.UndoRecyclerPID != 0) {
                         signal_child(g_instance.pid_cxt.UndoRecyclerPID, SIGTERM);
@@ -7317,8 +7326,7 @@ dms_demote:
                     (void)SignalSomeChildren(SIGTERM, BACKEND_TYPE_NORMAL | BACKEND_TYPE_AUTOVAC);
 
                     /* and the autovac launcher too */
-                    if (g_instance.pid_cxt.AutoVacPID != 0)
-                        signal_child(g_instance.pid_cxt.AutoVacPID, SIGTERM);
+                    SignalMaintenanceLaunchers(SIGTERM);
 
                     if (g_instance.pid_cxt.UndoLauncherPID != 0)
                         signal_child(g_instance.pid_cxt.UndoLauncherPID, SIGTERM);
@@ -8172,6 +8180,13 @@ static void reaper(SIGNAL_ARGS)
             continue;
         }
 
+        if (pid == g_instance.pid_cxt.LakeLauncherPID) {
+            g_instance.pid_cxt.LakeLauncherPID = 0;
+            if (!EXIT_STATUS_0(exitstatus))
+                LogChildExit(LOG, _("native lake launcher"), pid, exitstatus);
+            continue;
+        }
+
         if (pid == g_instance.pid_cxt.PgJobSchdPID) {
             g_instance.pid_cxt.PgJobSchdPID = 0;
 
@@ -8669,6 +8684,8 @@ static const char* GetProcName(ThreadId pid)
         return "catchup process";
     else if (pid == g_instance.pid_cxt.AutoVacPID)
         return "autovacuum launcher process";
+    else if (pid == g_instance.pid_cxt.LakeLauncherPID)
+        return "native lake launcher";
     else if (pid == g_instance.pid_cxt.PgJobSchdPID)
         return "job scheduler process";
     else if (pid == g_instance.pid_cxt.PgArchPID)
@@ -8827,6 +8844,7 @@ static void CleanupBackend(ThreadId pid, int exitstatus) /* child's exit status.
         Backend* bp = (Backend*)DLE_VAL(curr);
 
         if (bp->pid == pid) {
+            if (bp->role == LAKE_WORKER) LakeMaintenanceWorkerExited(pid);
             cnt++;
             role = bp->role;
             if (bp->dead_end) {
@@ -9119,6 +9137,7 @@ static void AsssertAllChildThreadExit()
     Assert(g_instance.pid_cxt.IMCStoreVacuumPID == 0);
 #endif
     Assert(g_instance.pid_cxt.AutoVacPID == 0);
+    Assert(g_instance.pid_cxt.LakeLauncherPID == 0);
     Assert(g_instance.pid_cxt.PgJobSchdPID == 0);
     Assert(g_instance.pid_cxt.CBMWriterPID == 0);
     Assert(g_instance.pid_cxt.TxnSnapCapturerPID == 0);
@@ -9273,7 +9292,7 @@ static void PostmasterStateMachine(void)
             g_instance.pid_cxt.BgWriterPID == 0 && g_instance.pid_cxt.StatementPID == 0 &&
             (g_instance.pid_cxt.CheckpointerPID == 0 || !g_instance.fatal_error) &&
             g_instance.pid_cxt.WalWriterPID == 0 && g_instance.pid_cxt.WalWriterAuxiliaryPID == 0 &&
-            g_instance.pid_cxt.AutoVacPID == 0 && g_instance.pid_cxt.SpBgWriterPID == 0 &&
+            g_instance.pid_cxt.AutoVacPID == 0 && g_instance.pid_cxt.LakeLauncherPID == 0 && g_instance.pid_cxt.SpBgWriterPID == 0 &&
             g_instance.pid_cxt.WLMCollectPID == 0 && g_instance.pid_cxt.WLMMonitorPID == 0 &&
             g_instance.pid_cxt.WLMArbiterPID == 0 && g_instance.pid_cxt.CPMonitorPID == 0 &&
             g_instance.pid_cxt.PgJobSchdPID == 0 && g_instance.pid_cxt.CBMWriterPID == 0 &&
@@ -11075,6 +11094,12 @@ static void sigusr1_handler(SIGNAL_ARGS)
         StartCleanStatement();
     }
 
+    if (CheckPostmasterSignal(PMSIGNAL_START_LAKE_WORKER) &&
+        g_instance.status == NoShutdown && g_instance.demotion == NoDemote &&
+        pmState == PM_RUN && !SS_IN_REFORM) {
+        StartLakeWorker();
+    }
+
     if (CheckPostmasterSignal(PMSIGNAL_START_JOB_SCHEDULER)) {
         t_thrd.postmaster_cxt.start_job_scheduler = true;
     }
@@ -11217,8 +11242,7 @@ static void sigusr1_handler(SIGNAL_ARGS)
         (void)SignalSomeChildren(SIGTERM, BACKEND_TYPE_NORMAL | BACKEND_TYPE_AUTOVAC);
 
         /* and the autovac launcher too */
-        if (g_instance.pid_cxt.AutoVacPID != 0)
-            signal_child(g_instance.pid_cxt.AutoVacPID, SIGTERM);
+        SignalMaintenanceLaunchers(SIGTERM);
 
         if (g_instance.pid_cxt.PgJobSchdPID != 0)
             signal_child(g_instance.pid_cxt.PgJobSchdPID, SIGTERM);
@@ -11294,8 +11318,7 @@ static void sigusr1_handler(SIGNAL_ARGS)
         (void)SignalSomeChildren(SIGTERM, BACKEND_TYPE_NORMAL | BACKEND_TYPE_AUTOVAC);
 
         /* and the autovac launcher too */
-        if (g_instance.pid_cxt.AutoVacPID != 0)
-            signal_child(g_instance.pid_cxt.AutoVacPID, SIGTERM);
+        SignalMaintenanceLaunchers(SIGTERM);
 
         if (g_instance.pid_cxt.PgJobSchdPID != 0)
             signal_child(g_instance.pid_cxt.PgJobSchdPID, SIGTERM);
@@ -11406,8 +11429,7 @@ static void sigusr1_handler(SIGNAL_ARGS)
         }
 
         /* and the autovac launcher too */
-        if (g_instance.pid_cxt.AutoVacPID != 0)
-            signal_child(g_instance.pid_cxt.AutoVacPID, SIGTERM);
+        SignalMaintenanceLaunchers(SIGTERM);
 
         if (g_instance.pid_cxt.PgJobSchdPID != 0)
             signal_child(g_instance.pid_cxt.PgJobSchdPID, SIGTERM);
@@ -12031,6 +12053,44 @@ static void StartUndoWorker(void)
             ereport(LOG, (errcode(ERRCODE_OUT_OF_MEMORY), errmsg("out of memory")));
     }
 
+}
+
+static void SignalMaintenanceLaunchers(int signal)
+{
+    if (g_instance.pid_cxt.AutoVacPID != 0) signal_child(g_instance.pid_cxt.AutoVacPID, signal);
+    if (g_instance.pid_cxt.LakeLauncherPID != 0) signal_child(g_instance.pid_cxt.LakeLauncherPID, signal);
+}
+
+static void StartLakeWorker(void)
+{
+    if (canAcceptConnections(false) != CAC_OK) return;
+    int slot = AssignPostmasterChildSlot();
+    if (slot < 1) return;
+    LakeWorkerStart request = {};
+    if (!LakeMaintenanceTakeRequest(&request)) {
+        (void)ReleasePostmasterChildSlot(slot); return;
+    }
+    Backend* backend = AssignFreeBackEnd(slot);
+    if (backend == NULL) {
+        (void)ReleasePostmasterChildSlot(slot);
+        LakeMaintenanceWorkerSpawnFailed(request.generation); return;
+    }
+    GenerateCancelKey(false); backend->cancel_key = t_thrd.proc_cxt.MyCancelKey;
+    backend->child_slot = t_thrd.proc_cxt.MyPMChildSlot = slot;
+    backend->role = LAKE_WORKER; request.child_slot = slot; request.cancel_key = backend->cancel_key;
+    LakeWorkerStart* payload = (LakeWorkerStart*)MemoryContextAlloc(
+        INSTANCE_GET_MEM_CXT_GROUP(MEMORY_CONTEXT_STORAGE), sizeof(request));
+    *payload = request;
+    backend->pid = initialize_util_thread(LAKE_WORKER, payload);
+    t_thrd.proc_cxt.MyPMChildSlot = 0;
+    if (backend->pid > 0) {
+        backend->is_autovacuum = true;
+        DLInitElem(&backend->elem, backend); DLAddHead(g_instance.backend_list, &backend->elem);
+        LakeMaintenanceWorkerSpawned(request.generation, backend->pid); return;
+    }
+    pfree(payload); (void)ReleasePostmasterChildSlot(slot);
+    backend->pid = 0; backend->role = (knl_thread_role)0;
+    LakeMaintenanceWorkerSpawnFailed(request.generation);
 }
 
 static void StartOgaiWorker(void)
@@ -15258,6 +15318,15 @@ int GaussDbThreadMain(knl_thread_arg* arg)
             proc_exit(0);
         } break;
 
+        case LAKE_LAUNCHER: {
+            InitProcessAndShareMemory(); LakeMaintenanceLauncherMain(); proc_exit(0);
+        } break;
+        case LAKE_WORKER: {
+            LakeWorkerStart start = *(LakeWorkerStart*)arg->payload;
+            pfree_ext(arg->payload); t_thrd.proc_cxt.MyPMChildSlot = start.child_slot;
+            t_thrd.proc_cxt.MyCancelKey = start.cancel_key;
+            InitProcessAndShareMemory(); LakeMaintenanceWorkerMain(&start); proc_exit(0);
+        } break;
         case JOB_SCHEDULER: {
             InitProcessAndShareMemory();
             JobScheduleMain();
@@ -15815,6 +15884,8 @@ static ThreadMetaData GaussdbThreadGate[] = {
 #ifndef ENABLE_LITE_MODE
     { GaussDbThreadMain<AIO_COMPLETER_THREAD>, AIO_COMPLETER_THREAD, "aio_completer", "aio completer" },
 #endif
+    { GaussDbThreadMain<LAKE_LAUNCHER>, LAKE_LAUNCHER, "lakelauncher", "native lake launcher" },
+    { GaussDbThreadMain<LAKE_WORKER>, LAKE_WORKER, "lakeworker", "native lake flush worker" },
     /* Keep the block in the end if it may be absent !!! */
 #ifdef ENABLE_MULTIPLE_NODES
     { GaussDbThreadMain<TS_COMPACTION>, TS_COMPACTION, "TScompaction",
@@ -16378,9 +16449,7 @@ void ShutdownForDRSwitchover(void)
     /* autovacuum workers are told to shut down immediately */
     (void)SignalSomeChildren(SIGTERM, BACKEND_TYPE_AUTOVAC);
     /* and the autovac launcher too */
-    if (g_instance.pid_cxt.AutoVacPID != 0) {
-        signal_child(g_instance.pid_cxt.AutoVacPID, SIGTERM);
-    }
+    SignalMaintenanceLaunchers(SIGTERM);
     ereport(LOG, (errmsg("Close All Sessions and shutdown AutoVacuum for DR switchover.")));
 }
 
@@ -16438,8 +16507,7 @@ void SSRestartFailoverPromote()
     (void)SignalSomeChildren(SIGTERM, BACKEND_TYPE_NORMAL | BACKEND_TYPE_AUTOVAC);
 
     /* and the autovac launcher too */
-    if (g_instance.pid_cxt.AutoVacPID != 0)
-        signal_child(g_instance.pid_cxt.AutoVacPID, SIGTERM);
+    SignalMaintenanceLaunchers(SIGTERM);
 
     if (g_instance.pid_cxt.PgJobSchdPID != 0)
         signal_child(g_instance.pid_cxt.PgJobSchdPID, SIGTERM);

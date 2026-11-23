@@ -783,6 +783,40 @@ VectorL2SquaredDistance(int dim, float *ax, float *bx)
 
     return _mm_cvtss_f32(msum2);
 }
+#elif defined(__x86_64__)
+VECTOR_TARGET_CLONES float VectorL2SquaredDistance(int dim, float *ax, float *bx)
+{
+    int i = 0;
+    __m128 sum0 = _mm_setzero_ps();
+    __m128 sum1 = _mm_setzero_ps();
+    __m128 sum2 = _mm_setzero_ps();
+    __m128 sum3 = _mm_setzero_ps();
+    for (; i + 16 <= dim; i += 16) {
+        __m128 d0 = _mm_sub_ps(_mm_loadu_ps(ax + i), _mm_loadu_ps(bx + i));
+        __m128 d1 = _mm_sub_ps(_mm_loadu_ps(ax + i + 4), _mm_loadu_ps(bx + i + 4));
+        __m128 d2 = _mm_sub_ps(_mm_loadu_ps(ax + i + 8), _mm_loadu_ps(bx + i + 8));
+        __m128 d3 = _mm_sub_ps(_mm_loadu_ps(ax + i + 12), _mm_loadu_ps(bx + i + 12));
+        sum0 = _mm_add_ps(sum0, _mm_mul_ps(d0, d0));
+        sum1 = _mm_add_ps(sum1, _mm_mul_ps(d1, d1));
+        sum2 = _mm_add_ps(sum2, _mm_mul_ps(d2, d2));
+        sum3 = _mm_add_ps(sum3, _mm_mul_ps(d3, d3));
+    }
+    sum0 = _mm_add_ps(_mm_add_ps(sum0, sum2), _mm_add_ps(sum1, sum3));
+    for (; i + 4 <= dim; i += 4) {
+        __m128 d0 = _mm_sub_ps(_mm_loadu_ps(ax + i), _mm_loadu_ps(bx + i));
+        sum0 = _mm_add_ps(sum0, _mm_mul_ps(d0, d0));
+    }
+    __m128 hi = _mm_movehl_ps(sum0, sum0);
+    sum0 = _mm_add_ps(sum0, hi);
+    hi = _mm_shuffle_ps(sum0, sum0, 0x55);
+    sum0 = _mm_add_ss(sum0, hi);
+    float distance = _mm_cvtss_f32(sum0);
+    for (; i < dim; i++) {
+        float diff = ax[i] - bx[i];
+        distance += diff * diff;
+    }
+    return distance;
+}
 #else
 
 VECTOR_TARGET_CLONES float VectorL2SquaredDistance(int dim, float *ax, float *bx)
@@ -860,6 +894,34 @@ VectorInnerProduct(int dim, float *ax, float *bx)
         dis += ax[i] * bx[i];
     }
     return dis;
+}
+#elif defined(__x86_64__)
+VECTOR_TARGET_CLONES float VectorInnerProduct(int dim, float *ax, float *bx)
+{
+    int i = 0;
+    __m128 sum0 = _mm_setzero_ps();
+    __m128 sum1 = _mm_setzero_ps();
+    __m128 sum2 = _mm_setzero_ps();
+    __m128 sum3 = _mm_setzero_ps();
+    for (; i + 16 <= dim; i += 16) {
+        sum0 = _mm_add_ps(sum0, _mm_mul_ps(_mm_loadu_ps(ax + i), _mm_loadu_ps(bx + i)));
+        sum1 = _mm_add_ps(sum1, _mm_mul_ps(_mm_loadu_ps(ax + i + 4), _mm_loadu_ps(bx + i + 4)));
+        sum2 = _mm_add_ps(sum2, _mm_mul_ps(_mm_loadu_ps(ax + i + 8), _mm_loadu_ps(bx + i + 8)));
+        sum3 = _mm_add_ps(sum3, _mm_mul_ps(_mm_loadu_ps(ax + i + 12), _mm_loadu_ps(bx + i + 12)));
+    }
+    sum0 = _mm_add_ps(_mm_add_ps(sum0, sum2), _mm_add_ps(sum1, sum3));
+    for (; i + 4 <= dim; i += 4) {
+        sum0 = _mm_add_ps(sum0, _mm_mul_ps(_mm_loadu_ps(ax + i), _mm_loadu_ps(bx + i)));
+    }
+    __m128 hi = _mm_movehl_ps(sum0, sum0);
+    sum0 = _mm_add_ps(sum0, hi);
+    hi = _mm_shuffle_ps(sum0, sum0, 0x55);
+    sum0 = _mm_add_ss(sum0, hi);
+    float distance = _mm_cvtss_f32(sum0);
+    for (; i < dim; i++) {
+        distance += ax[i] * bx[i];
+    }
+    return distance;
 }
 #else
 

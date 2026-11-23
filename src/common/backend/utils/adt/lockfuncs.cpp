@@ -1298,7 +1298,7 @@ Datum pg_advisory_unlock_shared_int4(PG_FUNCTION_ARGS)
  */
 Datum pg_advisory_unlock_all(PG_FUNCTION_ARGS)
 {
-    LockReleaseSession(USER_LOCKMETHOD);
+    LockReleaseSession(USER_LOCKMETHOD, true);
 
     PG_RETURN_VOID();
 }

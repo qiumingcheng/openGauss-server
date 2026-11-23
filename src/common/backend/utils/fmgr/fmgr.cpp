@@ -39,6 +39,7 @@
 #include "utils/lsyscache.h"
 #include "utils/syscache.h"
 #include "utils/plpgsql.h"
+#include "access/og_lake.h"
 #include "log_fdw.h"
 
 /*
@@ -538,7 +539,9 @@ static void fmgr_info_C_lang(Oid functionId, FmgrInfo* finfo, HeapTuple procedur
         inforec = hashentry->inforec;
     } else {
         /* Look up the function itself */
-        if (strcmp(probinstring, "$libdir/plpgsql") && strcmp(probinstring, "$libdir/dist_fdw") &&
+        if (strcmp(probinstring, "$libdir/og_lake") == 0) {
+            user_fn = LakeLookupBuiltinFunction(prosrcstring);
+        } else if (strcmp(probinstring, "$libdir/plpgsql") && strcmp(probinstring, "$libdir/dist_fdw") &&
             strcmp(probinstring, "$libdir/file_fdw") && strcmp(probinstring, "$libdir/log_fdw") &&
             strcmp(probinstring, "$libdir/hdfs_fdw") &&
 #ifdef ENABLE_MULTIPLE_NODES

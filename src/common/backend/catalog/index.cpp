@@ -21,6 +21,7 @@
  * -------------------------------------------------------------------------
  */
 #include "postgres.h"
+#include "access/og_lake.h"
 #include "knl/knl_variable.h"
 #include "access/cstore_delta.h"
 #include "access/datavec/ivfflat.h"
@@ -5512,6 +5513,12 @@ void reindex_index(Oid indexId, Oid indexPartId, bool skip_constraint_checks,
      */
     heapId = IndexGetRelation(indexId, false);
     heapRelation = heap_open(heapId, heapLockMode);
+    if (LakeHasNativePartitionMarker(heapRelation)) {
+        if (!dbWide)
+            LakeRejectNativePartitionDDL(heapRelation, "REINDEX INDEX");
+        heap_close(heapRelation, NoLock);
+        return;
+    }
 
     /*
      * Switch to the table owner's userid, so that any index functions are run
@@ -5806,6 +5813,12 @@ bool ReindexRelation(Oid relid, int flags, int reindexType, void *baseDesc, Adap
         rel = heap_open(relid, ShareLock);
     }
 
+    if (LakeHasNativePartitionMarker(rel)) {
+        if (!dbWide)
+            LakeRejectNativePartitionDDL(rel, "REINDEX TABLE");
+        heap_close(rel, NoLock);
+        return false;
+    }
     toast_relid = rel->rd_rel->reltoastrelid;
 
     isPartitioned = RELATION_IS_PARTITIONED(rel);
@@ -6150,6 +6163,7 @@ bool reindexPartition(Oid relid, Oid partOid, int flags, int reindexType)
     // to promote the concurrency of vacuum full on partitions in mppdb version,
     // degrade lockmode to AccessShareLock
     rel = heap_open(relid, AccessShareLock);
+    LakeRejectNativePartitionDDL(rel, "REINDEX TABLE PARTITION");
 
     /*
      * Get the list of index OIDs for this relation.  (We trust to the

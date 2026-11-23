@@ -314,8 +314,10 @@ Datum diskannendscan(PG_FUNCTION_ARGS)
 bool diskanninsert_internal(Relation index, Datum* values, const bool* isnull, ItemPointer heap_tid, Relation heap,
                             IndexUniqueCheck checkUnique)
 {
-    Datum dst = PointerGetDatum(PG_DETOAST_DATUM(values[0]));
-    Vector* value = (Vector*)DatumGetPointer(dst);
+    /* Match build and the other ANN access methods: NULLs have no vertex. */
+    if (isnull[0]) {
+        return false;
+    }
 
     DiskAnnMetaPageData metapage;
     DiskANNGetMetaPageInfo(index, &metapage);
@@ -323,6 +325,10 @@ bool diskanninsert_internal(Relation index, Datum* values, const bool* isnull, I
     metapage.params = InitDiskPQParamsOnDisk(index, procinfo, metapage.dimensions, metapage.enablePQ, true);
 
     BlockNumber blkno = InsertTuple(index, values, heap_tid, &metapage, false);
+    /* A rejected zero-norm cosine value must not seed or link a graph. */
+    if (!BlockNumberIsValid(blkno)) {
+        return false;
+    }
 
     if (0 == metapage.nfrozen) {
         ItemPointerData hctid;

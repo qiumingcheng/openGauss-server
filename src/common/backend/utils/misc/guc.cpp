@@ -252,7 +252,10 @@ THR_LOCAL int comm_ackchk_time;
 
 THR_LOCAL GucContext currentGucContext;
 
-const char* sync_guc_variable_namelist[] = {"work_mem",
+const char* sync_guc_variable_namelist[] = {"enable_lake_smp",
+    "enable_lake_ann",
+    "ann_orderby_distance_reuse",
+    "work_mem",
     "borrow_work_mem",
     "query_mem",
     "ustore_attr",

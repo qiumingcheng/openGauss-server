@@ -66,7 +66,8 @@ static void DiscardAll(bool isTopLevel)
     ResetAllOptions();
     DropAllPreparedStatements();
     Async_UnlistenAll();
-    LockReleaseAll(USER_LOCKMETHOD, true);
+    /* DISCARD clears application advisory locks, not internal protections. */
+    LockReleaseSession(USER_LOCKMETHOD, true);
     ResetPlanCache();
     ResetTempTableNamespace();
 }

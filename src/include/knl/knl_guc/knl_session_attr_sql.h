@@ -61,6 +61,8 @@ typedef struct knl_session_attr_sql {
     bool enable_seqscan;
     bool enable_seqscan_dopcost;
     bool enable_indexscan;
+    bool enable_lake_ann;
+    bool enable_lake_smp;
     bool enable_indexonlyscan;
 #ifdef ENABLE_NEON
     bool enable_seqscan_prefetch;

@@ -22,6 +22,7 @@
  * -------------------------------------------------------------------------
  */
 #include "postgres.h"
+#include "access/og_lake.h"
 #include "knl/knl_variable.h"
 #include <math.h>
 
@@ -651,6 +652,52 @@ static vacuum_object *GetVacuumObjectOfSubpartition(VacuumStmt* vacstmt, Oid rel
  * The list is built in vac_context so that it will survive across our
  * per-relation transactions.
  */
+/* Discovery reads the same parsed reloptions as relcache, without opening or
+ * locking a business relation while pg_class is being scanned.  The actual
+ * operation still checks its locked root below, after the discovery snapshot
+ * may have committed. */
+static bool vacuum_catalog_native_lake_root(HeapTuple tuple, TupleDesc descriptor)
+{
+    if (((Form_pg_class)GETSTRUCT(tuple))->relkind != RELKIND_RELATION)
+        return false;
+    StdRdOptions* options = (StdRdOptions*)extractRelOptions(tuple, descriptor, InvalidOid);
+    bool marked = options && options->lake_partition_root;
+    if (options != NULL)
+        pfree(options);
+    return marked;
+}
+
+static bool vacuum_skip_native_lake_root(Oid rootOid, VacuumStmt* vacstmt)
+{
+    HeapTuple tuple = SearchSysCache1(RELOID, ObjectIdGetDatum(rootOid));
+    if (!HeapTupleIsValid(tuple))
+        return false;
+    bool marked = vacuum_catalog_native_lake_root(tuple, GetDefaultPgClassDesc());
+    ReleaseSysCache(tuple);
+    if (marked && vacstmt->relation && !IsAutoVacuumWorkerProcess() &&
+        LakeNativePartitionAnalyzeVersionEnabled() &&
+        vacstmt->relation->partitionname == NULL && vacstmt->relation->subpartitionname == NULL &&
+        (vacstmt->options & VACOPT_ANALYZE) &&
+        !(vacstmt->options & ~(VACOPT_ANALYZE | VACOPT_VERBOSE | VACOPT_NOWAIT)))
+        return false; /* Manual whole-parent only; actual lock/ACL checks remain in analyze_rel. */
+    if (marked && vacstmt->relation && !IsAutoVacuumWorkerProcess()) {
+        /* A committed catalog marker is already sufficient to refuse this
+         * operation.  Never turn the caller's NOWAIT into a blocking open. */
+        if (vacstmt->options & VACOPT_NOWAIT)
+            ereport(ERROR,(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                errmsg("native lake partition root does not support %s before binding DDL qualification",
+                    (vacstmt->options & VACOPT_VACUUM) ? "VACUUM" : "ANALYZE")));
+        /* Only an explicit, already-marked target is opened here.  Automatic
+         * NOWAIT discovery never acquires an extra business relation lock. */
+        Relation root = try_relation_open(rootOid, AccessShareLock);
+        if (root != NULL) {
+            LakeRejectNativePartitionDDL(root, (vacstmt->options & VACOPT_VACUUM) ? "VACUUM" : "ANALYZE");
+            relation_close(root, AccessShareLock);
+        }
+    }
+    return marked;
+}
+
 List* get_rel_oids(Oid relid, VacuumStmt* vacstmt)
 {
     List* oid_list = NIL;
@@ -670,6 +717,13 @@ List* get_rel_oids(Oid relid, VacuumStmt* vacstmt)
      *    vacuum, we simply skip the matview when FULL option is setted.
      */
     if (OidIsValid(relid)) {
+        Oid nativeRootOid = relid;
+        if (vacuumPartition(vacstmt->flags)) {
+            Oid nativeSubparentOid = InvalidOid;
+            nativeRootOid = partid_get_rootid(relid, &nativeSubparentOid);
+        }
+        if (OidIsValid(nativeRootOid) && vacuum_skip_native_lake_root(nativeRootOid, vacstmt))
+            return NIL;
         /* check for safety */
         if (is_incremental_matview(relid) && (vacstmt->options & VACOPT_FULL)) {
             ereport(ERROR,
@@ -723,6 +777,8 @@ List* get_rel_oids(Oid relid, VacuumStmt* vacstmt)
         if (!OidIsValid(relationid)) {
             return NIL;
         }
+        if (vacuum_skip_native_lake_root(relationid, vacstmt))
+            return NIL;
 
         if (is_incremental_matview(relationid) && (vacstmt->options & VACOPT_FULL)) {
             ereport(ERROR,
@@ -1005,6 +1061,10 @@ List* get_rel_oids(Oid relid, VacuumStmt* vacstmt)
             }
 
             if (classForm->relkind != RELKIND_RELATION && classForm->relkind != RELKIND_MATVIEW)
+                continue;
+
+            /* Do not expand marked roots into local placeholder partitions. */
+            if (vacuum_catalog_native_lake_root(tuple, pgclassdesc))
                 continue;
 
             /* skip the incremental matview */
@@ -2403,6 +2463,18 @@ static bool vacuum_rel(Oid relid, VacuumStmt* vacstmt, bool do_toast)
         if (deltarel != NULL)                                     \
             relation_close(deltarel, lmode);                      \
     } while (0)
+
+    /* Recheck after reopening under the real vacuum/partition lock.  A
+     * marker may have been installed since discovery committed its snapshot.
+     * Always inspect the root, not a synthetic partition Relation. */
+    Relation nativeRoot = onepartrel ? onepartrel : onerel;
+    if (LakeHasNativePartitionMarker(nativeRoot)) {
+        if (vacstmt->relation && !IsAutoVacuumWorkerProcess())
+            LakeRejectNativePartitionDDL(nativeRoot, "VACUUM");
+        CloseAllRelationsBeforeReturnFalse();
+        proc_snapshot_and_transaction();
+        return false;
+    }
 
     // We don't do vaccum when the table is in redistribution.
     // For read only redistribution case, even if the target table

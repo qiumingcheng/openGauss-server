@@ -44,6 +44,12 @@
  * you must at least add the 'Remember' interface for that resource and adapt
  * the 'ResourceOwnerConcat' function.
  */
+struct ResourceOwnerLakePqPin {
+    void* token;
+    ResourceOwnerLakePqRelease release;
+    ResourceOwnerLakePqReparent reparent;
+};
+
 typedef struct ResourceOwnerData {
     ResourceOwner parent;     /* NULL if no parent (toplevel owner) */
     ResourceOwner firstchild; /* head of linked list of children */
@@ -51,6 +57,10 @@ typedef struct ResourceOwnerData {
     const char* name;         /* name (just for debugging) */
 
     /* We have built-in support for remembering owned buffers */
+    int nLakePq;
+    int maxLakePq;
+    ResourceOwnerLakePqPin* lakePq;
+
     int nbuffers;    /* number of owned buffer pins */
     Buffer* buffers; /* dynamically allocated array */
     int maxbuffers;  /* currently allocated array size */
@@ -308,6 +318,21 @@ static void ResourceOwnerReleaseInternal(
     t_thrd.utils_cxt.CurrentResourceOwner = owner;
 
     if (phase == RESOURCE_RELEASE_BEFORE_LOCKS) {
+        /* CommitSubTransaction invokes this phase before deleting its owner.
+         * Preserve live parent query leases; on abort close before locks go. */
+        while (owner->nLakePq > 0) {
+            ResourceOwnerLakePqPin pin = owner->lakePq[owner->nLakePq - 1];
+            if (isCommit && !isTopLevel && owner->parent != NULL) {
+                ResourceOwnerEnlargeLakePq(owner->parent);
+                ResourceOwnerRememberLakePq(owner->parent,pin.token,pin.release,pin.reparent);
+                --owner->nLakePq;
+                pin.reparent(pin.token,owner->parent);
+            } else {
+                --owner->nLakePq; /* callback may not Forget this popped pin */
+                pin.release(pin.token);
+            }
+        }
+
         if (owner == t_thrd.utils_cxt.TopTransactionResourceOwner) {
             if (t_thrd.ustore_cxt.urecvec) {
                 t_thrd.ustore_cxt.urecvec->Reset(false);
@@ -472,11 +497,16 @@ static void ResourceOwnerReleaseInternal(
 
 static void ResourceOwnerFreeOwner(ResourceOwner owner, bool whole)
 {
+    /* MarkInvalid may free arrays without the normal release traversal. */
+    while(owner->nLakePq>0){ResourceOwnerLakePqPin pin=owner->lakePq[--owner->nLakePq];pin.release(pin.token);}
+
     if (owner->valid) {
         if (owner->buffers)
             pfree(owner->buffers);
         if (owner->catrefs)
             pfree(owner->catrefs);
+        if (owner->lakePq)
+            pfree(owner->lakePq);
         if (owner->catlistrefs)
             pfree(owner->catlistrefs);
         if (owner->relrefs)
@@ -632,6 +662,14 @@ static void ResourceOwnerConcatPart1(ResourceOwner target, ResourceOwner source)
  */
 static void ResourceOwnerConcatPart2(ResourceOwner target, ResourceOwner source)
 {
+    while (source->nLakePq > 0) {
+        ResourceOwnerEnlargeLakePq(target);
+        ResourceOwnerLakePqPin pin=source->lakePq[source->nLakePq-1];
+        ResourceOwnerRememberLakePq(target,pin.token,pin.release,pin.reparent);
+        --source->nLakePq;
+        pin.reparent(pin.token,target);
+    }
+
     while (source->nfakerelrefs > 0) {
         dlist_push_tail(&(target->fakerelrefs_list), dlist_pop_head_node(&(source->fakerelrefs_list)));
         target->nfakerelrefs++;
@@ -725,11 +763,13 @@ void ResourceOwnerConcat(ResourceOwner target, ResourceOwner source)
     /*
      * When modifying the structure of ResourceOwnerData, note that the ResourceOwnerConcat
      * function needs to be adapted when tracing new types of resources.
+     * Lake PQ pins add 16 bytes and are transferred by ResourceOwnerConcatPart2.
+     * Check the audited layout at compile time, including non-assert builds.
      */
 #ifdef ENABLE_HTAP
-    Assert(sizeof(ResourceOwnerData) == 480); /* The current size of ResourceOwnerData is 480 */
+    static_assert(sizeof(ResourceOwnerData) == 496, "Audit ResourceOwnerConcat for new resource types");
 #else
-    Assert(sizeof(ResourceOwnerData) == 448); /* The current size of ResourceOwnerData is 448 */
+    static_assert(sizeof(ResourceOwnerData) == 464, "Audit ResourceOwnerConcat for new resource types");
 #endif
 
     /* Recurse to handle descendants */
@@ -2687,6 +2727,7 @@ bool CurrentResourceOwnerIsEmpty(ResourceOwner owner)
     if (owner == NULL || !owner->valid) {
         return true;
     }
+    Assert(owner->nLakePq == 0);
     Assert(owner->nbuffers == 0);
     Assert(owner->nlocalcatclist == 0);
     Assert(owner->nlocalcatctup == 0);
@@ -2794,4 +2835,33 @@ Buffer ResourceOwnerGetBuffer(ResourceOwner owner)
         return owner->buffers[owner->nbuffers - 1];
     }
     return 0;
+}
+
+/* Native lake opaque CPU handles: Enlarge is deliberately separate so no
+ * palloc ERROR can occur between foreign allocation and Remember. */
+void ResourceOwnerEnlargeLakePq(ResourceOwner owner)
+{
+    Assert(owner && owner->valid);
+    if(owner->nLakePq < owner->maxLakePq)return;
+    if((Size)owner->maxLakePq>MaxAllocSize/sizeof(ResourceOwnerLakePqPin)/2)
+        ereport(ERROR,(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),errmsg("too many lake PQ resource pins")));
+    int capacity=owner->maxLakePq ? owner->maxLakePq*2 : 4;
+    if(capacity<owner->maxLakePq || (Size)capacity>MaxAllocSize/sizeof(ResourceOwnerLakePqPin))
+        ereport(ERROR,(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),errmsg("too many lake PQ resource pins")));
+    if(owner->lakePq)owner->lakePq=(ResourceOwnerLakePqPin*)repalloc(owner->lakePq,capacity*sizeof(ResourceOwnerLakePqPin));
+    else owner->lakePq=(ResourceOwnerLakePqPin*)MemoryContextAlloc(owner->memCxt,capacity*sizeof(ResourceOwnerLakePqPin));
+    owner->maxLakePq=capacity;
+}
+void ResourceOwnerRememberLakePq(ResourceOwner owner,void* token,ResourceOwnerLakePqRelease release,ResourceOwnerLakePqReparent reparent)
+{
+    Assert(owner && owner->valid && token && release && reparent && owner->nLakePq<owner->maxLakePq);
+    ResourceOwnerLakePqPin pin={token,release,reparent};owner->lakePq[owner->nLakePq++]=pin;
+}
+bool ResourceOwnerForgetLakePq(ResourceOwner owner,void* token)
+{
+    if(!owner || !owner->valid)return false;
+    for(int i=owner->nLakePq-1;i>=0;--i)if(owner->lakePq[i].token==token){
+        owner->lakePq[i]=owner->lakePq[--owner->nLakePq];return true;
+    }
+    return false;
 }

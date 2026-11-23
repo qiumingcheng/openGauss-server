@@ -13,6 +13,7 @@
  * -------------------------------------------------------------------------
  */
 #include "postgres.h"
+#include "access/og_lake.h"
 #include "knl/knl_variable.h"
 
 #include "access/sysattr.h"
@@ -1724,6 +1725,8 @@ static void rewriteTargetListUD(Query* parsetree, RangeTblEntry* target_rte, Rel
         }
     }
 #endif
+
+    if(LakeNativePartitionAddUpdateTargets(parsetree,target_rte,target_relation))return;
 
     if (target_relation->rd_rel->relkind == RELKIND_RELATION || target_relation->rd_rel->relkind == RELKIND_MATVIEW) {
         /*

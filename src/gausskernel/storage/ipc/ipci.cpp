@@ -14,6 +14,7 @@
  * -------------------------------------------------------------------------
  */
 #include "postgres.h"
+#include "access/og_lake_maintenance.h"
 #include "knl/knl_variable.h"
 
 #include "access/clog.h"
@@ -180,6 +181,7 @@ Size ComputeTotalSizeOfShmem()
         size = add_size(size, HaShmemSize());
         size = add_size(size, NotifySignalShmemSize());
         size = add_size(size, JobInfoShmemSize());
+        size = add_size(size, LakeMaintenanceShmemSize());
         size = add_size(size, BTreeShmemSize());
         size = add_size(size, SyncScanShmemSize());
         size = add_size(size, AsyncShmemSize());
@@ -431,6 +433,7 @@ void CreateSharedMemoryAndSemaphores(bool makePrivate, int port)
     if (g_instance.attr.attr_storage.enable_async_ogai) {
         OgaiWorkerShmemInit();
     }
+    LakeMaintenanceShmemInit();
     heartbeat_shmem_init();
     MatviewShmemInit();
 #ifndef ENABLE_MULTIPLE_NODES

@@ -14,6 +14,7 @@
  * -------------------------------------------------------------------------
  */
 #include "postgres.h"
+#include "access/og_lake.h"
 #include "knl/knl_variable.h"
 
 #include <limits.h>
@@ -412,6 +413,7 @@ static Node* preprocess_const_params_worker(PlannerInfo* root, Node* expr, int k
  *****************************************************************************/
 PlannedStmt* planner(Query* parse, int cursorOptions, ParamListInfo boundParams)
 {
+    LakeCheckQueryPermissions(parse); /* Original ACL, or trusted SPI scope, before any planner hook. */
     PlannedStmt* result = NULL;
     instr_time starttime;
     double totaltime = 0;
@@ -1657,6 +1659,7 @@ PlannedStmt* standard_planner(Query* parse, int cursorOptions, ParamListInfo bou
         ngbk_query_union_set_group_distribution,
         ngbk_single_node_distribution);
 
+    LakeValidateDmlLocatorPlan(result);
     deinit_optimizer_context(glob);
 
     if (enable_check_implicit_cast() && g_index_vars != NIL)
@@ -10725,6 +10728,10 @@ static bool CheckForeignScanExpr(Plan* resultPlan, VectorPlanContext* planContex
     if (!CheckTypeSupportRowToVec(resultPlan->targetlist, DEBUG2)) {
         resultPlan->vec_output = false;
         return true;
+    }
+    if (IsVecOutput(resultPlan)) {
+        /* Native vectorized ForeignScan emits VectorBatch without RowToVec. */
+        return false;
     }
     CostVectorScan<false>((Scan*)resultPlan, planContext);
 
