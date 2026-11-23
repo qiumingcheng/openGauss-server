@@ -15,6 +15,7 @@
  * -------------------------------------------------------------------------
  */
 #include "postgres.h"
+#include "access/og_lake.h"
 #include "knl/knl_variable.h"
 
 #include <math.h>
@@ -948,6 +949,9 @@ void get_relation_info(PlannerInfo* root, RangeTblEntry* rte, RelOptInfo* rel)
         }
         rel->serverid = GetForeignServerIdByRelId(RelationGetRelid(relation));
         rel->fdwroutine = GetFdwRoutineForRelation(relation, true);
+    } else if (LakeHasNativePartitionMarker(relation)) {
+        rel->serverid = LakeNativePartitionServer(relation, ActiveSnapshotSet()?GetActiveSnapshot():GetTransactionSnapshot());
+        rel->fdwroutine = LakeNativePartitionRoutine(relation);
     } else {
         rel->serverid = InvalidOid;
         rel->fdwroutine = NULL;

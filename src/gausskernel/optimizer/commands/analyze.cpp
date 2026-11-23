@@ -21,6 +21,7 @@
 #include <math.h>
 
 #include "access/heapam.h"
+#include "access/og_lake.h"
 #include "access/transam.h"
 #include "access/tupconvert.h"
 #include "access/tuptoaster.h"
@@ -193,7 +194,7 @@ const char* const ANALYZE_TEMP_TABLE_PREFIX = "pg_analyze";
     (ANALYZENORMAL == (analyzemode) && (totalrows) > 0)
 
 static void do_analyze_rel(Relation onerel, VacuumStmt* vacstmt, BlockNumber relpages, bool inh, int elevel,
-    AnalyzeMode mode = ANALYZENORMAL);
+    AnalyzeMode mode = ANALYZENORMAL, LakeNativeAnalyzeState* nativeSource = NULL);
 int compare_rows(const void* a, const void* b);
 static void compute_index_stats(Relation onerel, double totalrows, AnlIndexData* indexdata, int nindexes,
     HeapTuple* rows, int numrows, MemoryContext col_context);
@@ -271,7 +272,8 @@ static void do_analyze_compute_attr_stats(bool inh, Relation onerel, VacuumStmt*
 static void set_stats_dndistinct(VacAttrStats* stats, VacuumStmt* vacstmt, int tableidx);
 static void update_pages_and_tuples_pgclass(Relation onerel, VacuumStmt* vacstmt, int attr_cnt,
     VacAttrStats** vacattrstats, bool hasindex, int nindexes, AnlIndexData* indexdata, Relation* Irel,
-    BlockNumber relpages, double totalrows, double totaldeadrows, int64 numrows, bool inh);
+    BlockNumber relpages, double totalrows, double totaldeadrows, int64 numrows, bool inh,
+    LakeNativeAnalyzeState* nativeSource = NULL);
 static bool analyze_index_sample_rows(MemoryContext speccontext, Relation rel, VacuumStmt* vacstmt, int nindexes,
     AnlIndexData* indexdata, int64* num_sample_rows, HeapTuple** samplerows);
 static void compute_histgram_final(int* slot_idx, HistgramInfo* hist_list, VacAttrStats* stats);
@@ -350,6 +352,20 @@ void analyze_rel(Oid relid, Oid grandparentOid, Oid parentOid, Oid tabOid,
      * the relation will close in analyze_rel_internal().
      */
     Relation onerel = analyze_get_relation(relid, vacstmt);
+
+    /* Marked native parents contain no authoritative local heap rows.  The
+     * normal sampler must neither walk empty leaves nor publish fake stats.
+     * Database-wide and automatic discovery skip them; an explicit target is
+     * rejected even when a partition name was supplied. */
+    if (onerel && LakeHasNativePartitionMarker(onerel)) {
+        if (!vacstmt->relation || IsAutoVacuumWorkerProcess()) {
+            relation_close(onerel, NEED_EST_TOTAL_ROWS_DN(vacstmt) ? AccessShareLock : ShareUpdateExclusiveLock);
+            return;
+        }
+        if (!LakeNativePartitionAnalyzeVersionEnabled() || vacuumPartition(vacstmt->flags) ||
+            OidIsValid(grandparentOid) || OidIsValid(parentOid) || (vacstmt->options & VACOPT_VACUUM))
+            LakeRejectNativePartitionDDL(onerel, "ANALYZE outside the bounded manual whole-parent capability");
+    }
 
     if (STMT_RETRY_ENABLED) {
         // do noting for now, if query retry is on, just to skip validateTempRelation here
@@ -460,6 +476,7 @@ static void analyze_rel_internal(Relation onerel, Oid grandparentOid, Oid parent
                                  VacuumStmt* vacstmt, BufferAccessStrategy bstrategy, AnalyzeMode analyzemode)
 {
     AcquireSampleRowsFunc acquirefunc = NULL;
+    LakeNativeAnalyzeState* nativeSource = NULL;
     int elevel;
     int messageLevel;
     BlockNumber relpages = 0;
@@ -543,7 +560,11 @@ static void analyze_rel_internal(Relation onerel, Oid grandparentOid, Oid parent
      * get_rel_oids() but seems safer to check after we've locked the
      * relation.
      */
-    if (onerel->rd_rel->relkind == RELKIND_RELATION ||
+    if (LakeHasNativePartitionMarker(onerel)) {
+        /* Native owner/ACL_VACUUM and SUE/NOWAIT admission above remains
+         * authoritative. This source lease never samples local empty leaves. */
+        nativeSource = LakeNativeParentAnalyzeBegin(onerel, &relpages);
+    } else if (onerel->rd_rel->relkind == RELKIND_RELATION ||
         onerel->rd_rel->relkind == RELKIND_MATVIEW) {
         /* Regular table, so we'll use the regular row acquisition function */
         /* Also get regular table's size */
@@ -640,6 +661,7 @@ static void analyze_rel_internal(Relation onerel, Oid grandparentOid, Oid parent
     /*
      * OK, let's do it.  First let other backends know I'm in ANALYZE.
      */
+    PG_TRY(); {
     LWLockAcquire(ProcArrayLock, LW_EXCLUSIVE);
     t_thrd.pgxact->vacuumFlags |= PROC_IN_ANALYZE;
     LWLockRelease(ProcArrayLock);
@@ -652,13 +674,18 @@ static void analyze_rel_internal(Relation onerel, Oid grandparentOid, Oid parent
     /*
      * Do the normal non-recursive ANALYZE.
      */
-    do_analyze_rel(onerel, vacstmt, relpages, false, elevel, analyzemode);
+    do_analyze_rel(onerel, vacstmt, relpages, false, elevel, analyzemode, nativeSource);
 	
     /*
      * If there are child tables, do recursive ANALYZE.
      */
     if (onerel->rd_rel->relhassubclass)
         do_analyze_rel(onerel, vacstmt, relpages, true, elevel, analyzemode);
+    } PG_CATCH(); {
+        if (nativeSource != NULL) LakeNativeParentAnalyzeEnd(nativeSource);
+        PG_RE_THROW();
+    } PG_END_TRY();
+    if (nativeSource != NULL) LakeNativeParentAnalyzeEnd(nativeSource);
 
     /*
      * Close source relation now, but keep lock so that no one deletes it
@@ -891,7 +918,7 @@ static int get_one_tuplesize(Relation onerel, int total_width)
 template <bool estimate_table_rownum>
 HeapTuple* get_total_rows(Relation onerel, VacuumStmt* vacstmt, BlockNumber relpages, bool inh, int elevel,
     VacAttrStats** vacattrstats, int attr_cnt, int64 targrows, double* totalrows, double* totaldeadrows,
-    int64* numrows)
+    int64* numrows, LakeNativeAnalyzeState* nativeSource = NULL)
 {
 #define DEFAULT_PARTITION_EST_TARGET_ROWS 3
     HeapTuple* rows = NULL;
@@ -900,7 +927,8 @@ HeapTuple* get_total_rows(Relation onerel, VacuumStmt* vacstmt, BlockNumber relp
     /*
      * IsForeignTable
      */
-    Oid foreignTableId = 0;
+    Oid foreignTableId = RelationGetRelid(onerel);
+    bool isNativeLake = LakeIsNativeForeignRelation(onerel);
     bool isForeignTable = false;
     DEBUG_MOD_START_TIMER(MOD_AUTOVAC);
     int64 bufferRead = 0;
@@ -937,7 +965,13 @@ HeapTuple* get_total_rows(Relation onerel, VacuumStmt* vacstmt, BlockNumber relp
 
     rows = (HeapTuple*)palloc0(target_rows * sizeof(HeapTuple));
 
-    if (inh) {
+    if (nativeSource != NULL) {
+        if (estimate_table_rownum || inh || target_rows > PG_INT32_MAX)
+            ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                errmsg("native parent ANALYZE supports bounded ordinary column sampling only")));
+        *numrows = LakeNativeParentAnalyzeSample(nativeSource, onerel, elevel, rows,
+            (int)target_rows, totalrows, totaldeadrows);
+    } else if (inh) {
         if (onerel->rd_rel->relhassubclass) {
             *numrows = acquire_inherited_sample_rows<estimate_table_rownum>(
                 onerel, elevel, rows, target_rows, totalrows, totaldeadrows);
@@ -946,7 +980,7 @@ HeapTuple* get_total_rows(Relation onerel, VacuumStmt* vacstmt, BlockNumber relp
         /* Table is partitioned but not a foreign table */
         *numrows = acquirePartitionedSampleRows<estimate_table_rownum>(
             onerel, vacstmt, elevel, rows, target_rows, totalrows, totaldeadrows, vacattrstats, attr_cnt);
-    } else if (isForeignTable || onerel->rd_rel->relkind == RELKIND_STREAM ||
+    } else if (isNativeLake || LakeIsExternalFileRelation(onerel) || isForeignTable || onerel->rd_rel->relkind == RELKIND_STREAM ||
             (onerel->rd_rel->relkind == RELKIND_FOREIGN_TABLE &&
             (isOracleFDWFromTblOid(RelationGetRelid(onerel)) ||
 #ifdef ENABLE_MOT
@@ -1635,7 +1669,7 @@ static void do_analyze_rel_end_log(TimestampTz starttime, Relation onerel, PGRUs
  * acquirefunc for each child table.
  */
 static void do_analyze_rel(Relation onerel, VacuumStmt* vacstmt, BlockNumber relpages, bool inh, int elevel,
-    AnalyzeMode analyzemode)
+    AnalyzeMode analyzemode, LakeNativeAnalyzeState* nativeSource)
 {
     int attr_cnt = 0;
     int i = 0;
@@ -1734,7 +1768,7 @@ static void do_analyze_rel(Relation onerel, VacuumStmt* vacstmt, BlockNumber rel
                     targrows,
                     &totalrows,
                     &totaldeadrows,
-                    &numrows);
+                    &numrows, nativeSource);
                 vacstmt->pstGlobalStatEx[vacstmt->tableidx].totalRowCnts = totalrows;
             }
 
@@ -1756,7 +1790,7 @@ static void do_analyze_rel(Relation onerel, VacuumStmt* vacstmt, BlockNumber rel
             targrows,
             &totalrows,
             &totaldeadrows,
-            &numrows);
+            &numrows, nativeSource);
     }
 
     /*
@@ -1774,7 +1808,7 @@ static void do_analyze_rel(Relation onerel, VacuumStmt* vacstmt, BlockNumber rel
             targrows,
             &totalrows,
             &totaldeadrows,
-            &numrows);
+            &numrows, nativeSource);
         vacstmt->pstGlobalStatEx[vacstmt->tableidx].totalRowCnts = totalrows;
         /* compute memory size (KB) for dn to send to cn */
         vacstmt->pstGlobalStatEx[vacstmt->tableidx].topMemSize =
@@ -1906,7 +1940,7 @@ static void do_analyze_rel(Relation onerel, VacuumStmt* vacstmt, BlockNumber rel
             totalrows,
             totaldeadrows,
             numrows,
-            inh);
+            inh, nativeSource);
 
         /*
          * Report ANALYZE to the stats collector, too.	However, if doing
@@ -6266,8 +6300,13 @@ static BlockNumber estimate_index_blocks(Relation rel, double totalTuples, doubl
  */
 static void update_pages_and_tuples_pgclass(Relation onerel, VacuumStmt* vacstmt, int attr_cnt,
     VacAttrStats** vacattrstats, bool hasindex, int nindexes, AnlIndexData* indexdata, Relation* Irel,
-    BlockNumber relpages, double totalrows, double totaldeadrows, int64 numrows, bool inh)
+    BlockNumber relpages, double totalrows, double totaldeadrows, int64 numrows, bool inh,
+    LakeNativeAnalyzeState* nativeSource)
 {
+    if (nativeSource != NULL) {
+        LakeNativeParentAnalyzePublishSize(nativeSource, onerel, relpages, totalrows);
+        return; /* Transactional native size write; no local VM or index walk. */
+    }
     BlockNumber updrelpages = relpages;
     /*
      * we have updated pg_class in function ReceivePageAndTuple when we receive pg_class from dn1,
@@ -6300,7 +6339,10 @@ static void update_pages_and_tuples_pgclass(Relation onerel, VacuumStmt* vacstmt
         }
 #endif   /* ENABLE_MULTIPLE_NODES */
 
-        if (RelationIsPartitioned(onerel)) {
+        if (LakeIsNativeForeignRelation(onerel) || LakeIsExternalFileRelation(onerel) || LakeHasNativePartitionMarker(onerel)) {
+            /* Lake data has no authoritative local-heap visibility map. */
+            mapCont = 0;
+        } else if (RelationIsPartitioned(onerel)) {
             Relation partRel = NULL;
             ListCell* partCell = NULL;
             Partition part = NULL;

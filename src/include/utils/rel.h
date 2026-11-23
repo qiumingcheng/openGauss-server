@@ -400,6 +400,7 @@ typedef struct StdRdOptions {
     int bucketcnt;          /* number of bucket counts */
     int parallel_workers;   /* max number of parallel workers */
     bool hasuids;           /* enable uids for this relation */
+    bool lake_partition_root; /* Internal fail-closed native lake root marker. */
     /* info for redistribution */
     Oid rel_cn_oid;
     int exec_step;

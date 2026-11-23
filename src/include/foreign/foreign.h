@@ -146,7 +146,8 @@ typedef enum ServerTypeOption {
     T_DUMMY_SERVER,
     T_TXT_CSV_OBS_SERVER, /* mark the txt/csv foramt OBS foreign server. the fdw
                         is dist_fdw. */
-    T_PGFDW_SERVER
+    T_PGFDW_SERVER,
+    T_LAKE_SERVER /* Exact og_lake FDW, never an OBS/HDFS compatibility alias. */
 } ServerTypeOption;
 
 /*

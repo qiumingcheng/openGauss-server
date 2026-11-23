@@ -23,6 +23,7 @@
  */
 #include <time.h>
 #include "postgres.h"
+#include "access/og_lake.h"
 #include "knl/knl_variable.h"
 
 #ifdef PGXC
@@ -1333,6 +1334,7 @@ static void StartupStreamThread(StreamState* node, bool need_save_undo)
             }
         }
         u_sess->stream_cxt.global_obj->initStreamThread(producer, smpId, pair);
+        LakeStreamThreadStarted(u_sess->stream_cxt.global_obj,node->ss.ps.plan,producer->getKey().smpIdentifier);
         smpId++;
     }
 }
@@ -1384,6 +1386,8 @@ void StartUpStreamInParallel(PlannedStmt* pstmt, EState* estate)
         }
     }
 
+    /* Bind all lake inputs before StartupStreamThread can launch ANY worker. */
+    LakePrepareStreamBindings(pstmt,estate,u_sess->stream_cxt.global_obj);
     const List *pairList = u_sess->stream_cxt.global_obj->getStreamPairList();
     bool need_save_undo = check_smp_dml(pstmt);
 

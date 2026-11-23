@@ -41,6 +41,7 @@
 #include "codegen/gscodegen.h"
 
 #include "postgres.h"
+#include "access/og_lake.h"
 #include "knl/knl_variable.h"
 
 #include "access/htup.h"
@@ -220,6 +221,7 @@ static void report_iud_time(QueryDesc *query)
  */
 void ExecutorStart(QueryDesc* queryDesc, int eflags)
 {
+    LakeCheckMetadataExecutor(queryDesc->plannedstmt,queryDesc->snapshot);
     gstrace_entry(GS_TRC_ID_ExecutorStart);
 
     /* it's unsafe to deal with plugins hooks as dynamic lib may be released */

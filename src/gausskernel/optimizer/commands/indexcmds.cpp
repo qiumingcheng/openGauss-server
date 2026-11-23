@@ -16,6 +16,7 @@
  * -------------------------------------------------------------------------
  */
 #include "postgres.h"
+#include "access/og_lake.h"
 #include "knl/knl_variable.h"
 
 #include "access/cstore_delta.h"
@@ -96,8 +97,8 @@ static void checkTableForReindexConcurrently(Relation heapRelation);
 static bool checkIndexForReindexConcurrently(Relation indexRelation, bool reindexIndex);
 static bool checkIndexPartitionForReindexConcurrently(Relation indexRelation, Oid indexPartitionOid);
 static List* getToastOidsInReindexConcurrently(Relation heapRelation, Oid heapPartitionId);
-static void prepareReindexTableConcurrently(Oid relationOid, Oid relationPartOid, List** rt_heapRelationIds,
-    List** rt_heapPartitionIds, List** rt_indexIds, List** rt_indexPartIds, MemoryContext private_context);
+static bool prepareReindexTableConcurrently(Oid relationOid, Oid relationPartOid, List** rt_heapRelationIds,
+    List** rt_heapPartitionIds, List** rt_indexIds, List** rt_indexPartIds, MemoryContext private_context, bool dbWide);
 static void prepareReindexIndexConcurrently(Oid relationOid, Oid relationPartOid, List** rt_heapRelationIds,
     List** rt_heapPartitionIds, List** rt_indexIds, List** rt_indexPartIds, MemoryContext private_context);
 static bool ReindexRelationConcurrently(Oid relationOid, Oid relationPartOid, AdaptMem* memInfo = NULL, bool dbWide = false);
@@ -803,6 +804,7 @@ ObjectAddress DefineIndex(Oid relationId, IndexStmt* stmt, Oid indexRelationId, 
      */
     lockmode = concurrent ? ShareUpdateExclusiveLock : ShareLock;
     rel = heap_open(relationId, lockmode);
+    LakeRejectNativePartitionDDL(rel, "CREATE INDEX");
     if (RelationIsPartitioned(rel) && (strcmp(stmt->accessMethod, "bm25") == 0 ||
         strcmp(stmt->accessMethod, "ivfflat") == 0 ||
         strcmp(stmt->accessMethod, "diskann") == 0)) {
@@ -3152,6 +3154,11 @@ Oid ReindexIndex(RangeVar* indexRelation, const char* partition_name, AdaptMem* 
         RangeVarCallbackForReindexIndex,
         (void*)&state);
 
+    if (OidIsValid(state.locked_table_oid)) {
+        Relation nativeHeap = heap_open(state.locked_table_oid, NoLock);
+        LakeRejectNativePartitionDDL(nativeHeap, "REINDEX INDEX");
+        heap_close(nativeHeap, NoLock);
+    }
     TrForbidAccessRbObject(RelationRelationId, indOid, indexRelation->relname);
 
     if (partition_name != NULL)
@@ -3360,6 +3367,7 @@ Oid ReindexTable(RangeVar* relation, const char* partition_name, AdaptMem* mem_i
         heapOid = RangeVarGetRelidExtended(
             relation, AccessShareLock, false, false, false, false, RangeVarCallbackOwnsTable, NULL);
         Relation rel = heap_open(heapOid, AccessShareLock);
+        LakeRejectNativePartitionDDL(rel, "REINDEX TABLE PARTITION");
         if (RelationIsSubPartitioned(rel)) {
             ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
                             (errmsg("Un-support feature"),
@@ -3416,6 +3424,7 @@ Oid ReindexInternal(RangeVar* relation, const char* partition_name)
     TrForbidAccessRbObject(RelationRelationId, heapOid, relation->relname);
 
     rel = heap_open(heapOid, AccessShareLock);
+    LakeRejectNativePartitionDDL(rel, "REINDEX INTERNAL TABLE");
 
     /* 1. judge the cstore table and reindex its cudesc table.
      * 2. judge the hdfs table and reindex its cudesc table.
@@ -3868,8 +3877,8 @@ static List* getToastOidsInReindexConcurrently(Relation heapRelation, Oid heapPa
  * In the case of a relation or partition. find all its indexes
  * or all its partition indexes, include toast indexes
  */
-static void prepareReindexTableConcurrently(Oid relationOid, Oid relationPartOid, List** rt_heapRelationIds,
-    List** rt_heapPartitionIds, List** rt_indexIds, List** rt_indexPartIds, MemoryContext private_context)
+static bool prepareReindexTableConcurrently(Oid relationOid, Oid relationPartOid, List** rt_heapRelationIds,
+    List** rt_heapPartitionIds, List** rt_indexIds, List** rt_indexPartIds, MemoryContext private_context, bool dbWide)
 {
     Relation heapRelation;
     List* heapRelationIds = NIL;
@@ -3883,6 +3892,12 @@ static void prepareReindexTableConcurrently(Oid relationOid, Oid relationPartOid
 
     /* open relation to get its indexes */
     heapRelation = heap_open(relationOid, ShareUpdateExclusiveLock);
+    if (LakeHasNativePartitionMarker(heapRelation)) {
+        if (!dbWide)
+            LakeRejectNativePartitionDDL(heapRelation, "REINDEX TABLE CONCURRENTLY");
+        heap_close(heapRelation, NoLock);
+        return false; /* No commit or snapshot-stack change for a skipped root. */
+    }
 
     checkTableForReindexConcurrently(heapRelation);
 
@@ -4016,6 +4031,7 @@ static void prepareReindexTableConcurrently(Oid relationOid, Oid relationPartOid
     *rt_heapPartitionIds = heapPartitionIds;
     *rt_indexIds = indexIds;
     *rt_indexPartIds = indexPartIds;
+    return true;
 }
 
 /*
@@ -4029,6 +4045,7 @@ static void prepareReindexIndexConcurrently(Oid relationOid, Oid relationPartOid
     Relation indexRelation = index_open(relationOid, ShareUpdateExclusiveLock);
     Oid heapId = IndexGetRelation(relationOid, false);
     Relation heapRelation = heap_open(heapId, ShareUpdateExclusiveLock);
+    LakeRejectNativePartitionDDL(heapRelation, "REINDEX INDEX CONCURRENTLY");
     List* heapRelationIds = NIL;
     List* heapPartitionIds = NIL;
     List* indexIds = NIL;
@@ -4169,7 +4186,11 @@ static bool ReindexRelationConcurrently(Oid relationOid, Oid relationPartOid, Ad
         case RELKIND_MATVIEW :
         case RELKIND_TOASTVALUE :
         {
-            prepareReindexTableConcurrently(relationOid, relationPartOid, &heapRelationIds, &heapPartitionIds, &indexIds, &indexPartIds, private_context);
+            if (!prepareReindexTableConcurrently(relationOid, relationPartOid, &heapRelationIds, &heapPartitionIds,
+                &indexIds, &indexPartIds, private_context, dbWide)) {
+                MemoryContextDelete(private_context);
+                return false;
+            }
             break;
         }
         case RELKIND_INDEX:

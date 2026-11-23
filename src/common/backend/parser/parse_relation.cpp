@@ -13,6 +13,7 @@
  * -------------------------------------------------------------------------
  */
 #include "postgres.h"
+#include "access/og_lake.h"
 #include "knl/knl_variable.h"
 
 #include <ctype.h>
@@ -1817,6 +1818,7 @@ Relation parserOpenTable(ParseState *pstate, const RangeVar *relation, int lockm
             }
         }
     }
+    LakeCheckMetadataParseRelation(rel);
     cancel_parser_errposition_callback(&pcbstate);
 
     /* Forbit DQL/DML on recyclebin object */

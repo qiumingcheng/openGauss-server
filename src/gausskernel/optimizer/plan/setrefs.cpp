@@ -2870,7 +2870,12 @@ static void set_foreignscan_references(PlannerInfo *root, ForeignScan *fscan, in
          * Adjust tlist, qual, fdw_exprs, fdw_recheck_quals to reference
          * foreign scan tuple
          */
-        indexed_tlist *itlist = build_tlist_index(fscan->fdw_scan_tlist);
+        /* Keep literal Const nodes in the output projection. In particular,
+         * UPDATE's dropped attributes must remain NULL Consts for the host
+         * row-type check, rather than INDEX_VAR references to NULL scan slots.
+         * Only constants are preserved; other expressions retain the normal
+         * foreign scan slot mapping (as in the existing extensible-plan path). */
+        indexed_tlist *itlist = build_tlist_index(fscan->fdw_scan_tlist, true);
 
         fscan->scan.plan.targetlist =
             (List *)fix_upper_expr(root, (Node *)fscan->scan.plan.targetlist, itlist, INDEX_VAR, rtoffset);

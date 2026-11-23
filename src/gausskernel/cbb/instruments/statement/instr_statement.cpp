@@ -2452,12 +2452,30 @@ static bool is_valid_detail_record(uint32 bytea_data_len, const char *details, u
     return true;
 }
 
+/* Wait callbacks run inside pgstat's odd st_changecount update interval.
+ * They must not allocate or report: frontend output reports a FLUSH wait and
+ * would recursively enter the same interval. Both bitmaps are preallocated
+ * for the full event domain by their normal initialization/reset paths. */
+static bool instr_stmt_mark_preallocated_wait_event(Bitmapset *events, int32 event_idx)
+{
+    if (event_idx < 0 || event_idx >= wait_event_state_wait_max_index ||
+        events == NULL || events->nwords <= 0) {
+        return false;
+    }
+    uint32 word = (uint32)event_idx / BITS_PER_BITMAPWORD;
+    if (word >= (uint32)events->nwords) {
+        return false;
+    }
+    events->words[word] |= ((bitmapword)1 << ((uint32)event_idx % BITS_PER_BITMAPWORD));
+    return true;
+}
+
 static void instr_stmt_set_wait_events_in_session_bms(int32 bms_event_idx)
 {
     if (BEENTRY_STMEMENET_CXT.stmt_stat_cxt == NULL || !BEENTRY_STMEMENET_CXT.is_session_bms_active ||
-        bms_event_idx == -1)
+        BEENTRY_STMEMENET_CXT.is_wait_events_oom) {
         return;
-
+    }
     mark_session_bms(bms_event_idx, 0, false);
 }
 
@@ -2467,62 +2485,41 @@ static void instr_stmt_set_wait_events_in_handle_bms(int32 bms_event_idx)
     if (!BEENTRY_STMEMENET_CXT.enable_wait_events_bitmap || BEENTRY_STMEMENET_CXT.is_wait_events_oom) {
         return;
     }
-
-    if (bms_event_idx >= 0) {
-        MemoryContext oldcontext = MemoryContextSwitchTo(BEENTRY_STMEMENET_CXT.stmt_stat_cxt);
-        PG_TRY();
-        {
-            ereport(DEBUG4, (errmodule(MOD_INSTR), errmsg("[Statement] mark delta BMS in handle - ID: %d",
-                bms_event_idx)));
-            CURRENT_STMT_METRIC_HANDLE->wait_events_bitmap =
-                bms_add_member(CURRENT_STMT_METRIC_HANDLE->wait_events_bitmap, bms_event_idx);
-
-
-        }
-        PG_CATCH();
-        {
-            (void)MemoryContextSwitchTo(oldcontext);
-            FlushErrorState();
-            ereport(LOG, (errmodule(MOD_INSTR),
-                errmsg("[Statement] bms handle event failed - bms event idx: %d, msg: OOM", bms_event_idx)));
-        }
-        PG_END_TRY();
-        (void)MemoryContextSwitchTo(oldcontext);
+    if (!instr_stmt_mark_preallocated_wait_event(CURRENT_STMT_METRIC_HANDLE->wait_events_bitmap, bms_event_idx)) {
+        BEENTRY_STMEMENET_CXT.is_wait_events_oom = true;
     }
 }
 
 static int32 get_wait_events_idx_in_bms(uint32 class_id, uint32 event_id)
 {
-    int event_idx = -1;
+    /* Widen before adding offsets: malformed IDs must not wrap into a valid
+     * bitmap word. Unknown classes remain unrecordable, without callback IO. */
+    uint64 event_idx = event_id;
+    uint32 event_count;
     switch (class_id) {
         case PG_WAIT_IO:
-            ereport(DEBUG4, (errmodule(MOD_INSTR), errmsg("[Statement] tracked event - IO")));
-            event_idx = event_id;
+            event_count = IO_EVENT_NUM;
             break;
         case PG_WAIT_DMS:
-            ereport(DEBUG4, (errmodule(MOD_INSTR), errmsg("[Statement] tracked event - DMS")));
-            event_idx = event_id + wait_event_io_event_max_index;
+            event_count = DMS_EVENT_NUM;
+            event_idx += wait_event_io_event_max_index;
             break;
         case PG_WAIT_LOCK:
-            ereport(DEBUG4, (errmodule(MOD_INSTR), errmsg("[Statement] tracked event - LOCK")));
-            event_idx = event_id + wait_event_dms_event_max_index;
+            event_count = LOCK_EVENT_NUM;
+            event_idx += wait_event_dms_event_max_index;
             break;
         case PG_WAIT_LWLOCK:
-            ereport(DEBUG4, (errmodule(MOD_INSTR), errmsg("[Statement] tracked event - LWLOCK")));
-            event_idx = event_id + wait_event_lock_event_max_index;
+            event_count = LWLOCK_EVENT_NUM;
+            event_idx += wait_event_lock_event_max_index;
             break;
         case PG_WAIT_STATE:
-            ereport(DEBUG4, (errmodule(MOD_INSTR), errmsg("[Statement] tracked event - STATE")));
-            event_idx = event_id + wait_event_lwlock_event_max_index;
+            event_count = STATE_WAIT_NUM;
+            event_idx += wait_event_lwlock_event_max_index;
             break;
         default:
-            break;
+            return -1;
     }
-    ereport(DEBUG4,
-        (errmodule(MOD_INSTR),
-        errmsg("[Statement] tracked BMS event - index: %d, real index: %u", event_idx, event_id)));
-
-    return event_idx;
+    return event_id < event_count && event_idx < (uint64)wait_event_state_wait_max_index ? (int32)event_idx : -1;
 }
 
 void instr_stmt_reset_wait_events_bitmap()
@@ -2547,15 +2544,21 @@ void instr_stmt_reset_wait_events_bitmap()
 
 void instr_stmt_set_wait_events_bitmap(uint32 class_id, uint32 event_id)
 {
-    if (BEENTRY_STMEMENET_CXT.stmt_stat_cxt == NULL) {
+    if (t_thrd.shemem_ptr_cxt.MyBEEntry == NULL || BEENTRY_STMEMENET_CXT.stmt_stat_cxt == NULL ||
+        BEENTRY_STMEMENET_CXT.is_wait_events_oom) {
         return;
     }
-
-    int32 bms_event_idx = -1;
-    bms_event_idx = get_wait_events_idx_in_bms(class_id, event_id);
-    if (bms_event_idx == -1 || bms_event_idx > wait_event_state_wait_max_index) {
-        ereport(LOG, (errmodule(MOD_INSTR),
-                errmsg("[Statement] set_wait_events_bitmap failed bms_event_idx: %d.\n", bms_event_idx)));
+    /* An absent/disabled handle is normal between commands. Keep the session
+     * base bitmap active independently, but never mark OOM for an idle handle. */
+    if (!BEENTRY_STMEMENET_CXT.is_session_bms_active &&
+        (!BEENTRY_STMEMENET_CXT.enable_wait_events_bitmap || CURRENT_STMT_METRIC_HANDLE == NULL)) {
+        return;
+    }
+    int32 bms_event_idx = get_wait_events_idx_in_bms(class_id, event_id);
+    if (bms_event_idx < 0 || bms_event_idx >= wait_event_state_wait_max_index) {
+        /* The existing flag means this wait bitmap is incomplete. Preserve it
+         * for the normal statement path; never emit a diagnostic from here. */
+        BEENTRY_STMEMENET_CXT.is_wait_events_oom = true;
         return;
     }
     /* 1, after session BMS inited, we always mark events in BMS */
@@ -2634,30 +2637,17 @@ static void get_wait_events_full_info(StatementStatContext *statement_stat, Stri
 
 static void mark_session_bms(uint32 index, uint64 total_duration, bool is_init)
 {
-    if ((is_init && (total_duration == 0))  || BEENTRY_STMEMENET_CXT.wait_events_bms == NULL) {
+    if (is_init && total_duration == 0) {
         return;
     }
-
-    MemoryContext oldcontext = MemoryContextSwitchTo(BEENTRY_STMEMENET_CXT.stmt_stat_cxt);
-    PG_TRY();
-    {
-        BEENTRY_STMEMENET_CXT.wait_events_bms = bms_add_member(BEENTRY_STMEMENET_CXT.wait_events_bms, index);
+    if (!instr_stmt_mark_preallocated_wait_event(BEENTRY_STMEMENET_CXT.wait_events_bms, (int32)index)) {
+        BEENTRY_STMEMENET_CXT.is_wait_events_oom = true;
     }
-    PG_CATCH();
-    {
-        (void)MemoryContextSwitchTo(oldcontext);
-        ErrorData* edata = NULL;
-        edata = CopyErrorData();
-        FlushErrorState();
-        ereport(LOG, (errmodule(MOD_INSTR),
-            errmsg("[Statement] mark session bms failed - bms event idx: %d, msg: %s", index,
-            edata->message)));
-        FreeErrorData(edata);
+    /* The callback always passes false. Initialization may still report in
+     * ordinary statement context, after pgstat's update interval has ended. */
+    if (is_init) {
+        ereport(DEBUG4, (errmodule(MOD_INSTR), errmsg("[Statement] init base BMS - ID: %u", index)));
     }
-    PG_END_TRY();
-    (void)MemoryContextSwitchTo(oldcontext);
-    ereport(DEBUG4, (errmodule(MOD_INSTR),
-        errmsg("[Statement] %s base BMS - ID: %u", is_init ? "init" : "mark", index)));
 }
 
 static bool init_session_bms(uint32 index)
@@ -2665,7 +2655,7 @@ static bool init_session_bms(uint32 index)
     MemoryContext oldcontext = MemoryContextSwitchTo(BEENTRY_STMEMENET_CXT.stmt_stat_cxt);
     BEENTRY_STMEMENET_CXT.wait_events_bms = bms_build_with_length_noexcept(index);
     (void)MemoryContextSwitchTo(oldcontext);
-    if (BEENTRY_STMEMENET_CXT.wait_events == NULL) {
+    if (BEENTRY_STMEMENET_CXT.wait_events_bms == NULL) {
         BEENTRY_STMEMENET_CXT.is_wait_events_oom = TRUE;
         ereport(WARNING, (errmodule(MOD_INSTR), errmsg("[Statement] diff BMS WARNNING because OOM: %d", index)));
         return FALSE;

@@ -1044,12 +1044,12 @@ void InitializeSessionUserIdStandalone(void)
     AssertState(!IsUnderPostmaster || IsAutoVacuumWorkerProcess() || IsJobSchedulerProcess() || IsJobWorkerProcess() ||
         AM_WAL_SENDER || IsTxnSnapCapturerProcess() || IsTxnSnapWorkerProcess() || IsUndoWorkerProcess() ||  IsCfsShrinkerProcess() ||
         CompactionProcess::IsTsCompactionProcess() || IsRbCleanerProcess() || IsRbWorkerProcess() ||
-        IsOgaiWorkerProcess() ||
+        IsOgaiWorkerProcess() || t_thrd.role == LAKE_WORKER ||
         t_thrd.role == PARALLEL_DECODE || t_thrd.role == LOGICAL_READ_RECORD);
 #else   /* ENABLE_MULTIPLE_NODES */
     AssertState(!IsUnderPostmaster || IsAutoVacuumWorkerProcess() || IsJobSchedulerProcess() || IsJobWorkerProcess() ||
                 AM_WAL_SENDER || IsTxnSnapCapturerProcess() || IsTxnSnapWorkerProcess() || IsUndoWorkerProcess() ||
-                IsRbCleanerProcess() || IsCfsShrinkerProcess() || IsOgaiWorkerProcess() ||
+                IsRbCleanerProcess() || IsCfsShrinkerProcess() || IsOgaiWorkerProcess() || t_thrd.role == LAKE_WORKER ||
                 IsRbWorkerProcess() || t_thrd.role == PARALLEL_DECODE || t_thrd.role == LOGICAL_READ_RECORD);
 #endif   /* ENABLE_MULTIPLE_NODES */
 

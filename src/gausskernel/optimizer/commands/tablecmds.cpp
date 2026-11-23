@@ -23,6 +23,7 @@
 #include "access/cstore_rewrite.h"
 #include "access/genam.h"
 #include "access/heapam.h"
+#include "access/og_lake.h"
 #include "access/reloptions.h"
 #include "access/relscan.h"
 #include "access/sysattr.h"
@@ -226,6 +227,21 @@
 #endif
 
 #define INFORMATION_SCHEMA "information_schema"
+
+/* The native inline prototype cannot synchronize persistent ALTER operations.
+ * Call with the target relation locked, before any catalog mutation. */
+static void RejectNativeLakeAlter(Relation relation)
+{
+    LakeRejectNativePartitionDDL(relation,"ALTER/RENAME/SET SCHEMA");
+    if (relation->rd_rel->relkind != RELKIND_FOREIGN_TABLE)
+        return;
+    ForeignTable* table = GetForeignTable(RelationGetRelid(relation));
+    ForeignServer* server = GetForeignServer(table->serverid);
+    ForeignDataWrapper* wrapper = GetForeignDataWrapper(server->fdwid);
+    if (strcmp(wrapper->fdwname, "og_lake_fdw") == 0)
+        ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+            errmsg("ALTER of native lake tables is not supported by the read-only inline prototype")));
+}
 
 extern void vacuum_set_xid_limits(Relation rel, int64 freeze_min_age, int64 freeze_table_age, TransactionId* oldestXmin,
     TransactionId* freezeLimit, TransactionId* freezeTableLimit, MultiXactId* multiXactFrzLimit);
@@ -450,10 +466,10 @@ static void validateCheckConstraintForBucket(Relation rel, Partition part, HeapT
 static void validateForeignKeyConstraint(char* conname, Relation rel, Relation pkrel, Oid pkindOid, Oid constraintOid);
 static void createForeignKeyTriggers(
     Relation rel, Oid refRelOid, Constraint* fkconstraint, Oid constraintOid, Oid indexOid);
-static void ATController(AlterTableStmt *parsetree, Relation rel, List* cmds, bool recurse, LOCKMODE lockmode, bool fromReplace);
+static void ATController(AlterTableStmt *parsetree, Relation rel, List* cmds, bool recurse, LOCKMODE lockmode, bool fromReplace, bool lakeDefault = false);
 static bool ATCheckLedgerTableCmd(Relation rel, AlterTableCmd* cmd);
 static void ATPrepCmd(List** wqueue, Relation rel, AlterTableCmd* cmd, bool recurse, bool recursing, LOCKMODE lockmode,
-    bool isDeltaTable = false);
+    bool isDeltaTable = false, bool lakeDefault = false);
 static void ATRewriteCatalogs(List** wqueue, LOCKMODE lockmode, bool fromReplace);
 static void ATExecCmd(List** wqueue, AlteredTableInfo* tab, Relation rel, AlterTableCmd* cmd, LOCKMODE lockmode, bool fromReplace);
 static void ATRewriteTables(AlterTableStmt *parsetree, List** wqueue, LOCKMODE lockmode);
@@ -2869,6 +2885,10 @@ ObjectAddress DefineRelation(CreateStmt* stmt, char relkind, Oid ownerId, Object
     rawDefaults = NIL;
     cookedDefaults = NIL;
     attnum = 0;
+    /* Consumed only by exact native CREATE49. One statement-local aggregate,
+     * before any host cook/store; never cached across statements/backends. */
+    Size lakeCreateDefaultBytes = sizeof(TupleConstr) +
+        (sizeof(char) + sizeof(bool)) * (Size)descriptor->natts;
 
 #ifdef ENABLE_MOT
     bool isMot =
@@ -2907,15 +2927,21 @@ ObjectAddress DefineRelation(CreateStmt* stmt, char relkind, Oid ownerId, Object
             }
         }
 
+        bool lakeCreateLiteral = false;
+        if (relkind == RELKIND_FOREIGN_TABLE && IsA(stmt, CreateForeignTableStmt) && colDef->raw_default != NULL) {
+            Form_pg_attribute attr = &descriptor->attrs[attnum - 1];
+            lakeCreateLiteral = LakeNativePrepareCreateColumnDefault((CreateForeignTableStmt*)stmt,
+                colDef, attr->atttypid, attr->atttypmod, attr->attcollation, &lakeCreateDefaultBytes);
+        }
         if ((colDef->raw_default != NULL || colDef->update_default != NULL) && colDef->cooked_default == NULL) {
             RawColumnDefault* rawEnt = NULL;
 
             if (relkind == RELKIND_FOREIGN_TABLE) {
-                if (!(IsA(stmt, CreateForeignTableStmt) && (
+                if (!(lakeCreateLiteral || (IsA(stmt, CreateForeignTableStmt) && (
 #ifdef ENABLE_MOT
                         isMOTTableFromSrvName(((CreateForeignTableStmt*)stmt)->servername) ||
 #endif
-                        isPostgresFDWFromSrvName(((CreateForeignTableStmt*)stmt)->servername))))
+                        isPostgresFDWFromSrvName(((CreateForeignTableStmt*)stmt)->servername)))))
                     ereport(ERROR, (errcode(ERRCODE_WRONG_OBJECT_TYPE), errmsg("%s on foreign tables are not supported",
                         colDef->generatedCol ? "generated column" : "default values")));
 #ifdef ENABLE_MOT
@@ -5219,6 +5245,7 @@ void ExecuteTruncateGuts(
  */
 void truncate_check_rel(Relation rel)
 {
+    LakeRejectNativePartitionDDL(rel,"TRUNCATE");
     AclResult aclresult;
 
     /* Only allow truncate on regular tables or MOT tables */
@@ -6183,6 +6210,8 @@ static AttrNumber  renameatt_internal(Oid myrelid, const char* oldattname, const
      */
     targetrelation = relation_open(myrelid, AccessExclusiveLock);
     renameatt_check(myrelid, RelationGetForm(targetrelation), recursing);
+    LakeRejectNativePartitionDDL(targetrelation,"RENAME COLUMN");
+    LakeNativeRenameForeignColumn(targetrelation, oldattname, newattname, recursing, expected_parents);
 
     /*
      * if the 'recurse' flag is set then we are supposed to rename this
@@ -6749,6 +6778,9 @@ static ObjectAddress RenameTableFeature(RenameStmt* stmt)
                 ereport(ERROR, (errcode(ERRCODE_INVALID_TABLE_DEFINITION), errmsg("relation %s is temporary table, Rename table don't support.", get_rel_name(relid))));
             }
             lockRelation[num] = relation_open(relid, AccessExclusiveLock);
+            /* This compatibility syntax rewrites pg_class directly. Native
+             * lake rename is admitted only through RenameRelationInternal. */
+            RejectNativeLakeAlter(lockRelation[num]);
         }
     }
 
@@ -7097,6 +7129,10 @@ void RenameRelationInternal(Oid myrelid, const char* newrelname, char* newschema
      * which we will NOT release until end of transaction.
      */
     targetrelation = relation_open(myrelid, AccessExclusiveLock);
+    if(LakeIsNativeForeignRelation(targetrelation))
+        LakeNativeRenameForeignTable(targetrelation,newrelname,newschema);
+    else
+        RejectNativeLakeAlter(targetrelation);
 
     if (DB_IS_CMPT(A_FORMAT) && targetrelation->rd_rel->relkind == RELKIND_VIEW && 
         targetrelation->rd_rules != NULL) {
@@ -8200,6 +8236,22 @@ void AlterTable(Oid relid, LOCKMODE lockmode, AlterTableStmt* stmt)
 
     /* Caller is required to provide an adequate lock. */
     rel = relation_open(relid, lockmode);
+    void* lakeAddColumn = NULL;
+    void* lakeNullability = NULL;
+    void* lakeCurrentDefault = NULL;
+    void* lakeDropColumn = NULL;
+    void* lakeAlterType = NULL;
+    if (!stmt->fromCreate) {
+        lakeAddColumn = LakeNativePrepareAddColumn(rel, stmt->cmds);
+        if (lakeAddColumn == NULL) lakeNullability = LakeNativePrepareNullability(rel, stmt->cmds);
+        if (lakeAddColumn == NULL && lakeNullability == NULL)
+            lakeCurrentDefault = LakeNativePrepareCurrentDefault(rel, stmt->cmds);
+        if (lakeAddColumn == NULL && lakeNullability == NULL && lakeCurrentDefault == NULL)
+            lakeDropColumn = LakeNativePrepareDropColumn(rel, stmt->cmds);
+        if (lakeAddColumn == NULL && lakeNullability == NULL && lakeCurrentDefault == NULL && lakeDropColumn == NULL)
+            lakeAlterType = LakeNativePrepareAlterColumnType(rel, stmt->cmds);
+        if (lakeAddColumn == NULL && lakeNullability == NULL && lakeCurrentDefault == NULL && lakeDropColumn == NULL && lakeAlterType == NULL) RejectNativeLakeAlter(rel);
+    }
 
     if ((stmt->relkind == OBJECT_TABLE) && (rel->rd_rel->relkind == RELKIND_MATVIEW)) {
         stmt->relkind = OBJECT_MATVIEW;
@@ -8349,7 +8401,12 @@ void AlterTable(Oid relid, LOCKMODE lockmode, AlterTableStmt* stmt)
     // Next version remove hack patch for 'ALTER FOREIGN TABLE ... ADD NODE'
     if (stmt->cmds != NIL) {
         /* process 'ALTER TABLE' cmd */
-        ATController(stmt, rel, stmt->cmds, interpretInhOption(stmt->relation->inhOpt), lockmode, stmt->fromReplace);
+        ATController(stmt, rel, stmt->cmds, interpretInhOption(stmt->relation->inhOpt), lockmode, stmt->fromReplace, lakeCurrentDefault != NULL);
+        if (lakeAddColumn != NULL) LakeNativeFinishAddColumn(lakeAddColumn);
+        if (lakeNullability != NULL) LakeNativeFinishNullability(lakeNullability);
+        if (lakeCurrentDefault != NULL) LakeNativeFinishCurrentDefault(lakeCurrentDefault);
+        if (lakeDropColumn != NULL) LakeNativeFinishDropColumn(lakeDropColumn);
+        if (lakeAlterType != NULL) LakeNativeFinishAlterColumnType(lakeAlterType);
         if (enable_plpgsql_gsdependency_guc()) {
             (void)gsplsql_build_ref_type_dependency(get_rel_type_id(relid));
         }
@@ -8391,6 +8448,7 @@ void AlterTableInternal(Oid relid, List* cmds, bool recurse)
     LOCKMODE lockmode = AlterTableGetLockLevel(cmds);
 
     rel = relation_open(relid, lockmode);
+    RejectNativeLakeAlter(rel);
 
     EventTriggerAlterTableRelid(relid);
     ATController(NULL, rel, cmds, recurse, lockmode, false);
@@ -8531,7 +8589,7 @@ LOCKMODE AlterTableGetLockLevel(List* cmds)
     return lockmode;
 }
 
-static void ATController(AlterTableStmt *parsetree, Relation rel, List* cmds, bool recurse, LOCKMODE lockmode, bool fromReplace)
+static void ATController(AlterTableStmt *parsetree, Relation rel, List* cmds, bool recurse, LOCKMODE lockmode, bool fromReplace, bool lakeDefault)
 {
     List* wqueue = NIL;
     ListCell* lcmd = NULL;
@@ -8553,7 +8611,7 @@ static void ATController(AlterTableStmt *parsetree, Relation rel, List* cmds, bo
         ATCheckCmd(rel, cmd);
 #endif
         ATCheckLedgerTableCmd(rel, cmd);
-        ATPrepCmd(&wqueue, rel, cmd, recurse, false, lockmode);
+        ATPrepCmd(&wqueue, rel, cmd, recurse, false, lockmode, false, lakeDefault);
     }
 
 #ifdef PGXC
@@ -8675,7 +8733,7 @@ static void ATController(AlterTableStmt *parsetree, Relation rel, List* cmds, bo
  * This lock should be held until commit.
  */
 static void ATPrepCmd(List** wqueue, Relation rel, AlterTableCmd* cmd, bool recurse, bool recursing, LOCKMODE lockmode,
-        bool isDeltaTable)
+        bool isDeltaTable, bool lakeDefault)
 {
     AlteredTableInfo* tab = NULL;
     int pass;
@@ -8730,9 +8788,18 @@ static void ATPrepCmd(List** wqueue, Relation rel, AlterTableCmd* cmd, bool recu
              * substitutes default values into INSERTs before it expands
              * rules.
              */
-            ATSimplePermissions(rel, ATT_TABLE | ATT_VIEW);
+            /* Only the successful native single-column prepare call carries
+             * this local token. Internal/recursive callers keep it false. */
+            ATSimplePermissions(rel, ATT_TABLE | ATT_VIEW | (lakeDefault ? ATT_FOREIGN_TABLE : 0));
             ATSimpleRecursion(wqueue, rel, cmd, recurse, lockmode);
-            ATPrepCheckDefault(cmd->def);
+            if (lakeDefault) {
+                /* Already typed by the authenticated native prepare step.
+                 * The raw-tree walker deliberately does not accept Const. */
+                if (cmd->def != NULL && !IsA(cmd->def, Const))
+                    ereport(ERROR, (errcode(ERRCODE_DATA_CORRUPTED), errmsg("invalid prepared native default token")));
+            } else {
+                ATPrepCheckDefault(cmd->def);
+            }
             /* No command-specific prep needed */
             pass = cmd->def ? AT_PASS_ADD_CONSTR : AT_PASS_DROP;
             break;
@@ -19351,6 +19418,7 @@ void ATExecChangeOwner(Oid relationOid, Oid newOwnerId, bool recursing, LOCKMODE
      * relation_open so that we can work on indexes and sequences.
      */
     target_rel = relation_open(relationOid, lockmode);
+    RejectNativeLakeAlter(target_rel);
 
     /* Get its pg_class tuple, too */
     class_rel = heap_open(RelationRelationId, RowExclusiveLock);
@@ -20327,6 +20395,8 @@ bool static transformCompressedOptions(Relation rel, bytea* relOption, List* def
  */
 static void ATExecSetRelOptions(Relation rel, List* defList, AlterTableType operation, LOCKMODE lockmode, bool innerset, AlteredTableInfo* tab)
 {
+    /* RESET and REPLACE can erase a marker without parsing its old value. */
+    LakeRejectNativePartitionRelOptions(rel, defList);
     Oid relid;
     Relation pgclass;
     HeapTuple tuple, newtuple, tmptuple;
@@ -23790,6 +23860,7 @@ void AlterTableNamespaceInternal(Relation rel, Oid oldNspOid, Oid nspOid, Object
     Relation classRel;
 
     Assert(objsMoved != NULL);
+    RejectNativeLakeAlter(rel);
 
     if (enable_plpgsql_gsdependency_guc() &&
         gsplsql_is_object_depend(rel->rd_rel->reltype, GSDEPEND_OBJECT_TYPE_TYPE)) {

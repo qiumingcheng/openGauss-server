@@ -25,6 +25,9 @@
  */
 #include <dlfcn.h>
 #include <stdlib.h>
+#ifndef __aarch64__
+#include <immintrin.h>
+#endif
 #include "postgres.h"
 #include "access/datavec/diskann.h"
 #include "access/datavec/hnsw.h"
@@ -177,15 +180,137 @@ DiskAnnGraphStore::DiskAnnGraphStore(Relation relation)
     m_edgeSize = metapage.edgeSize;
     m_itemSize = metapage.itemSize;
     m_dimension = metapage.dimensions;
+    m_vecCacheCxt = NULL;
+    m_vecCache = NULL;
+    m_vecCacheSlots = 0;
+    m_vecCacheBytes = 0;
+    m_vecCacheLimit = 0;
+    m_vecCacheEnabled = false;
 }
 
 DiskAnnGraphStore::~DiskAnnGraphStore()
 {
+    if (m_vecCacheCxt != NULL) {
+        MemoryContextDelete(m_vecCacheCxt);
+        m_vecCacheCxt = NULL;
+    }
+    m_vecCache = NULL;
+    m_vecCacheSlots = 0;
+    m_vecCacheBytes = 0;
+    m_vecCacheLimit = 0;
+    m_vecCacheEnabled = false;
     m_rel = NULL;
+}
+
+void DiskAnnGraphStore::EnableVectorCache(Size maxBytes)
+{
+    if (m_vecCacheEnabled || m_rel == NULL || m_dimension <= 0 || maxBytes == 0) {
+        return;
+    }
+    BlockNumber nblocks = RelationGetNumberOfBlocks(m_rel);
+    Size vecBytes = (Size)m_dimension * sizeof(float);
+    Size entryBytes = MAXALIGN(offsetof(CachedVectorEntry, vec) + vecBytes);
+    Size perSlot = entryBytes + sizeof(CachedVectorEntry*);
+    Size maxEntries = maxBytes / Max(perSlot, (Size)1);
+    BlockNumber slots = (BlockNumber)Min((Size)nblocks, Min(maxEntries, (Size)131072));
+    if (slots == 0) {
+        return;
+    }
+    m_vecCacheCxt = AllocSetContextCreate(CurrentMemoryContext, "DiskAnnVectorCache", ALLOCSET_DEFAULT_SIZES);
+    Size arrayBytes = (Size)slots * sizeof(CachedVectorEntry*);
+    m_vecCache = (CachedVectorEntry**)MemoryContextAllocZero(m_vecCacheCxt, arrayBytes);
+    m_vecCacheSlots = slots;
+    m_vecCacheBytes = arrayBytes;
+    m_vecCacheLimit = maxBytes;
+    m_vecCacheEnabled = true;
+}
+
+static inline float DiskAnnDotProductFast(const float* u, const float* v, uint16_t dim)
+{
+#ifdef __x86_64__
+    uint16_t i = 0;
+    __m128 sum0 = _mm_setzero_ps();
+    __m128 sum1 = _mm_setzero_ps();
+    __m128 sum2 = _mm_setzero_ps();
+    __m128 sum3 = _mm_setzero_ps();
+    for (; i + 16 <= dim; i += 16) {
+        sum0 = _mm_add_ps(sum0, _mm_mul_ps(_mm_loadu_ps(u + i), _mm_loadu_ps(v + i)));
+        sum1 = _mm_add_ps(sum1, _mm_mul_ps(_mm_loadu_ps(u + i + 4), _mm_loadu_ps(v + i + 4)));
+        sum2 = _mm_add_ps(sum2, _mm_mul_ps(_mm_loadu_ps(u + i + 8), _mm_loadu_ps(v + i + 8)));
+        sum3 = _mm_add_ps(sum3, _mm_mul_ps(_mm_loadu_ps(u + i + 12), _mm_loadu_ps(v + i + 12)));
+    }
+    sum0 = _mm_add_ps(_mm_add_ps(sum0, sum2), _mm_add_ps(sum1, sum3));
+    for (; i + 4 <= dim; i += 4) {
+        sum0 = _mm_add_ps(sum0, _mm_mul_ps(_mm_loadu_ps(u + i), _mm_loadu_ps(v + i)));
+    }
+    __m128 hi = _mm_movehl_ps(sum0, sum0);
+    sum0 = _mm_add_ps(sum0, hi);
+    hi = _mm_shuffle_ps(sum0, sum0, 0x55);
+    sum0 = _mm_add_ss(sum0, hi);
+    float acc = _mm_cvtss_f32(sum0);
+    for (; i < dim; ++i) {
+        acc += u[i] * v[i];
+    }
+    return acc;
+#else
+    return VectorInnerProduct((int)dim, (float*)u, (float*)v);
+#endif
+}
+
+static inline float DiskAnnComputeL2Fast(const float* u, const double su, const float* v, const double sv, uint16_t dim)
+{
+    return (float)(su + sv - DISTANCE_FACTOR * DiskAnnDotProductFast(u, v, dim));
+}
+
+const DiskAnnGraphStore::CachedVectorEntry* DiskAnnGraphStore::GetOrLoadCachedVector(BlockNumber blkno) const
+{
+    if (!m_vecCacheEnabled || blkno >= m_vecCacheSlots) {
+        return NULL;
+    }
+    CachedVectorEntry* cached = m_vecCache[blkno];
+    if (cached != NULL) {
+        return cached;
+    }
+    Size vecBytes = (Size)m_dimension * sizeof(float);
+    Size entryBytes = MAXALIGN(offsetof(CachedVectorEntry, vec) + vecBytes);
+    if (entryBytes > m_vecCacheLimit || m_vecCacheBytes > m_vecCacheLimit - entryBytes) {
+        return NULL;
+    }
+    Buffer buf = ReadBuffer(m_rel, blkno);
+    LockBuffer(buf, BUFFER_LOCK_SHARE);
+    Page page = BufferGetPage(buf);
+    Assert(PageIsValid(page));
+    IndexTuple ctup = (IndexTuple)PageGetItem(page, PageGetItemId(page, FirstOffsetNumber));
+    bool isnull = false;
+    Datum src = index_getattr(ctup, 1, RelationGetDescr(m_rel), &isnull);
+    Datum dst = PointerGetDatum(PG_DETOAST_DATUM(src));
+    Vector* vector = (Vector*)DatumGetPointer(dst);
+    Assert(m_dimension == vector->dim);
+    cached = (CachedVectorEntry*)MemoryContextAlloc(m_vecCacheCxt, offsetof(CachedVectorEntry, vec) + vecBytes);
+    cached->hctid = ctup->t_tid;
+    cached->sqrSum = DiskAnnPageGetNode(ctup)->sqrSum;
+    errno_t rc = memcpy_s(cached->vec, vecBytes, vector->x, vecBytes);
+    securec_check_c(rc, "\0", "\0");
+    if (DatumGetPointer(dst) != DatumGetPointer(src)) {
+        pfree(DatumGetPointer(dst));
+    }
+    UnlockReleaseBuffer(buf);
+    m_vecCache[blkno] = cached;
+    m_vecCacheBytes += entryBytes;
+    return cached;
 }
 
 void DiskAnnGraphStore::GetVector(BlockNumber blkno, float* vec, double* sqrSum, ItemPointerData* hctid) const
 {
+    const CachedVectorEntry* cached = GetOrLoadCachedVector(blkno);
+    if (cached != NULL) {
+        Size vecBytes = (Size)m_dimension * sizeof(float);
+        errno_t rc = memcpy_s(vec, vecBytes, cached->vec, vecBytes);
+        securec_check_c(rc, "\0", "\0");
+        *sqrSum = cached->sqrSum;
+        *hctid = cached->hctid;
+        return;
+    }
     Buffer buf;
     Page page;
     IndexTuple ctup;
@@ -227,6 +352,14 @@ void DiskAnnGraphStore::GetVector(BlockNumber blkno, float* vec, double* sqrSum,
 
 float DiskAnnGraphStore::GetDistance(BlockNumber blk1, BlockNumber blk2) const
 {
+    const CachedVectorEntry* c2 = GetOrLoadCachedVector(blk2);
+    if (c2 != NULL) {
+        const CachedVectorEntry* c1 = GetOrLoadCachedVector(blk1);
+        if (c1 != NULL) {
+            return DiskAnnComputeL2Fast(c1->vec, c1->sqrSum, c2->vec, c2->sqrSum, (uint16_t)m_dimension);
+        }
+        return ComputeDistance(blk1, c2->vec, c2->sqrSum);
+    }
     Buffer buf;
     Page page;
     IndexTuple ctup;
@@ -260,8 +393,12 @@ float DiskAnnGraphStore::GetDistance(BlockNumber blk1, BlockNumber blk2) const
     return distance;
 }
 
-float DiskAnnGraphStore::ComputeDistance(BlockNumber blk1, float* vec2, double sqrSum2) const
+float DiskAnnGraphStore::ComputeDistance(BlockNumber blk1, const float* vec2, double sqrSum2) const
 {
+    const CachedVectorEntry* c1 = GetOrLoadCachedVector(blk1);
+    if (c1 != NULL) {
+        return ComputeL2DistanceFast(c1->vec, c1->sqrSum, vec2, sqrSum2, (uint16_t)m_dimension);
+    }
     Buffer buf;
     Page page;
     IndexTuple ctup;
@@ -570,7 +707,6 @@ void DiskAnnGraph::IterateToFixedPoint(BlockNumber blk, const uint32 Lsize, Bloc
     bestLNodes->reserve(Lsize);
 
     if (!IsVisited(frozen, insertedNodeHash)) {
-        hash_search(insertedNodeHash, &frozen, HASH_ENTER, NULL);
         float dis = graphStore->ComputeDistance(frozen, scratch->alignedQuery, scratch->sqrSum);
         Neighbor nn = Neighbor(frozen, dis);
         bestLNodes->insert(nn);
@@ -593,9 +729,8 @@ void DiskAnnGraph::IterateToFixedPoint(BlockNumber blk, const uint32 Lsize, Bloc
             float distance;
             for (size_t i = 0; i < neighbors.size(); i++) {
                 BlockNumber blkno = neighbors[i].id;
-                distance = graphStore->ComputeDistance(blkno, scratch->alignedQuery, scratch->sqrSum);
                 if (!IsVisited(blkno, insertedNodeHash)) {
-                    hash_search(insertedNodeHash, &blkno, HASH_ENTER, NULL);
+                    distance = graphStore->ComputeDistance(blkno, scratch->alignedQuery, scratch->sqrSum);
                     bestLNodes->insert(Neighbor(blkno, distance));
                 }
             }
@@ -648,6 +783,53 @@ void DiskAnnGraph::OccludeList(BlockNumber location, VectorList<Neighbor>* pool,
                           sizeof(float) * occlude_factor.size());
     securec_check(rc, "\0", "\0");
 
+    const size_t poolCount = pool->size();
+    const uint16_t occludeDim = (graphStore != NULL && graphStore->m_dimension > 0) ? (uint16_t)graphStore->m_dimension : 0;
+    struct OccludeVecCache {
+        alignas(16) float stackVecs[4096];
+        double stackSqrs[256];
+        float* vecs;
+        double* sqrs;
+        uint16_t dim;
+        bool ready;
+
+        OccludeVecCache(size_t count, uint16_t d, const DiskAnnGraphStore* store, const VectorList<Neighbor>* p)
+            : vecs(NULL), sqrs(NULL), dim(d), ready(false)
+        {
+            if (count == 0 || d == 0 || store == NULL || p == NULL) {
+                return;
+            }
+            if (count <= 256 && count * (size_t)d <= 4096) {
+                vecs = stackVecs;
+                sqrs = stackSqrs;
+            } else {
+                vecs = (float*)palloc(count * (size_t)d * sizeof(float));
+                sqrs = (double*)palloc(count * sizeof(double));
+            }
+            ItemPointerData dummyTid;
+            size_t idx = 0;
+            for (auto pIt = p->begin(); pIt != p->end(); ++pIt, ++idx) {
+                store->GetVector(pIt->id, vecs + idx * (size_t)d, &sqrs[idx], &dummyTid);
+            }
+            ready = true;
+        }
+
+        ~OccludeVecCache()
+        {
+            if (vecs != NULL && vecs != stackVecs) {
+                pfree(vecs);
+            }
+            if (sqrs != NULL && sqrs != stackSqrs) {
+                pfree(sqrs);
+            }
+        }
+
+        inline const float* Vec(size_t i) const
+        {
+            return vecs + i * (size_t)dim;
+        }
+    } vecCache(poolCount, occludeDim, graphStore, pool);
+
     float cur_alpha = 1;
     while (cur_alpha <= alpha && result->size() < DISKANN_MAX_DEGREE) {
         // used for MIPS, where we store a value of eps in cur_alpha to
@@ -675,7 +857,10 @@ void DiskAnnGraph::OccludeList(BlockNumber location, VectorList<Neighbor>* pool,
                 if (occlude_factor[t] > alpha)
                     continue;
 
-                float djk = graphStore->GetDistance(iter2->id, iter->id);
+                float djk = vecCache.ready
+                    ? DiskAnnComputeL2Fast(vecCache.Vec(t), vecCache.sqrs[t],
+                                           vecCache.Vec(slot), vecCache.sqrs[slot], occludeDim)
+                    : graphStore->GetDistance(iter2->id, iter->id);
                 if (functype == DISKANN_DIS_L2 || functype == DISKANN_DIS_COSINE) {
                     occlude_factor[t] = (djk == 0) ? FLT_MAX : std::max(occlude_factor[t], iter2->distance / djk);
                 } else if (functype == DISKANN_DIS_IP) {
@@ -762,7 +947,7 @@ void DiskAnnGraph::InterInsert(BlockNumber blk, VectorList<Neighbor>* prunedList
                 bool found = false;
                 hash_search(dummyVisited, &cur_nbr.id, HASH_ENTER, &found);
                 if (!found && cur_nbr.id != des.id) {
-                    float dist = graphStore->GetDistance(des.id, cur_nbr.id);
+                    float dist = cur_nbr.distance;
                     Neighbor neighbor = Neighbor(cur_nbr.id, dist);
                     dummyPool.push_back(neighbor);
                 }
@@ -831,7 +1016,7 @@ bool DiskAnnGraph::FindDuplicateNeighbor(NeighborPriorityQueue* bestLNodes, Bloc
 
 float ComputeL2DistanceFast(const float* u, const double su, const float* v, const double sv, uint16_t dim)
 {
-    return (float)(su + sv - DISTANCE_FACTOR * VectorInnerProduct((int)dim, (float*)u, (float*)v));
+    return DiskAnnComputeL2Fast(u, su, v, sv, dim);
 }
 
 void GetEdgeTuple(DiskAnnEdgePage tup, BlockNumber blkno, Relation index, uint32 nodeSize, uint32 edgeSize)

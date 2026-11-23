@@ -410,6 +410,7 @@ public:
     List* m_syncControllers;
 
     MemoryContext m_streamRuntimeContext;
+    void* m_lakeScanBindings; /* Immutable per-query native lake registry. */
 
     /* Save the first error data of producer thread */
     ErrorData* m_producerEdata;

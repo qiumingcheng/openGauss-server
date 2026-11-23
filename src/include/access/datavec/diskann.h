@@ -323,7 +323,7 @@ struct DiskAnnGraphStore : public BaseObject {
 
     void GetVector(BlockNumber blkno, float* vec, double* sqrSum, ItemPointerData* hctid) const;
     float GetDistance(BlockNumber blk1, BlockNumber blk2) const;
-    float ComputeDistance(BlockNumber blk1, float* vec, double sqrSum) const;
+    float ComputeDistance(BlockNumber blk1, const float* vec, double sqrSum) const;
     void GetNeighbors(BlockNumber blkno, VectorList<Neighbor>* nbrs);
     void AddNeighbor(DiskAnnEdgePage edge, BlockNumber id, float distance) const;
     void FlushEdge(DiskAnnEdgePage edge, BlockNumber id, bool building) const;
@@ -331,12 +331,27 @@ struct DiskAnnGraphStore : public BaseObject {
     bool AddDuplicateNeighbor(BlockNumber src, ItemPointerData tid, const Vector* vector, bool building);
     bool NeighborExists(const DiskAnnEdgePage edge, BlockNumber id) const;
     void Clear() const;
+    void EnableVectorCache(Size maxBytes = 32 * 1024 * 1024);
 
     Relation m_rel;
     uint32 m_nodeSize;
     uint32 m_edgeSize;
     uint32 m_itemSize;
     double m_dimension;
+
+private:
+    struct CachedVectorEntry {
+        ItemPointerData hctid;
+        double sqrSum;
+        float vec[FLEXIBLE_ARRAY_MEMBER];
+    };
+    const CachedVectorEntry* GetOrLoadCachedVector(BlockNumber blkno) const;
+    mutable MemoryContext m_vecCacheCxt;
+    mutable CachedVectorEntry** m_vecCache;
+    mutable BlockNumber m_vecCacheSlots;
+    mutable Size m_vecCacheBytes;
+    mutable Size m_vecCacheLimit;
+    mutable bool m_vecCacheEnabled;
 };
 
 class DiskAnnGraph : public BaseObject {

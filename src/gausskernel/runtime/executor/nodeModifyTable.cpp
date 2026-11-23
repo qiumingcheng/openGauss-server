@@ -85,6 +85,7 @@
 #include "utils/snapmgr.h"
 #include "vecexecutor/vecmergeinto.h"
 #include "access/heapam.h"
+#include "access/og_lake.h"
 #include "access/ustore/knl_uheap.h"
 #include "access/ustore/knl_whitebox_test.h"
 #ifdef ENABLE_HTAP
@@ -1270,6 +1271,12 @@ TupleTableSlot* ExecInsertT(ModifyTableState* state, TupleTableSlot* slot, Tuple
             CheckIndexDisableValid(result_rel_info, estate);
         }
 
+        if (LakeHasNativePartitionMarker(result_relation_desc)) {
+            if(useHeapMultiInsert)
+                ereport(ERROR,(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),errmsg("native lake parent heap bulk path is not enabled")));
+            LakeNativePartitionExecInsert(estate,result_rel_info,slot);
+            new_id=InvalidOid;
+        } else
 #ifdef PGXC
         if (IS_PGXC_COORDINATOR && result_remote_rel) {
             slot = ExecProcNodeDMLInXC(estate, planSlot, slot);
@@ -1740,6 +1747,9 @@ TupleTableSlot* ExecDelete(ItemPointer tupleid, Oid deletePartitionOid, int2 buc
     result_remote_rel = (RemoteQueryState*)estate->es_result_remoterel;
 #endif
 
+    if (!LakeRecheckModifyTarget(estate, result_rel_info, NULL, &planSlot, epqstate, node))
+        return NULL;
+
     /* BEFORE ROW DELETE Triggers */
     if (result_rel_info->ri_TrigDesc && result_rel_info->ri_TrigDesc->trig_delete_before_row) {
         bool dodelete = false;
@@ -1774,6 +1784,12 @@ TupleTableSlot* ExecDelete(ItemPointer tupleid, Oid deletePartitionOid, int2 buc
         bool dodelete = ExecIRDeleteTriggers(estate, result_rel_info, &tuple);
         if (!dodelete) /* "do nothing" */
             return NULL;
+    } else if(LakeHasNativePartitionMarker(result_relation_desc)) {
+        slot=estate->es_trig_tuple_slot;
+        if(slot->tts_tupleDescriptor!=RelationGetDescr(result_relation_desc))
+            ExecSetSlotDescriptor(slot,RelationGetDescr(result_relation_desc));
+        slot=LakeNativePartitionExecMutation(estate,result_rel_info,slot,planSlot,CMD_DELETE);
+        if(slot==NULL)return NULL;
     } else if (result_rel_info->ri_FdwRoutine) {
         /*
          * delete from foreign table: let the FDW do it
@@ -2053,8 +2069,9 @@ end:;
             errno_t errorNo = EOK;
             errorNo = memset_s(&tbuf, sizeof(tbuf), 0, sizeof(tbuf));
             securec_check(errorNo, "\0", "\0");
-            if (result_rel_info->ri_FdwRoutine) {
-                /* FDW must have provided a slot containing the deleted row */
+            if (result_rel_info->ri_FdwRoutine||LakeHasNativePartitionMarker(result_relation_desc)) {
+                /* FDW/native lake adapter provided the deleted business row;
+                 * it has no local tupleid to fetch for DELETE RETURNING. */
                 Assert(!TupIsNull(slot));
                 del_buffer = InvalidBuffer;
             } else {
@@ -2175,6 +2192,9 @@ TupleTableSlot* ExecUpdate(ItemPointer tupleid,
                 (errcode(ERRCODE_E_R_E_MODIFYING_SQL_DATA_NOT_PERMITTED), errmsg("cannot UPDATE during bootstrap"))));
     }
 
+    if (!LakeRecheckModifyTarget(estate, result_rel_info, &slot, &planSlot, epqstate, node))
+        return NULL;
+
 #ifdef ENABLE_MULTIPLE_NODES
     result_remote_rel = (RemoteQueryState*)estate->es_result_remoterel;
 
@@ -2258,6 +2278,14 @@ TupleTableSlot* ExecUpdate(ItemPointer tupleid,
         // tableam
         /* trigger might have changed tuple */
         tuple = tableam_tslot_get_tuple_from_slot(result_relation_desc, slot);
+    } else if(LakeHasNativePartitionMarker(result_relation_desc)) {
+        if(result_relation_desc->rd_att->constr&&result_relation_desc->rd_att->constr->has_generated_stored) {
+            ExecComputeStoredGenerated(result_rel_info,estate,slot,tuple,CMD_UPDATE);tuple=slot->tts_tuple;
+        }
+        if(result_relation_desc->rd_att->constr)ExecConstraints(result_rel_info,slot,estate);
+        slot=LakeNativePartitionExecMutation(estate,result_rel_info,slot,planSlot,CMD_UPDATE);
+        if(slot==NULL)return NULL;
+        tuple=tableam_tslot_get_tuple_from_slot(result_relation_desc,slot);
     } else if (result_rel_info->ri_FdwRoutine) {
         /*
          * Compute stored generated columns
@@ -3841,7 +3869,10 @@ static TupleTableSlot* ExecModifyTable(PlanState* state)
                 bool isNull = false;
 
                 relkind = result_rel_info->ri_RelationDesc->rd_rel->relkind;
-                if (relkind == RELKIND_RELATION || RELKIND_IS_SEQUENCE(relkind)) {
+                if(LakeHasNativePartitionMarker(result_rel_info->ri_RelationDesc)) {
+                    /* A canonical leaf locator replaces physical heap address
+                     * extraction. RecheckMutation validates it before use. */
+                } else if (relkind == RELKIND_RELATION || RELKIND_IS_SEQUENCE(relkind)) {
                     datum = ExecGetJunkAttribute(slot, junk_filter->jf_junkAttNo, &isNull);
                     /* when mutil result relations doing left join, maybe exists NULL ctid. */
                     if (isNull) {
@@ -4629,7 +4660,9 @@ ModifyTableState* ExecInitModifyTable(ModifyTable* node, EState* estate, int efl
                     if (operation == CMD_UPDATE || operation == CMD_DELETE) {
                         /* For UPDATE/DELETE, find the appropriate junk attr now */
                         char relkind = result_rel_info->ri_RelationDesc->rd_rel->relkind;
-                        if (relkind == RELKIND_RELATION ||
+                        if(LakeHasNativePartitionMarker(result_rel_info->ri_RelationDesc)) {
+                            /* Typed mutation Begin validates its own junk fields. */
+                        } else if (relkind == RELKIND_RELATION ||
                             relkind == RELKIND_MATVIEW ||
                             relkind == PARTTYPE_PARTITIONED_RELATION) {
                             j->jf_junkAttNo = ExecFindJunkAttribute(j, "ctid");
@@ -4719,6 +4752,13 @@ ModifyTableState* ExecInitModifyTable(ModifyTable* node, EState* estate, int efl
         mt_state->partExprKeyStrArray[relIndex] = partExprKeyStr;
     }
 
+    if(operation==CMD_UPDATE||operation==CMD_DELETE) {
+        for(int target=0;target<resultRelationNum;++target) {
+            ResultRelInfo* info=mt_state->resultRelInfo+target;
+            if(LakeHasNativePartitionMarker(info->ri_RelationDesc))
+                LakeNativePartitionBeginMutation(mt_state,info,0,eflags);
+        }
+    }
     return mt_state;
 }
 
@@ -4747,6 +4787,8 @@ void ExecEndModifyTable(ModifyTableState* node)
      */
     for (i = 0; i < node->mt_nplans; i++) {
         ResultRelInfo* result_rel_info = node->resultRelInfo + i;
+        if(LakeHasNativePartitionMarker(result_rel_info->ri_RelationDesc))
+            LakeNativePartitionEndModify(result_rel_info);
 
         if (result_rel_info->ri_FdwRoutine != NULL && result_rel_info->ri_FdwRoutine->EndForeignModify != NULL) {
 #ifdef ENABLE_MOT

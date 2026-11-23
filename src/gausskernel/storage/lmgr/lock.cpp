@@ -2337,8 +2337,11 @@ void Check_FastpathBit()
 /*
  * LockReleaseSession -- Release all session locks of the specified lock method
  *		that are held by the current process.
+ * sqlAdvisoryOnly limits SQL's unlock-all operation to its public key spaces.
+ * Internal users of USER_LOCKMETHOD have distinct advisory discriminators and
+ * must retain their protection until their owner or normal exit cleanup runs.
  */
-void LockReleaseSession(LOCKMETHODID lockmethodid)
+void LockReleaseSession(LOCKMETHODID lockmethodid, bool sqlAdvisoryOnly)
 {
     HASH_SEQ_STATUS status;
     LOCALLOCK *locallock = NULL;
@@ -2350,6 +2353,11 @@ void LockReleaseSession(LOCKMETHODID lockmethodid)
     while ((locallock = (LOCALLOCK *)hash_seq_search(&status)) != NULL) {
         /* Ignore items that are not of the specified lock method */
         if (LOCALLOCK_LOCKMETHOD(*locallock) != lockmethodid)
+            continue;
+
+        if (sqlAdvisoryOnly &&
+            (locallock->tag.lock.locktag_type != LOCKTAG_ADVISORY ||
+             (locallock->tag.lock.locktag_field4 != 1 && locallock->tag.lock.locktag_field4 != 2)))
             continue;
 
         ReleaseLockIfHeld(locallock, true);

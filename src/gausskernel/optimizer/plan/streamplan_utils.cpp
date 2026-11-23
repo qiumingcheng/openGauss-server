@@ -65,6 +65,12 @@ List* check_op_list_template(Plan* result_plan, List* (*check_eval)(Node*))
                 break;
             }
 
+            /* Native lake parents have no pg_foreign_table row; neither
+             * they nor ordinary lake scans carry DFS hdfsQual private data. */
+            if (getServerType(foreignScan->scan_relid) == T_LAKE_SERVER) {
+                break;
+            }
+
             ForeignTable* ftbl = NULL;
             ForeignServer* fsvr = NULL;
             ftbl = GetForeignTable(foreignScan->scan_relid);

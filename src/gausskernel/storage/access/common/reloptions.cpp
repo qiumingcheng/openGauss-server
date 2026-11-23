@@ -98,6 +98,7 @@ static void CheckSpqBTBuildOption(const char *val);
 #endif
 
 static relopt_bool boolRelOpts[] = {
+    {{"lake_partition_root", "Internal native lake partition access marker", RELOPT_KIND_HEAP}, false},
     {{"autovacuum_enabled", "Enables autovacuum in this relation", RELOPT_KIND_HEAP | RELOPT_KIND_TOAST}, true},
     {{"user_catalog_table",
       "Declare a table as an additional catalog table, e.g. for the purpose of logical replication", RELOPT_KIND_HEAP},
@@ -1293,6 +1294,11 @@ relopt_value *parseRelOptions(Datum options, bool validate, relopt_kind kind, in
 
                 if (text_len > kw_len && text_str[kw_len] == '=' &&
                     pg_strncasecmp(text_str, reloptions[j].gen->name, kw_len) == 0) {
+                    /* Only a future validated binder may write the persistent marker.
+                     * Cache reads use validate=false; user CREATE/SET is always closed. */
+                    if (validate && strcmp(reloptions[j].gen->name, "lake_partition_root") == 0)
+                        ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                            errmsg("lake_partition_root is an internal native lake binding marker")));
                     parse_one_reloption(&reloptions[j], text_str, text_len, validate);
                     break;
                 }
@@ -2171,6 +2177,7 @@ bytea *default_reloptions(Datum reloptions, bool validate, relopt_kind kind)
         { "start_ctid_internal", RELOPT_TYPE_STRING, offsetof(StdRdOptions, start_ctid_internal) },
         { "end_ctid_internal", RELOPT_TYPE_STRING, offsetof(StdRdOptions, end_ctid_internal) },
         { "user_catalog_table", RELOPT_TYPE_BOOL, offsetof(StdRdOptions, user_catalog_table) },
+        { "lake_partition_root", RELOPT_TYPE_BOOL, offsetof(StdRdOptions, lake_partition_root) },
         { "hashbucket", RELOPT_TYPE_BOOL, offsetof(StdRdOptions, hashbucket) },
         { "segment", RELOPT_TYPE_BOOL, offsetof(StdRdOptions, segment) },
         { "primarynode", RELOPT_TYPE_BOOL, offsetof(StdRdOptions, primarynode) },

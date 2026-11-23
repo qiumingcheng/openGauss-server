@@ -29,6 +29,7 @@
  * -------------------------------------------------------------------------
  */
 #include "postgres.h"
+#include "access/og_lake.h"
 #include "fmgr.h"
 #include "knl/knl_variable.h"
 
@@ -3717,6 +3718,7 @@ void heap_drop_with_catalog(Oid relid)
      * Open and lock the relation.
      */
     rel = relation_open(relid, AccessExclusiveLock);
+    LakeRejectNativePartitionDDL(rel,"DROP TABLE");
     if (RelationUsesSpaceType(rel->rd_rel->relpersistence) == SP_TEMP) {
         make_tmptable_cache_key(rel->rd_rel->relfilenode);
     }
@@ -3743,6 +3745,9 @@ void heap_drop_with_catalog(Oid relid)
     if (flag) {
         Relation foreignRel;
         HeapTuple tuple;
+
+        if (rel->rd_rel->relkind == RELKIND_FOREIGN_TABLE)
+            LakeNativeForgetForeignTable(relid);
 
         foreignRel = heap_open(ForeignTableRelationId, RowExclusiveLock);
 

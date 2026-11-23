@@ -71,6 +71,15 @@ extern const char * ResourceOwnerGetName(ResourceOwner owner);
 extern MemoryContext ResourceOwnerGetMemCxt(ResourceOwner owner);
 extern void ResourceOwnerNewParent(ResourceOwner owner, ResourceOwner newparent);
 
+/* Optional native lake CPU handles. Reserve before creating a foreign handle.
+ * release/reparent callbacks must not allocate, throw, or raise database ERROR.
+ * Subcommit transfers pins; abort/top-level end releases BEFORE_LOCKS. */
+typedef void (*ResourceOwnerLakePqRelease)(void*);
+typedef void (*ResourceOwnerLakePqReparent)(void*,ResourceOwner);
+extern void ResourceOwnerEnlargeLakePq(ResourceOwner);
+extern void ResourceOwnerRememberLakePq(ResourceOwner,void*,ResourceOwnerLakePqRelease,ResourceOwnerLakePqReparent);
+extern bool ResourceOwnerForgetLakePq(ResourceOwner,void*);
+
 /* support for buffer refcount management */
 extern void ResourceOwnerEnlargeBuffers(ResourceOwner owner);
 extern void ResourceOwnerRememberBuffer(ResourceOwner owner, Buffer buffer);

@@ -21,6 +21,7 @@
 #include <libgen.h>
 #include "access/tableam.h"
 #include "access/heapam.h"
+#include "access/og_lake.h"
 #include "access/hash.h"
 #include "access/hbucket_am.h"
 #include "access/relscan.h"
@@ -99,6 +100,7 @@
 #include "utils/rel_gs.h"
 #include "utils/sec_rls_utils.h"
 #include "utils/snapmgr.h"
+#include "utils/resowner.h"
 #include "access/heapam.h"
 #include "parser/parsetree.h"
 #include "utils/partitionmap_gs.h"
@@ -1075,6 +1077,7 @@ Oid DoCopy(CopyStmt* stmt, const char* queryString, uint64 *processed)
 
     /* Disallow copy to/from files except to users with appropriate permission. */
     if (!pipe) {
+        LakeCopyNormalizePath(stmt);
         enforceNoSymlink = CheckCopyFilePermission(stmt->filename);
     }
 
@@ -1088,6 +1091,12 @@ Oid DoCopy(CopyStmt* stmt, const char* queryString, uint64 *processed)
 
         /* Open and lock the relation, using the appropriate lock type. */
         rel = heap_openrv(stmt->relation, (is_from ? RowExclusiveLock : AccessShareLock));
+        /* Relation-form COPY would scan empty local scaffolding on output.
+         * COPY (SELECT ...) instead goes through the qualified parent reader. */
+        if(is_from&&LakeHasNativePartitionMarker(rel))
+            LakeNativePartitionRequireCopyFrom(rel);
+        else
+            LakeRejectNativePartitionDDL(rel,is_from ? "COPY FROM" : "relation-form COPY TO");
 
         TrForbidAccessRbObject(RelationRelationId, RelationGetRelid(rel), stmt->relation->relname);
 
@@ -1450,6 +1459,30 @@ static void CheckCopyIncompatibleOptions(CopyState cstate, int force_fix_width)
             (errcode(ERRCODE_SYNTAX_ERROR), errmsg("cannot specify bulkload compatibility options in BINARY mode")));
     }
 
+    if (cstate->lake_parquet || cstate->lake_json) {
+        if (cstate->delim || cstate->null_print || cstate->quote || cstate->escape ||
+            cstate->header_line || cstate->force_quote || cstate->force_notnull ||
+            cstate->force_quote_all || cstate->file_encoding >= 0 || cstate->oids ||
+            cstate->freeze || cstate->eol_type != EOL_UNKNOWN || cstate->without_escaping ||
+            cstate->ignore_extra_data || cstate->fill_missing_fields != 0 ||
+            cstate->compatible_illegal_chars || cstate->log_errors || cstate->logErrorsData ||
+            cstate->date_format.str || cstate->time_format.str || cstate->timestamp_format.str ||
+            cstate->smalldatetime_format.str || cstate->trans_expr_list != NIL || cstate->when != NIL ||
+            cstate->skip != 0)
+            ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                errmsg("CSV/text/bulkload COPY options cannot be combined with FORMAT %s",
+                    cstate->lake_parquet ? "parquet" : "json")));
+        if (cstate->lake_json && cstate->lake_parquet_compression >= 0)
+            ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR),
+                errmsg("COMPRESSION option requires FORMAT parquet")));
+        if (cstate->is_from && cstate->lake_parquet_compression >= 0)
+            ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR),
+                errmsg("COMPRESSION option is only supported for Parquet COPY TO")));
+    } else if (cstate->lake_parquet_compression >= 0) {
+        ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR),
+            errmsg("COMPRESSION option requires FORMAT parquet")));
+    }
+
     return;
 }
 
@@ -1666,6 +1699,7 @@ void ProcessCopyOptions(CopyState cstate, bool is_from, List* options)
     /* OBS copy options */
     bool obs_chunksize = false;
     bool obs_encrypt = false;
+    bool compression_specified = false;
 
     /* Support external use for option sanity checking */
     if (cstate == NULL)
@@ -1673,6 +1707,10 @@ void ProcessCopyOptions(CopyState cstate, bool is_from, List* options)
 
     cstate->file_encoding = -1;
     cstate->fileformat = FORMAT_TEXT;
+    cstate->lake_parquet = false;
+    cstate->lake_parquet_compression = -1;
+    cstate->lake_json = false;
+    cstate->lake_json_state = NULL;
     cstate->is_from = is_from;
 
     /* Extract options from the statement node tree */
@@ -1693,7 +1731,20 @@ void ProcessCopyOptions(CopyState cstate, bool is_from, List* options)
                 cstate->fileformat = FORMAT_BINARY;
             else if (strcasecmp(fmt, "fixed") == 0)
                 cstate->fileformat = FORMAT_FIXED;
-            else
+            else if (strcasecmp(fmt, "parquet") == 0) {
+                if (!LakeCopyAllowLakeFileFrom())
+                    ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                        errmsg("COPY FORMAT parquet requires extension 0.62")));
+                cstate->lake_parquet = true;
+                cstate->fileformat = FORMAT_TEXT;
+            } else if (strcasecmp(fmt, "json") == 0 || strcasecmp(fmt, "jsonl") == 0 ||
+                       strcasecmp(fmt, "ndjson") == 0) {
+                if (!LakeCopyAllowJsonFormat())
+                    ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                        errmsg("COPY FORMAT json requires extension 0.71")));
+                cstate->lake_json = true;
+                cstate->fileformat = FORMAT_TEXT;
+            } else
                 ereport(ERROR,
                     (errcode(ERRCODE_INVALID_PARAMETER_VALUE), errmsg("COPY format \"%s\" not recognized", fmt)));
         } else if (strcmp(defel->defname, "oids") == 0) {
@@ -1948,6 +1999,11 @@ void ProcessCopyOptions(CopyState cstate, bool is_from, List* options)
         } else if (pg_strcasecmp(defel->defname, optAccessKey) == 0) {
         } else if (pg_strcasecmp(defel->defname, optSecretAccessKey) == 0) {
         } else if (pg_strcasecmp(defel->defname, optLocation) == 0) {
+        } else if (strcmp(defel->defname, "compression") == 0) {
+            if (compression_specified)
+                ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR), errmsg("conflicting or redundant options")));
+            compression_specified = true;
+            cstate->lake_parquet_compression = LakeCopyParseCompressionOption(defGetString(defel));
         } else if (pg_strcasecmp(defel->defname, OPTION_NAME_REGION) == 0) {
 
         } else
@@ -2858,8 +2914,17 @@ static void EndCopy(CopyState cstate)
         return;
     }
 
-    if (cstate->filename != NULL && FreeFile(cstate->copy_file))
-        ereport(ERROR, (errcode_for_file_access(), errmsg("could not close file \"%s\": %m", cstate->filename)));
+    if (cstate->lake_parquet) {
+        LakeCopyEndParquetState(cstate->lake_parquet_state);
+        cstate->lake_parquet_state = NULL;
+    }
+    if (cstate->lake_json) {
+        LakeCopyEndJsonState(cstate->lake_json_state, cstate->is_from);
+        cstate->lake_json_state = NULL;
+    }
+
+    if (cstate->filename != NULL && cstate->copy_file != NULL && FreeFile(cstate->copy_file))
+        ereport(ERROR, (errcode_for_file_access(), errmsg("could not close file \"%s\" : %m", cstate->filename)));
 
     if (cstate->is_from && (cstate->log_errors || cstate->logErrorsData)) {
         relation_close(cstate->err_table, RowExclusiveLock);
@@ -2954,10 +3019,12 @@ static void CopyToCheck(Relation rel)
                 errmsg("cannot copy from materialized view \"%s\"", RelationGetRelationName(rel)),
                 errhint("Try the COPY (SELECT ...) TO variant.")));
     else if (rel->rd_rel->relkind == RELKIND_FOREIGN_TABLE) {
+        if (!LakeCopyAllowForeignTo(rel)) {
             ereport(ERROR,
                 (errcode(ERRCODE_WRONG_OBJECT_TYPE),
                     errmsg("cannot copy from foreign table \"%s\"", RelationGetRelationName(rel)),
                     errhint("Try the COPY (SELECT ...) TO variant.")));
+        }
     } else if (rel->rd_rel->relkind == RELKIND_STREAM) {
         ereport(ERROR,
             (errcode(ERRCODE_WRONG_OBJECT_TYPE),
@@ -2996,10 +3063,25 @@ CopyState BeginCopyTo(Relation rel, Node* query, const char* queryString,
         CopyToCheck(rel);
     }
 
+    if (rel != NULL && (LakeCopyAllowForeignTo(rel) || LakeCopyOptionsHaveParquet(options) ||
+                        LakeCopyOptionsHaveJson(options))) {
+        List* relAttnums = CopyGetAttnums(RelationGetDescr(rel), rel, attnamelist);
+        query = LakeCopyBuildRelationSelectQuery(rel, relAttnums);
+        list_free(relAttnums);
+        rel = NULL;
+        attnamelist = NIL;
+    }
+
     cstate = BeginCopy(false, rel, query, queryString, attnamelist, options, true, filetype);
     oldcontext = MemoryContextSwitchTo(cstate->copycontext);
 
     if (pipe) {
+        if (cstate->lake_parquet)
+            ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                errmsg("Parquet COPY TO requires a local output file path, not STDOUT")));
+        if (cstate->lake_json)
+            ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                errmsg("JSON COPY TO requires a local output file path, not STDOUT")));
         progressVals[1] = PROGRESS_COPY_TYPE_PIPE;
         if (t_thrd.postgres_cxt.whereToSendOutput != DestRemote)
             cstate->copy_file = stdout;
@@ -3025,36 +3107,45 @@ CopyState BeginCopyTo(Relation rel, Node* query, const char* queryString,
             dirIsExist = true;
 
         CopyToFileSecurityChecks(filename);
-        oumask = umask(S_IWGRP | S_IWOTH);
-        PG_TRY();
-        {
-            cstate->copy_file = enforceNoSymlink
-                ? AllocateFileNoSymlink(cstate->filename, true)
-                : AllocateFile(cstate->filename, PG_BINARY_W);
-        }
-        PG_CATCH();
-        {
-            (void)umask(oumask);
-            PG_RE_THROW();
-        }
-        PG_END_TRY();
-        (void)umask(oumask);
-
-        if (cstate->copy_file == NULL) {
-            if (enforceNoSymlink && errno == ELOOP) {
-                ereport(ERROR, (errcode(ERRCODE_INVALID_NAME), errmsg("COPY path cannot contain symbolic links")));
+        if (cstate->lake_parquet) {
+            cstate->lake_parquet_state = LakeCopyBeginParquetOut(
+                cstate->filename, cstate->lake_parquet_compression, cstate->copycontext);
+            cstate->copy_file = NULL;
+        } else if (cstate->lake_json) {
+            cstate->lake_json_state = LakeCopyBeginJsonOut(cstate->filename, cstate->copycontext);
+            cstate->copy_file = NULL;
+        } else {
+            oumask = umask(S_IWGRP | S_IWOTH);
+            PG_TRY();
+            {
+                cstate->copy_file = enforceNoSymlink
+                    ? AllocateFileNoSymlink(cstate->filename, true)
+                    : AllocateFile(cstate->filename, PG_BINARY_W);
             }
-            ereport(ERROR,
-                (errcode_for_file_access(), errmsg("could not open file \"%s\" for writing: %m", cstate->filename)));
-        }
+            PG_CATCH();
+            {
+                (void)umask(oumask);
+                PG_RE_THROW();
+            }
+            PG_END_TRY();
+            (void)umask(oumask);
 
-        fstat(fileno(cstate->copy_file), &st);
-        if (S_ISDIR(st.st_mode))
-            ereport(ERROR, (errcode(ERRCODE_WRONG_OBJECT_TYPE), errmsg("\"%s\" is a directory", cstate->filename)));
-        if (!dirIsExist) {
-            if (fchmod(fileno(cstate->copy_file), S_IRUSR | S_IWUSR) < 0)
-                ereport(
-                    ERROR, (errcode_for_file_access(), errmsg("could not chmod file \"%s\" : %m", cstate->filename)));
+            if (cstate->copy_file == NULL) {
+                if (enforceNoSymlink && errno == ELOOP) {
+                    ereport(ERROR, (errcode(ERRCODE_INVALID_NAME), errmsg("COPY path cannot contain symbolic links")));
+                }
+                ereport(ERROR,
+                    (errcode_for_file_access(), errmsg("could not open file \"%s\" for writing: %m", cstate->filename)));
+            }
+
+            fstat(fileno(cstate->copy_file), &st);
+            if (S_ISDIR(st.st_mode))
+                ereport(ERROR, (errcode(ERRCODE_WRONG_OBJECT_TYPE), errmsg("\"%s\" is a directory", cstate->filename)));
+            if (!dirIsExist) {
+                if (fchmod(fileno(cstate->copy_file), S_IRUSR | S_IWUSR) < 0)
+                    ereport(
+                        ERROR, (errcode_for_file_access(), errmsg("could not chmod file \"%s\" : %m", cstate->filename)));
+            }
         }
     }
 
@@ -3245,6 +3336,11 @@ static uint64 CopyTo(CopyState cstate, bool isFirst, bool isLast)
     attr = tupDesc->attrs;
     num_phys_attrs = tupDesc->natts;
     cstate->null_print_client = cstate->null_print; /* default */
+
+    if (cstate->lake_parquet || cstate->lake_json) {
+        ExecutorRun(cstate->queryDesc, ForwardScanDirection, 0L);
+        return ((DR_copy*)cstate->queryDesc->dest)->processed;
+    }
 
     /* We use fe_msgbuf as a per-row buffer regardless of copy_dest */
     if (cstate->fe_msgbuf == NULL) {
@@ -4277,6 +4373,7 @@ void HeapAddToBulk(CopyFromBulk bulk, Tuple tup, bool needCopy)
  */
 uint64 CopyFrom(CopyState cstate)
 {
+    const bool isNativeParent=LakeHasNativePartitionMarker(cstate->rel);
     Tuple tuple;
     TupleDesc tupDesc;
     Datum* values = NULL;
@@ -4289,6 +4386,17 @@ uint64 CopyFrom(CopyState cstate)
 
     ErrorContextCallback errcontext;
     CommandId mycid = GetCurrentCommandId(true);
+    /* Register on the COPY caller's current owner (including a savepoint),
+     * before any lake SPI can advance CID or the mutable secondary snapshot.
+     * Normal End unregisters this one reference; host ERROR/subabort releases
+     * it through the same ResourceOwner. Leaf views own separate references. */
+    ResourceOwner nativeCopyOwner=t_thrd.utils_cxt.CurrentResourceOwner;
+    Snapshot nativeCopySnapshot=NULL;
+    if(isNativeParent) {
+        Snapshot original=ActiveSnapshotSet()?GetActiveSnapshot():GetTransactionSnapshot();
+        nativeCopySnapshot=RegisterSnapshotOnOwner(original,nativeCopyOwner);
+        LakeNativePartitionRequireCopyFrom(cstate->rel);
+    }
     int hi_options = 0; /* start with default heap_insert options */
     BulkInsertState bistate;
     uint64 processed = 0;
@@ -4307,6 +4415,7 @@ uint64 CopyFrom(CopyState cstate)
     MemInfoArg* CopyMem = NULL;
     bool needflush = false;
     bool isForeignTbl = false; /* Whether this foreign table support COPY */
+    bool isNativeLake = false; /* Parsed slots use the existing FDW row path. */
     bool rel_isblockchain = false;
     int hash_colno = -1;
     Assert(cstate->rel);
@@ -4327,7 +4436,8 @@ uint64 CopyFrom(CopyState cstate)
                     errmsg("cannot copy to materialized view \"%s\"",
                     RelationGetRelationName(cstate->rel))));
         else if (cstate->rel->rd_rel->relkind == RELKIND_FOREIGN_TABLE) {
-            if (!CheckSupportedFDWType(RelationGetRelid(cstate->rel)))
+            isNativeLake = LakeIsNativeForeignRelation(cstate->rel);
+            if (!isNativeLake && !CheckSupportedFDWType(RelationGetRelid(cstate->rel)))
                 ereport(ERROR,
                     (errcode(ERRCODE_WRONG_OBJECT_TYPE),
                         errmsg("cannot copy to foreign table \"%s\"", RelationGetRelationName(cstate->rel))));
@@ -4418,7 +4528,7 @@ uint64 CopyFrom(CopyState cstate)
     isPartitionRel = RELATION_IS_PARTITIONED(resultRelationDesc);
     hasBucket = RELATION_OWN_BUCKET(resultRelationDesc);
     hasPartition = isPartitionRel || hasBucket;
-    needflush = ((hi_options & TABLE_INSERT_SKIP_WAL) || enable_heap_bcm_data_replication())
+    needflush = !isNativeParent && ((hi_options & TABLE_INSERT_SKIP_WAL) || enable_heap_bcm_data_replication())
                 && !RelationIsForeignTable(cstate->rel) && !RelationIsStream(cstate->rel)
                 && !RelationIsSegmentTable(cstate->rel);
 
@@ -4426,10 +4536,19 @@ uint64 CopyFrom(CopyState cstate)
     estate->es_num_result_relations = 1;
     estate->es_result_relation_info = resultRelInfo;
     estate->es_range_table = cstate->range_table;
+    if (isNativeLake) {
+        estate->es_output_cid = mycid;
+        LakeBeginCopyFrom(estate, resultRelInfo, mycid);
+    }
 
     /* Set up a tuple slot too */
     myslot = ExecInitExtraTupleSlot(estate, cstate->rel->rd_tam_ops);
     ExecSetSlotDescriptor(myslot, tupDesc);
+    if(isNativeParent) {
+        estate->es_output_cid=mycid;
+        estate->es_snapshot=nativeCopySnapshot;
+        LakeNativePartitionBeginCopyFrom(estate,resultRelInfo,myslot,mycid);
+    }
     /* Triggers might need a slot as well */
     estate->es_trig_tuple_slot = ExecInitExtraTupleSlot(estate);
 
@@ -4444,7 +4563,7 @@ uint64 CopyFrom(CopyState cstate)
      */
     if ((resultRelInfo->ri_TrigDesc != NULL &&
         (resultRelInfo->ri_TrigDesc->trig_insert_before_row || resultRelInfo->ri_TrigDesc->trig_insert_instead_row)) ||
-        cstate->volatile_defexprs || isForeignTbl) {
+        cstate->volatile_defexprs || isForeignTbl || isNativeParent) {
         useHeapMultiInsert = false;
     } else {
         useHeapMultiInsert = true;
@@ -4514,7 +4633,7 @@ uint64 CopyFrom(CopyState cstate)
      * Push the relfilenode to the hash tab, when the transaction abort, we should heap_sync
      * the relation
      */
-    if (enable_heap_bcm_data_replication() && !RelationIsSegmentTable(cstate->rel)) {
+    if (!isNativeParent && enable_heap_bcm_data_replication() && !RelationIsSegmentTable(cstate->rel)) {
         if (!RelationIsForeignTable(cstate->rel) && !RelationIsStream(cstate->rel))
             HeapSyncHashSearch(cstate->rel->rd_id, HASH_ENTER);
         LockRelFileNode(cstate->rel->rd_node, RowExclusiveLock);
@@ -5013,7 +5132,13 @@ uint64 CopyFrom(CopyState cstate)
                     bucketid = computeTupleBucketId(resultRelationDesc, (HeapTuple)tuple);
                 }
 
-                if (useHeapMultiInsert) {
+                if (isNativeParent) {
+                    /* Parser/column mapping and native constraints already ran.
+                     * The same typed INSERT state performs routing+tuple copy;
+                     * never enter local heap/bulk/index insertion below. */
+                    LakeNativePartitionExecInsert(estate,resultRelInfo,slot);
+                    resetPerTupCxt=true;
+                } else if (useHeapMultiInsert) {
                     bool toFlush = false;
                     CopyFromBulk bulk = NULL;
                     Oid targetOid = InvalidOid;
@@ -5297,6 +5422,12 @@ uint64 CopyFrom(CopyState cstate)
         resultRelInfo->ri_FdwRoutine->EndForeignModify(estate, resultRelInfo);
     }
 
+    if(isNativeParent) {
+        LakeNativePartitionEndModify(resultRelInfo);
+        UnregisterSnapshotFromOwner(nativeCopySnapshot,nativeCopyOwner);
+        nativeCopySnapshot=NULL;
+        estate->es_snapshot=NULL;
+    }
     pfree_ext(values);
     pfree_ext(nulls);
 
@@ -5325,7 +5456,7 @@ uint64 CopyFrom(CopyState cstate)
         }
     }
 
-    if (enable_heap_bcm_data_replication() && !RelationIsForeignTable(cstate->rel)
+    if (!isNativeParent && enable_heap_bcm_data_replication() && !RelationIsForeignTable(cstate->rel)
         && !RelationIsStream(cstate->rel) && !RelationIsSegmentTable(cstate->rel))
         HeapSyncHashSearch(cstate->rel->rd_id, HASH_REMOVE);
 
@@ -6068,6 +6199,51 @@ static void CopyInitCstateVar(CopyState cstate)
  *
  * Returns a CopyState, to be passed to NextCopyFrom and related functions.
  */
+/* Before BeginCopy opens files, initializes error-log state or sends COPY IN,
+ * reject unsupported combinations for this exact native FDW only. Accepted
+ * values, CSV quoting, encoding, column mapping and defaults use host code. */
+static void LakeCheckCopyFromOptions(Relation rel,const char* filename,List* options,CopyGetDataFunc func)
+{
+    const bool nativeParent=LakeHasNativePartitionMarker(rel);
+    if(!nativeParent&&!LakeIsNativeForeignRelation(rel))return;
+    if(nativeParent)LakeNativePartitionRequireCopyFrom(rel);
+    const bool allowFileCopy=!nativeParent&&LakeCopyAllowLakeFileFrom();
+    if(g_instance.role!=VSINGLENODE||StreamThreadAmI()||func!=NULL||(filename!=NULL&&!allowFileCopy))
+        ereport(ERROR,(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+            errmsg("native lake COPY currently requires single-node COPY FROM STDIN")));
+    bool isParquet=false;
+    bool isJson=false;
+    ListCell* cell=NULL;
+    foreach(cell,options) {
+        DefElem* option=(DefElem*)lfirst(cell);
+        const char* name=option->defname;
+        if(strcmp(name,"format")==0) {
+            const char* value=defGetString(option);
+            if(pg_strcasecmp(value,"parquet")==0) {
+                if(!allowFileCopy)
+                    ereport(ERROR,(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                        errmsg("COPY FORMAT parquet requires extension 0.62")));
+                isParquet=true;
+            } else if(pg_strcasecmp(value,"json")==0||pg_strcasecmp(value,"jsonl")==0||
+                      pg_strcasecmp(value,"ndjson")==0) {
+                if(!allowFileCopy||!LakeCopyAllowJsonFormat())
+                    ereport(ERROR,(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                        errmsg("COPY FORMAT json requires extension 0.71")));
+                isJson=true;
+            } else if(pg_strcasecmp(value,"text")!=0&&pg_strcasecmp(value,"csv")!=0)
+                ereport(ERROR,(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                    errmsg("native lake COPY currently supports text, CSV, parquet, and json input")));
+        } else if(strcmp(name,"delimiter")!=0&&strcmp(name,"null")!=0&&strcmp(name,"header")!=0&&
+                  strcmp(name,"quote")!=0&&strcmp(name,"escape")!=0&&strcmp(name,"force_not_null")!=0&&
+                  strcmp(name,"encoding")!=0)
+            ereport(ERROR,(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                errmsg("COPY option \"%s\" is not supported for native lake tables",name)));
+    }
+    if((isParquet||isJson)&&filename==NULL)
+        ereport(ERROR,(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+            errmsg("%s COPY FROM requires a local file path, not STDIN", isParquet ? "Parquet" : "JSON")));
+}
+
 CopyState BeginCopyFrom(Relation rel, const char* filename, List* attnamelist,
                         List* options, AdaptMem* memInfo, const char* queryString,
                         CopyGetDataFunc func, bool enforceNoSymlink)
@@ -6100,6 +6276,7 @@ CopyState BeginCopyFrom(Relation rel, const char* filename, List* attnamelist,
         0
     };
 
+    LakeCheckCopyFromOptions(rel, filename, options, func);
     cstate = BeginCopy(true, rel, NULL, queryString, attnamelist, options);
     oldcontext = MemoryContextSwitchTo(cstate->copycontext);
 
@@ -6241,6 +6418,13 @@ CopyState BeginCopyFrom(Relation rel, const char* filename, List* attnamelist,
     cstate->attr_encodings = attr_encodings;
     cstate->in_convert_funcs = in_convert_funcs;
 
+    if ((func || pipe) && (cstate->lake_parquet || cstate->lake_json)) {
+        ereport(ERROR,
+            (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                errmsg("%s COPY FROM requires a local file path, not STDIN or callback",
+                    cstate->lake_parquet ? "Parquet" : "JSON")));
+    }
+
     if (func) {
         progressVals[1] = PROGRESS_COPY_TYPE_CALLBACK;
         cstate->copyGetDataFunc = func;
@@ -6259,22 +6443,36 @@ CopyState BeginCopyFrom(Relation rel, const char* filename, List* attnamelist,
                 (errcode(ERRCODE_INVALID_NAME), errmsg("do not support system admin to COPY from %s", filename)));
         }
 
-        cstate->copy_file = enforceNoSymlink
-            ? AllocateFileNoSymlink(cstate->filename, false)
-            : AllocateFile(cstate->filename, PG_BINARY_R);
+        if (cstate->lake_parquet) {
+            cstate->lake_parquet_state =
+                LakeCopyBeginParquetIn(cstate->rel, cstate->filename, cstate->attnumlist, cstate->copycontext);
+            cstate->copy_file = NULL;
+        } else if (cstate->lake_json) {
+            cstate->lake_json_state =
+                LakeCopyBeginJsonIn(cstate->rel, cstate->filename, cstate->attnumlist, cstate->copycontext);
+            cstate->copy_file = NULL;
+        } else if (LakeIsNativeForeignRelation(cstate->rel)) {
+            cstate->copy_file = LakeCopyOpenAuthorizedCsvFile(cstate->filename, IS_CSV(cstate));
+        } else {
+            cstate->copy_file = enforceNoSymlink
+                ? AllocateFileNoSymlink(cstate->filename, false)
+                : AllocateFile(cstate->filename, PG_BINARY_R);
 
-        if (cstate->copy_file == NULL) {
-            if (enforceNoSymlink && errno == ELOOP) {
-                ereport(ERROR, (errcode(ERRCODE_INVALID_NAME), errmsg("COPY path cannot contain symbolic links")));
+            if (cstate->copy_file == NULL) {
+                if (enforceNoSymlink && errno == ELOOP) {
+                    ereport(ERROR, (errcode(ERRCODE_INVALID_NAME), errmsg("COPY path cannot contain symbolic links")));
+                }
+                ereport(ERROR,
+                    (errcode_for_file_access(), errmsg("could not open file \"%s\" for reading: %m", cstate->filename)));
             }
-            ereport(ERROR,
-                (errcode_for_file_access(), errmsg("could not open file \"%s\" for reading: %m", cstate->filename)));
         }
 
-        fstat(fileno(cstate->copy_file), &st);
-        if (S_ISDIR(st.st_mode))
-            ereport(ERROR, (errcode(ERRCODE_WRONG_OBJECT_TYPE), errmsg("\"%s\" is a directory", cstate->filename)));
-        progressVals[2] = st.st_size;
+        if (cstate->copy_file != NULL) {
+            fstat(fileno(cstate->copy_file), &st);
+            if (S_ISDIR(st.st_mode))
+                ereport(ERROR, (errcode(ERRCODE_WRONG_OBJECT_TYPE), errmsg("\"%s\" is a directory", cstate->filename)));
+            progressVals[2] = st.st_size;
+        }
     }
 
     if (!IS_BINARY(cstate)) {
@@ -6641,6 +6839,38 @@ Datum InputFunctionCallForBulkload(CopyState cstate, FmgrInfo* flinfo, char* str
 }
 
 /*
+ * Evaluate defaults, column transform expressions, and PGXC output defaults
+ * for columns omitted from COPY FROM input.
+ */
+static void CopyEvalDefaults(CopyState cstate, ExprContext* econtext, int num_phys_attrs, Datum* values, bool* nulls)
+{
+    AttrNumber num_defaults = cstate->num_defaults;
+    int* defmap = cstate->defmap;
+    ExprState** defexprs = cstate->defexprs;
+
+    for (int i = 0; i < num_defaults; i++) {
+        /*
+         * The caller must supply econtext and have switched into the
+         * per-tuple memory context in it.
+         */
+        Assert(econtext != NULL);
+        Assert(CurrentMemoryContext == econtext->ecxt_per_tuple_memory);
+
+        values[defmap[i]] = ExecEvalExpr(defexprs[i], econtext, &nulls[defmap[i]]);
+    }
+
+    if (cstate->transexprs != NULL)
+        ExecTransColExpr(cstate, econtext, num_phys_attrs, values, nulls);
+
+#ifdef PGXC
+    if (IS_PGXC_COORDINATOR) {
+        /* Append default values to the data-row in output format. */
+        append_defvals(values, cstate);
+    }
+#endif
+}
+
+/*
  * Read next tuple from file for COPY FROM. Return false if no more tuples.
  *
  * 'econtext' is used to evaluate default expression for each columns not
@@ -6665,8 +6895,6 @@ bool NextCopyFrom(CopyState cstate, ExprContext* econtext, Datum* values, bool* 
     int nfields;
     bool isnull = false;
     bool file_has_oids = cstate->file_has_oids;
-    int* defmap = cstate->defmap;
-    ExprState** defexprs = cstate->defexprs;
     errno_t rc = 0;
     bool pseudoTsDistcol = false;
     int tgt_col_num = -1;
@@ -6684,6 +6912,28 @@ bool NextCopyFrom(CopyState cstate, ExprContext* econtext, Datum* values, bool* 
     securec_check(rc, "", "");
     rc = memset_s(nulls, num_phys_attrs * sizeof(bool), true, num_phys_attrs * sizeof(bool));
     securec_check(rc, "", "");
+
+    if (cstate->lake_parquet) {
+        if (!LakeCopyNextParquetRow(cstate->lake_parquet_state, values, nulls)) {
+            return false;
+        }
+        if (tupleOid != NULL) {
+            *tupleOid = InvalidOid;
+        }
+        CopyEvalDefaults(cstate, econtext, num_phys_attrs, values, nulls);
+        return true;
+    }
+
+    if (cstate->lake_json) {
+        if (!LakeCopyNextJsonRow(cstate->lake_json_state, values, nulls)) {
+            return false;
+        }
+        if (tupleOid != NULL) {
+            *tupleOid = InvalidOid;
+        }
+        CopyEvalDefaults(cstate, econtext, num_phys_attrs, values, nulls);
+        return true;
+    }
 
     /* For both CN & DN,
      * check whether the operation is performed on the timeseries table with
@@ -6942,26 +7192,7 @@ bool NextCopyFrom(CopyState cstate, ExprContext* econtext, Datum* values, bool* 
      * provided by the input data. Anything not processed here or above will
      * remain NULL.
      */
-    for (i = 0; i < num_defaults; i++) {
-        /*
-         * The caller must supply econtext and have switched into the
-         * per-tuple memory context in it.
-         */
-        Assert(econtext != NULL);
-        Assert(CurrentMemoryContext == econtext->ecxt_per_tuple_memory);
-
-        values[defmap[i]] = ExecEvalExpr(defexprs[i], econtext, &nulls[defmap[i]]);
-    }
-
-    if (cstate->transexprs != NULL)
-        ExecTransColExpr(cstate, econtext, num_phys_attrs, values, nulls);
-
-#ifdef PGXC
-    if (IS_PGXC_COORDINATOR) {
-        /* Append default values to the data-row in output format. */
-        append_defvals(values, cstate);
-    }
-#endif
+    CopyEvalDefaults(cstate, econtext, num_phys_attrs, values, nulls);
 
     return true;
 }
@@ -8928,7 +9159,11 @@ void SetFixedAlignment(TupleDesc tupDesc, Relation rel, FixFormatter* formatter,
  */
 static void copy_dest_startup(DestReceiver* self, int operation, TupleDesc typeinfo)
 {
-    /* no-op */
+    DR_copy* myState = (DR_copy*)self;
+    if (myState != NULL && myState->cstate != NULL && myState->cstate->lake_parquet)
+        LakeCopyStartParquetOut(myState->cstate->lake_parquet_state, typeinfo);
+    else if (myState != NULL && myState->cstate != NULL && myState->cstate->lake_json)
+        LakeCopyStartJsonOut(myState->cstate->lake_json_state, typeinfo);
 }
 
 /*
@@ -8938,6 +9173,17 @@ static void copy_dest_receive(TupleTableSlot* slot, DestReceiver* self)
 {
     DR_copy* myState = (DR_copy*)self;
     CopyState cstate = myState->cstate;
+
+    if (cstate->lake_parquet) {
+        LakeCopyReceiveParquetSlot(cstate->lake_parquet_state, slot);
+        PgStatProgressUpdateParam(PROGRESS_COPY_TUPLES_PROCESSED, ++myState->processed);
+        return;
+    }
+    if (cstate->lake_json) {
+        LakeCopyReceiveJsonSlot(cstate->lake_json_state, slot);
+        PgStatProgressUpdateParam(PROGRESS_COPY_TUPLES_PROCESSED, ++myState->processed);
+        return;
+    }
 
     if (cstate->is_dumpfile && myState->processed == 1) {
         ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
@@ -8959,7 +9205,11 @@ static void copy_dest_receive(TupleTableSlot* slot, DestReceiver* self)
  */
 static void copy_dest_shutdown(DestReceiver* self)
 {
-    /* no-op */
+    DR_copy* myState = (DR_copy*)self;
+    if (myState != NULL && myState->cstate != NULL && myState->cstate->lake_parquet)
+        LakeCopyFinishParquetOut(myState->cstate->lake_parquet_state);
+    else if (myState != NULL && myState->cstate != NULL && myState->cstate->lake_json)
+        LakeCopyFinishJsonOut(myState->cstate->lake_json_state);
 }
 
 /*

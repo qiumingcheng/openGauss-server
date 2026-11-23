@@ -16,6 +16,7 @@
  * -------------------------------------------------------------------------
  */
 #include "postgres.h"
+#include "access/og_lake.h"
 #include "knl/knl_variable.h"
 
 #include "nodes/print.h"
@@ -5541,7 +5542,15 @@ ProcessUtilitySlow(Node *parse_tree,
  
             case T_AlterExtensionStmt:
 #ifdef PGXC
+#ifdef ENABLE_MULTIPLE_NODES
                 FEATURE_NOT_PUBLIC_ERROR("EXTENSION is not yet supported.");
+#else
+                /* Native lake ships versioned SQL upgrade scripts. Keep the
+                 * existing policy for other extensions and multi-node builds.
+                 */
+                if (strcmp(((AlterExtensionStmt*)parse_tree)->extname, "og_lake") != 0)
+                    FEATURE_NOT_PUBLIC_ERROR("EXTENSION is not yet supported.");
+#endif
 #endif /* PGXC */
                 address = ExecAlterExtensionStmt((AlterExtensionStmt*)parse_tree);
 #ifdef PGXC
@@ -11857,6 +11866,18 @@ bool IsAnalyzeTempRel(VacuumStmt* stmt)
         if (stmt->relation) {
             Oid rel_id = RangeVarGetRelid(stmt->relation, AccessShareLock, false);
             Relation rel = relation_open(rel_id, AccessShareLock);
+            /* The independent manual whole-parent capability has its final
+             * ACL/lock/source checks in vacuum/analyze. Do not reject it in
+             * this earlier temp-table classification step. All other native
+             * utility forms retain the existing closed DDL guard. */
+            bool native_parent_analyze = LakeHasNativePartitionMarker(rel) &&
+                !IsAutoVacuumWorkerProcess() && !vacuumPartition(stmt->flags) && !stmt->issubpartition &&
+                stmt->relation->partitionname == NULL &&
+                stmt->relation->subpartitionname == NULL && (stmt->options & VACOPT_ANALYZE) &&
+                !(stmt->options & ~(VACOPT_ANALYZE | VACOPT_VERBOSE | VACOPT_NOWAIT)) &&
+                LakeNativePartitionAnalyzeVersionEnabled();
+            if (!native_parent_analyze)
+                LakeRejectNativePartitionDDL(rel, "ANALYZE");
 
             if (RelationIsLocalTemp(rel)) {
                 is_local_tmp_table = true;
@@ -12734,6 +12755,7 @@ void DoVacuumMppTable(VacuumStmt* stmt, const char* query_string, bool is_top_le
     if (stmt->relation != NULL && (stmt->options & VACOPT_FULL)){
         Oid relId = RangeVarGetRelid(stmt->relation, NoLock, false);
         Relation targRel = heap_open(relId, AccessShareLock);
+        LakeRejectNativePartitionDDL(targRel, "VACUUM FULL");
         bool isSegmentTable = targRel->storage_type == SEGMENT_PAGE;
         heap_close(targRel, AccessShareLock);
         if (isSegmentTable) {

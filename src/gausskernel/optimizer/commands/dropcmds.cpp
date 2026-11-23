@@ -82,6 +82,7 @@ static void DropExtensionInListIsSupported(List* objname)
         "packages",
         "ndpplugin",
         "datavec",
+        "og_lake",
         "gv_index",
         "chparser",
         "timescaledb",

@@ -16,6 +16,7 @@
 #include "knl/knl_variable.h"
 
 #include "access/heapam.h"
+#include "access/og_lake.h"
 #include "access/tableam.h"
 #include "access/xact.h"
 #include "access/reloptions.h"
@@ -52,6 +53,17 @@
 #include "utils/syscache.h"
 #include "catalog/toasting.h"
 #include "bulkload/dist_fdw.h"
+
+/* Keep the prototype's wrapper and servers stable while bindings refer to them. */
+static void RejectNativeLakeWrapperAlter(const char* wrapperName)
+{
+    if (strcmp(wrapperName, "og_lake_fdw") == 0)
+        ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+            errmsg("ALTER of native lake wrappers and servers is not supported by the read-only inline prototype")));
+    if (strcmp(wrapperName, "og_lake_file_fdw") == 0 && !superuser())
+        ereport(ERROR, (errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+            errmsg("only system administrators may alter external lake file servers")));
+}
 
 /* Sensitive options for user mapping, will be encrypted when saved to catalog. */
 const char* g_sensitiveOptionsArray[] = {"password"};
@@ -224,6 +236,7 @@ static void AlterForeignDataWrapperOwner_internal(Relation rel, HeapTuple tup, O
     Form_pg_foreign_data_wrapper form;
 
     form = (Form_pg_foreign_data_wrapper)GETSTRUCT(tup);
+    RejectNativeLakeWrapperAlter(NameStr(form->fdwname));
 
     /* Must be a superuser to change a FDW owner */
     if (!superuser())
@@ -312,6 +325,7 @@ static void AlterForeignServerOwner_internal(Relation rel, HeapTuple tup, Oid ne
     Form_pg_foreign_server form;
 
     form = (Form_pg_foreign_server)GETSTRUCT(tup);
+    RejectNativeLakeWrapperAlter(GetForeignDataWrapper(form->srvfdw)->fdwname);
 
     if (form->srvowner != newOwnerId) {
         /* Superusers can always do it */
@@ -607,6 +621,10 @@ ObjectAddress AlterForeignDataWrapper(AlterFdwStmt* stmt)
             (errcode(ERRCODE_UNDEFINED_OBJECT), errmsg("foreign-data wrapper \"%s\" does not exist", stmt->fdwname)));
 
     fdwForm = (Form_pg_foreign_data_wrapper)GETSTRUCT(tp);
+    RejectNativeLakeWrapperAlter(NameStr(fdwForm->fdwname));
+    if (strcmp(NameStr(fdwForm->fdwname), "og_lake_file_fdw") == 0)
+        ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+            errmsg("ALTER of external lake file foreign-data wrapper is not supported")));
     fdwId = HeapTupleGetOid(tp);
 
     ret = memset_s(repl_val, sizeof(repl_val), 0, sizeof(repl_val));
@@ -924,6 +942,7 @@ ObjectAddress AlterForeignServer(AlterForeignServerStmt* stmt)
     }
 
     ForeignDataWrapper* fdw = GetForeignDataWrapper(srvForm->srvfdw);
+    RejectNativeLakeWrapperAlter(fdw->fdwname);
 
     /* password with prefix "encryptstr" is not allowed for gc_fdw with alter server statement. */
     if (pg_strcasecmp(fdw->fdwname, GC_FDW) == 0 && stmt->options) {
@@ -998,6 +1017,8 @@ void RemoveForeignServerById(Oid srvId)
 {
     HeapTuple tp;
     Relation rel;
+
+    LakeNativeForgetForeignServer(srvId);
 
     rel = heap_open(ForeignServerRelationId, RowExclusiveLock);
 
@@ -1872,4 +1893,11 @@ void CreateForeignTable(CreateForeignTableStmt* stmt, Oid relid)
         updateTotalRows(relid, num_rows);
     }
     list_free_deep(resultOptions);
+    if (strcmp(fdw->fdwname, "og_lake_fdw") == 0) {
+        CommandCounterIncrement();
+        LakeNativeBindForeignTable(relid, stmt);
+    } else if (strcmp(fdw->fdwname, "og_lake_file_fdw") == 0) {
+        CommandCounterIncrement();
+        LakeExternalBindForeignTable(relid, stmt);
+    }
 }

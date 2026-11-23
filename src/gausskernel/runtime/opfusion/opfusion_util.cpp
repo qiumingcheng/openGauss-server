@@ -24,6 +24,7 @@
  * ---------------------------------------------------------------------------------------
  */
 #include "opfusion/opfusion_util.h"
+#include "access/og_lake.h"
 
 #include "access/printtup.h"
 #include "access/transam.h"
@@ -888,7 +889,7 @@ FusionType getSelectAnnIndexType(Plan *top_plan, ParamListInfo params)
 bool checkDMLRelation(const Relation rel, const PlannedStmt *plannedstmt, bool isInsert, bool isPartTbl)
 {
     bool result = false;
-    if (rel->rd_rel->relkind != RELKIND_RELATION || rel->rd_rel->relhasrules ||
+    if (LakeHasNativePartitionMarker(rel) || rel->rd_rel->relkind != RELKIND_RELATION || rel->rd_rel->relhasrules ||
         rel->rd_rel->relhasoids || rel->rd_rel->relhassubclass || RelationIsColStore(rel) || RelationIsTsStore(rel) ||
         RelationInRedistribute(rel) || plannedstmt->hasReturning || RelationIsSubPartitioned(rel)) {
         result = true;
