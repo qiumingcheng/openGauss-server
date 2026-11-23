@@ -1,0 +1,443 @@
+{
+  "sql_milestone": "0.74",
+  "status": "passed_local_single_node_3profile_pq_in_tree_complete",
+  "worktree": "/home/qiumc/data/code/cpp/.worktrees/opengauss-native-lake",
+  "head_commit": "ed6a1250c32df245c6dd5b91f70dd14d5e817406",
+  "source_diff_sha256": "552932a28a7dfbc3d22224adaeeb1242ef9a89b262c1d27f5503d832e4557231",
+  "pq_migration": {
+    "owned_adapter_dir": "/home/qiumc/data/code/cpp/.worktrees/opengauss-native-lake/contrib/og_lake/pq",
+    "owned_adapter_files": 9,
+    "owned_adapter_lines": 938,
+    "vendor_dir": "/home/qiumc/data/code/cpp/.worktrees/opengauss-native-lake/contrib/og_lake/vendor/diskann_pq",
+    "vendor_algorithm_lines": 851,
+    "vendor_license_sha256": "c7d6393d0618d992594942d9bc91b520cb1a4d92ea2bbd26b31f1eae56f87ce0",
+    "vendor_notice_sha256": "6bd92b718a0245af7c167d15c3044b64203872435085ceb53c5cd4d16c9ce806",
+    "installed_release_licenses_ok": true,
+    "installed_debug_licenses_ok": true
+  },
+  "gaussdb_running": false,
+  "invariant_guards": {
+    "sdk54_sha256": "b07ee911aaf81aa816c2c280bd1568871353bbd6f8af5792ac5cdf9010240c51",
+    "sdk6_sha256": "4f2a2cd79d50f3f2c3b1350ac58b4868b20b727a5141ae49ec1033b4d3a20368",
+    "pq54_receipt": {
+      "path": "/home/qiumc/data/code/cpp/公共文档/openGauss原生湖存储/验证/native_decimal54_rfix_PQ_static_1115_01/build.json",
+      "sha256": "dad22cb6ba96ef3ab99b9091497b21f2e3efd933612f8cc1fb7cf8f35277060a"
+    },
+    "pq_sdk_selection": {
+      "path": "/home/qiumc/data/code/cpp/.codex_tmp/native_lake_decimal54_reader_repair_PQ_source_1115_01/selection.json",
+      "sha256": "12335ce631db6a645e4febce70e6b28b28f92715c06aac2eb128898e30391d7c"
+    },
+    "release_postgresql_conf_sha256": "9047aaa1c1379256ac625c3d6e761192c0dd8cb3999832a5ec210738f2003ee8",
+    "pq_native_build_inputs_py_sha256": "bf8a6480827df6ae8b5aa22171eb177759318a60b9c09e0a55a09ea6b54beab0",
+    "pq_sql020_build_inputs_py_sha256": "8922e0d18c53879102988318cab7ec82787dd64af5ce7668502a94fedeecf87a"
+  },
+  "standalone_pq_probes": {
+    "path": "/home/qiumc/data/code/cpp/公共文档/openGauss原生湖存储/验证/native_074_intree_pq_probe_1121_01/result.json",
+    "sha256": "9a51468051304c496f7ccc4865abadf0312df5673040b76143a465332d02ebe1",
+    "results": {
+      "status": "pass",
+      "source": "/home/qiumc/data/code/cpp/.worktrees/opengauss-native-lake",
+      "pq_dir": "/home/qiumc/data/code/cpp/.worktrees/opengauss-native-lake/contrib/og_lake/pq",
+      "vendor_dir": "/home/qiumc/data/code/cpp/.worktrees/opengauss-native-lake/contrib/og_lake/vendor/diskann_pq",
+      "sdk54_so": "/home/qiumc/data/code/cpp/.install/opengauss-native-lake-sdk-decimal128/native_decimal54_rfix_full_sdk_1115_01/lib/libog_lake_sdk_arrow.so",
+      "symbol_isolation": {
+        "total_defined_globals": 110,
+        "public_pq_symbols": 46,
+        "unisolated_globals": []
+      },
+      "probes": {
+        "pq_cpu_stream_shapes": {
+          "status": "pass",
+          "checks": 83,
+          "dimensions": [
+            3,
+            1536
+          ],
+          "chunks": [
+            1,
+            16
+          ]
+        },
+        "pq_parquet_d1536_produce": {
+          "status": "pass",
+          "checks": 29,
+          "metric": 1,
+          "manifest": "756ed3e194c4dc02b00916765ce487f6c8e756eb59b94ebcd827e4a2c86ae80e",
+          "model_hash": "db31b2fbb944d8d6becd33599aa3e3444290946f7db4e6f7215308d2547324d1",
+          "codebook_hash": "22312fb38a517ddd8ba9b253a3e0d5f445dafe3ad752d19f5d3beb0f3b75651d",
+          "codes_hash": "4efbebf496d8e214913a6222000d119e88a389d26946749230037e87fc53a1e9",
+          "cleanup_failures": 0
+        },
+        "pq_parquet_d1536_consume": {
+          "status": "pass",
+          "checks": 48,
+          "metric": 1,
+          "dimension": 1536,
+          "nodes": 17,
+          "maximum_reconstructed_error": 0.000163253850815
+        },
+        "pq_parquet_d1536_negative": {
+          "status": "pass",
+          "checks": 76,
+          "expected_identity_cases": 13,
+          "legal_schema_damage_cases": 7
+        },
+        "pq_parquet_metric1_writer_negative": {
+          "status": "pass",
+          "checks": 117,
+          "writer_error_cases": 9,
+          "cleanup_failures": 0
+        }
+      }
+    }
+  },
+  "builds": {
+    "release_full": {
+      "path": "/home/qiumc/data/code/cpp/公共文档/openGauss原生湖存储/验证/native_074_intree_build_release_1121_01/build.json",
+      "sha256": "aedab97122da596e9bb86c8ade8d494d0c46a26fd7cf11ebb9c003551a9e08c2",
+      "binary_sha256": "6b22d35b6d467a81b34bf5b29f63affa8bf879147275c50e02324772ec1d01eb",
+      "source_diff_sha256": "552932a28a7dfbc3d22224adaeeb1242ef9a89b262c1d27f5503d832e4557231",
+      "pq_dependency_kind": "pq_in_tree_v1",
+      "pq_in_tree_archive": {
+        "path": "/home/qiumc/data/code/cpp/.worktrees/opengauss-native-lake/contrib/og_lake/pq/libog_lake_pq_cpu.a",
+        "sha256": "4f220cc4ad094643c2bfd7d519defb9eab33c42543c38bc8b71050a7b4d56e7a",
+        "global_symbol_count": 94
+      },
+      "pq_symbol_visibility": {
+        "status": "hidden",
+        "archive_global_symbol_count": 566,
+        "dynamic_overlap_count": 0,
+        "required_defined_symbols": [
+          "oglpq_cblas_sgemm",
+          "pq_cpu_blas_immutable_config",
+          "pq_cpu_model_restore",
+          "pq_parquet_graph_context",
+          "pq_parquet_reader_open"
+        ],
+        "archive_symbols_sha256": "f52b1654a5ff26a62cc03aa2ce8f1434b6d3f831bc8f75e3c2e53b8f104f9641"
+      },
+      "status": "build_and_sql_passed"
+    },
+    "debug_full": {
+      "path": "/home/qiumc/data/code/cpp/公共文档/openGauss原生湖存储/验证/native_074_intree_build_debug_1121_01/build.json",
+      "sha256": "7fb7284c9e62c3c1fc7cd233d579ae99b6e47a58d8d3b78439a024f5ab065ac7",
+      "binary_sha256": "ce84057df66c24d8cfc6f2163761b1117b3427f9ccf6374ad798ac69862eb880",
+      "source_diff_sha256": "552932a28a7dfbc3d22224adaeeb1242ef9a89b262c1d27f5503d832e4557231",
+      "pq_dependency_kind": "pq_in_tree_v1",
+      "pq_compile_flags_verified": "-O0 -g (.debug_info present)",
+      "pq_in_tree_archive": {
+        "path": "/home/qiumc/data/code/cpp/.worktrees/opengauss-native-lake/contrib/og_lake/pq/libog_lake_pq_cpu.a",
+        "sha256": "bf2a5fc19645975aa51dbd56a92213f80016bf5e0c52e42846507d82e776f2ac",
+        "global_symbol_count": 1505
+      },
+      "pq_symbol_visibility": {
+        "status": "hidden",
+        "archive_global_symbol_count": 1977,
+        "dynamic_overlap_count": 0,
+        "required_defined_symbols": [
+          "oglpq_cblas_sgemm",
+          "pq_cpu_blas_immutable_config",
+          "pq_cpu_model_restore",
+          "pq_parquet_graph_context",
+          "pq_parquet_reader_open"
+        ],
+        "archive_symbols_sha256": "39d8a871bf307c591f6cd0d68bfce67ba05e73745dae5745c13afa9b27b3c21f"
+      },
+      "status": "build_and_sql_passed"
+    },
+    "ann_debug_restart": {
+      "path": "/home/qiumc/data/code/cpp/公共文档/openGauss原生湖存储/验证/native_074_intree_anndebug_1121_01/build.json",
+      "sha256": "58cc10b909b25632eede7f057c1dffcbbe4b03287b534c27056a480dc85cb0fe",
+      "binary_sha256": "ce84057df66c24d8cfc6f2163761b1117b3427f9ccf6374ad798ac69862eb880",
+      "pq_dependency_kind": "pq_in_tree_v1",
+      "pq_symbol_visibility": {
+        "status": "hidden",
+        "archive_global_symbol_count": 1977,
+        "dynamic_overlap_count": 0,
+        "required_defined_symbols": [
+          "oglpq_cblas_sgemm",
+          "pq_cpu_blas_immutable_config",
+          "pq_cpu_model_restore",
+          "pq_parquet_graph_context",
+          "pq_parquet_reader_open"
+        ],
+        "archive_symbols_sha256": "39d8a871bf307c591f6cd0d68bfce67ba05e73745dae5745c13afa9b27b3c21f"
+      },
+      "status": "build_and_sql_passed"
+    }
+  },
+  "code_count": {
+    "path": "/home/qiumc/data/code/cpp/公共文档/openGauss原生湖存储/验证/code_count_074_intree_final/count.json",
+    "sha256": "bf9ab77f04e192ef1a082697237b483bcc029ec3dcbde29b6ab251e733f9887d",
+    "baseline": "ba1e4ad2f99295b1b0f65e3880a05cb75a1121d4",
+    "existing_kernel": {
+      "added": 1668,
+      "deleted": 317,
+      "files": 69
+    },
+    "lake_module": {
+      "added": 55578,
+      "deleted": 0,
+      "files": 144
+    },
+    "pq_static_adapter": {
+      "location": "in_tree (contrib/og_lake/pq/ already counted once in totals.lake_module)",
+      "owned_adapter_files": 9,
+      "owned_adapter_lines": 938,
+      "excluded_dependencies": [
+        "OpenBLAS source/archive",
+        "Microsoft DiskANN vendored numerical subset (/vendor/)"
+      ],
+      "excluded_reused_algorithm": {
+        "path": "contrib/og_lake/vendor/diskann_pq/pq_cpu_ms.cpp",
+        "lines": 851,
+        "sha256": "a266ee491a5117a74df01d76307a7d328c43dffe057fad37a83a4ec81800a8cd"
+      }
+    },
+    "added_total_all_in_tree": 57246,
+    "deleted_total": 317
+  },
+  "release_verifications": {
+    "suite_074_full_32d_to_1536d_activeh_pgl0": {
+      "path": "/home/qiumc/data/code/cpp/公共文档/openGauss原生湖存储/验证/native_074_intree_suite_release_1121_01/stdout.log",
+      "sha256": "e999971027d2bfad07cfbb4ddaab1965ed40cc5d1a17e6ffd941c18c9ef9436f"
+    },
+    "compat_json_071": {
+      "path": "/home/qiumc/data/code/cpp/公共文档/openGauss原生湖存储/验证/native_074_intree_compat_1121_01/json_071.json",
+      "sha256": "3b53ec3b6b112ba5da63218a581c726c9aec1b68c792ca7bf2b2ab455acec60b",
+      "status": "passed",
+      "profile": "release",
+      "enable_thread_pool": "off",
+      "stages": {
+        "stage1_upgrade_capabilities_ops": 5,
+        "stage2_describe_and_info_json": 10,
+        "stage3_external_fdw_json": 11,
+        "stage4_copy_from_to_duckdb_parity": 15
+      },
+      "total_checks": 41
+    },
+    "compat_vec_smp_072": {
+      "path": "/home/qiumc/data/code/cpp/公共文档/openGauss原生湖存储/验证/native_074_intree_compat_1121_01/vec_smp_072.json",
+      "sha256": "88dea6f0c525dcc1a947d2b2a6f8baeaffd6fd245a7a6a9277ffd5edcc9ad9a1",
+      "status": "passed",
+      "profile": "release",
+      "enable_thread_pool": "off",
+      "stages": {
+        "stage1_upgrade_legacy_gates": 4,
+        "stage2_vec_smp_core_ops": 7,
+        "stage3_extended_temporal_partition_vec_smp": 7,
+        "stage4_wide_cache_fallback_probe": 13
+      },
+      "total_checks": 31
+    },
+    "compat_truncate_pq_073": {
+      "path": "/home/qiumc/data/code/cpp/公共文档/openGauss原生湖存储/验证/native_074_intree_compat_1121_01/truncate_pq_073.json",
+      "sha256": "52d1cf1bbe8488e62f021cebc42a75eaf0c3cddde174f528bd0d9131e09ee5a0",
+      "status": "passed",
+      "profile": "release",
+      "enable_thread_pool": "off",
+      "stages": {
+        "stage1_upgrade_and_gates": 8,
+        "stage2_truncate_all_types_and_oracle": 17,
+        "stage3_pruning_dml_rewrite_vec_smp": 14,
+        "stage4_vec_projection_and_pq_rescan": 11
+      },
+      "total_checks": 50
+    },
+    "extra_perf_60k_8k": {
+      "path": "/home/qiumc/data/code/cpp/公共文档/openGauss原生湖存储/验证/native_074_intree_extra_perf_1121_01/index.json",
+      "sha256": "be9e8a54882b5292dccff8cef6867998b5c3d43e448225bb20f03d784403df0a",
+      "results": {
+        "status": "passed",
+        "profile": "release",
+        "vec_vs_row_60k": {
+          "count_star": {
+            "row_ms": 30.162,
+            "vec_ms": 25.829,
+            "speedup": 1.168
+          },
+          "proj_sum_v": {
+            "row_ms": 40.58,
+            "vec_ms": 32.924,
+            "speedup": 1.233
+          },
+          "full_all_cols": {
+            "row_ms": 64.787,
+            "vec_ms": 51.156,
+            "speedup": 1.266
+          }
+        },
+        "diskann_pq_8000_4x2000_dim32": {
+          "build_ms": 1518.209,
+          "mean_recall_at_10": 0.98,
+          "min_recall_at_10": 0.9,
+          "exact_scan_median_ms": 35.88,
+          "pq_cold_dop1_median_ms": 42.571,
+          "pq_warm_dop1_median_ms": 43.672,
+          "pq_warm_dop4_median_ms": 62.56
+        }
+      }
+    },
+    "scale_soak_datavec_and_056_070_replay": {
+      "path": "/home/qiumc/data/code/cpp/公共文档/openGauss原生湖存储/验证/native_074_intree_scale_soak_1121_01/index.json",
+      "sha256": "8392da1614aa3c95de9a402e45741660d59c08f2436f24edc3d4a016ab9b1ffd",
+      "results": {
+        "status": "passed",
+        "build_receipt": "/home/qiumc/data/code/cpp/公共文档/openGauss原生湖存储/验证/native_074_intree_build_release_1121_01/build.json",
+        "build_receipt_sha256": "aedab97122da596e9bb86c8ade8d494d0c46a26fd7cf11ebb9c003551a9e08c2",
+        "binary_sha256": "6b22d35b6d467a81b34bf5b29f63affa8bf879147275c50e02324772ec1d01eb",
+        "datavec_regress": {
+          "diskann_vector": {
+            "status": "passed",
+            "stdout_lines": 82
+          },
+          "hnsw_lsg_vector": {
+            "status": "passed",
+            "stdout_lines": 50
+          },
+          "hnsw_rabitq_vector": {
+            "status": "passed",
+            "stdout_lines": 53
+          }
+        },
+        "history_suites_on_release": [
+          "run_056_suite.py",
+          "run_057_suite.py",
+          "run_058_suite.py",
+          "run_059_suite.py",
+          "run_061_suite.py",
+          "run_062_suite.py",
+          "run_063_suite.py",
+          "run_064_suite.py",
+          "run_065_suite.py",
+          "run_066_suite.py",
+          "run_069_suite.py",
+          "ix5_064:run_064_suite.py",
+          "m067:run_067_suite.py",
+          "m068:run_068_suite.py",
+          "m070:run_070_suite.py"
+        ],
+        "scale_1m_rows": {
+          "rows": 1000000,
+          "data_files": 16,
+          "ingest_8_batches_flush_ms": 91470.309,
+          "row_dop1_ms": 1203.18,
+          "row_dop4_ms": 502.487,
+          "row_smp_speedup": 2.394,
+          "vec_dop1_ms": 901.911,
+          "vec_dop4_ms": 377.194,
+          "vec_smp_speedup": 2.391,
+          "vec_dop4_vs_row_dop1": 3.19,
+          "truncate_bucket_prune_1m_ms": 81.631
+        },
+        "diskann_pq_20k_dim32": {
+          "rows": 20000,
+          "files": 4,
+          "dim": 32,
+          "build_ms": 4195.994,
+          "exact_scan_median_ms": 54.612,
+          "pq_warm_dop1_median_ms": 55.346,
+          "pq_warm_dop4_median_ms": 68.937,
+          "mean_recall_at_10": 1.0,
+          "min_recall_at_10": 1.0
+        },
+        "diskann_pq_50k_dim32": {
+          "rows": 50000,
+          "files": 4,
+          "dim": 32,
+          "build_ms": 12067.003,
+          "exact_scan_median_ms": 97.532,
+          "pq_warm_dop1_median_ms": 77.705,
+          "pq_warm_dop4_median_ms": 77.785,
+          "mean_recall_at_10": 0.96,
+          "min_recall_at_10": 0.8
+        },
+        "threadpool_soak_and_lru": {
+          "status": "passed",
+          "thread_pool": "on",
+          "lru_tables_churned": 80,
+          "lru_query_sweeps": 3,
+          "concurrent_vec_reads": 25,
+          "occ_retries_handled": 0,
+          "cancel_probes_handled": 5,
+          "final_soak_rows": 2588,
+          "active_pins_after": 0,
+          "rss_setup_kb": 680208,
+          "rss_after_lru_kb": 683904,
+          "rss_end_kb": 894036,
+          "rss_delta_lru_to_end_kb": 210132
+        }
+      }
+    }
+  },
+  "debug_verifications": {
+    "suite_074_active_h": {
+      "path": "/home/qiumc/data/code/cpp/公共文档/openGauss原生湖存储/验证/native_074_intree_suite_debug_1121_01/active_h.log",
+      "sha256": "4995eff3c6feb71f0b1c4c74d5ac50ebd7cbcd0b0aa7dab3ceebb6bf2ac45d83"
+    },
+    "suite_074_pgl0": {
+      "path": "/home/qiumc/data/code/cpp/公共文档/openGauss原生湖存储/验证/native_074_intree_suite_debug_1121_01/pgl0.log",
+      "sha256": "771a23ae25879103398e8515f9af86fa091cf3d6eafce74b799a305d5f084e97"
+    },
+    "compat_json_071": {
+      "path": "/home/qiumc/data/code/cpp/公共文档/openGauss原生湖存储/验证/native_074_intree_compat_debug_1121_01/json_071.json",
+      "sha256": "d2e0bea58dc85108fe2b2b40c3387e3699f8eab8285b7419622cc81141d0c412",
+      "status": "passed",
+      "profile": "debug",
+      "enable_thread_pool": "off",
+      "stages": {
+        "stage1_upgrade_capabilities_ops": 5,
+        "stage2_describe_and_info_json": 10,
+        "stage3_external_fdw_json": 11,
+        "stage4_copy_from_to_duckdb_parity": 15
+      },
+      "total_checks": 41
+    },
+    "compat_vec_smp_072": {
+      "path": "/home/qiumc/data/code/cpp/公共文档/openGauss原生湖存储/验证/native_074_intree_compat_debug_1121_01/vec_smp_072.json",
+      "sha256": "df69ce4c74ec4214717066b5ca401c637e77b760b7d9310a5cd2340e3c7f9c65",
+      "status": "passed",
+      "profile": "debug",
+      "enable_thread_pool": "off",
+      "stages": {
+        "stage1_upgrade_legacy_gates": 4,
+        "stage2_vec_smp_core_ops": 7,
+        "stage3_extended_temporal_partition_vec_smp": 7,
+        "stage4_wide_cache_fallback_probe": 13
+      },
+      "total_checks": 31
+    }
+  },
+  "ann_debug_verifications": {
+    "suite_074_ann_32d_128d": {
+      "path": "/home/qiumc/data/code/cpp/公共文档/openGauss原生湖存储/验证/native_074_intree_suite_anndebug_1121_01/ann_32_128.log",
+      "sha256": "2816be3bfccc2e22dae2ec3dbd73ba55109761736716fdc861deedb06d49e67c"
+    },
+    "compat_truncate_pq_073": {
+      "path": "/home/qiumc/data/code/cpp/公共文档/openGauss原生湖存储/验证/native_074_intree_suite_anndebug_1121_01/truncate_pq_073.json",
+      "sha256": "df7fbc1a8762df5c2e98ef68e8538a974e0fd1a5fa6d31914a59f0f8f849ed82",
+      "status": "passed",
+      "profile": "ann-debug",
+      "enable_thread_pool": "off",
+      "stages": {
+        "stage1_upgrade_and_gates": 8,
+        "stage2_truncate_all_types_and_oracle": 17,
+        "stage3_pruning_dml_rewrite_vec_smp": 14,
+        "stage4_vec_projection_and_pq_rescan": 11
+      },
+      "total_checks": 50
+    }
+  },
+  "cmake_release_verify": {
+    "path": "/home/qiumc/data/code/cpp/公共文档/openGauss原生湖存储/验证/native_074_intree_cmake_verify_1121_01/result.json",
+    "sha256": "d51233691004b82784faf357dae30e38712f5d076683b052acb7dacdc9ac3fdd",
+    "status": "passed",
+    "build_system": "CMake 3.22.0 + GCC 10.3.0 (-DENABLE_HTAP=OFF -DCMAKE_BUILD_TYPE=Release)",
+    "pq_in_tree_archive_sha256": "761cce3463a83884ee1c4d0bde6f8b91483cc958e1003483f1f4af4b9faf5bf3",
+    "cmake_gaussdb_sha256": "ab37e190f039f30d66b2f376824d4a000a2fa7061f5c1b68c3d2c8b59d6614d2",
+    "unisolated_archive_symbols": [],
+    "dynamic_pq_or_blas_leaks": [],
+    "runtime_smoke": "0.74 1200x32D pq_chunks=8 nearest_42_hit=true"
+  },
+  "cleaned_temp_dirs_count": 45
+}

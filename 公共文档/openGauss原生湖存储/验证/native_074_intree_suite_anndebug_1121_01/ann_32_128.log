@@ -1,0 +1,77 @@
+
+=== [Part A] High-Dim DiskANN+PQ Suite (ann-debug) ===
+Tiny 100-row EXPLAIN:
+Limit  (cost=11.16..11.19 rows=10 width=140)
+  ->  Sort  (cost=11.16..11.41 rows=100 width=140)
+        Sort Key: ((v <-> '[-1.2901,0.2599,-0.3197,-0.2729,-1.4263,-0.6891,1.9506,0.155,1.5078,-0.6318,0.1383,0.6516,0.6372,-0.1848,0.0729,1.0993,0.3271,-1.7654,-0.6026,-1.0988,-1.6871,0.8148,1.0785,-0.764,-0.31,1.9879,-0.1498,-0.0784,0.3207,1.3117,0.5119,1.0825]'::vector(32)))
+        ->  Foreign Scan on tiny  (cost=0.00..9.00 rows=100 width=140)
+              Filter: (v IS NOT NULL)
+              Lake SMP: serial path; parallel candidate requires admitted read-only non-rescannable inputs
+              Native Lake: native inline prototype
+              Lake Batch Delivery: row ForeignScan
+              Planned Inline Access: TableAM sequential
+              Planned File Access: complete SDK scan
+              Row Estimate: pg_class / ANALYZE visible file+inline estimate (may be stale)
+              Visible Row Baseline: 100.00
+              Stored Version Estimate: 100.00
+              Inline Data Pages: 6.00
+              Inline Read Cost: 6.00
+              Version Filter Cost: 1.75
+              Visible Row And Qual Cost: 1.00
+              Target Cost: 0.00
+              Base Planner Startup Cost: 0.00
+              Cost Model: source-exclusive file/inline ledger; raw graph statistics may be unknown; native units; not calibrated
+{"dim": 32, "rows": 20000, "files": 4, "metric": "l2", "pq_chunks": 8, "insert_flush_s": 5.54, "analyze_ms": 368.7, "pq_build_ms": 35110.7, "exact_ms": 192.03, "pq_cold_ms": 226.95, "pq_warm_ms": 225.93, "mean_recall10": 1.0, "min_recall10": 1.0, "natural_seqscan_on_chose_ann": true, "filtered_ok": true}
+{"dim": 128, "rows": 20000, "files": 4, "metric": "l2", "pq_chunks": 32, "insert_flush_s": 6.88, "analyze_ms": 558.0, "pq_build_ms": 94163.7, "exact_ms": 290.27, "pq_cold_ms": 279.29, "pq_warm_ms": 280.51, "mean_recall10": 1.0, "min_recall10": 1.0, "natural_seqscan_on_chose_ann": true, "filtered_ok": true}
+{"dim": 128, "rows": 5000, "metric": "ip_raw_cached", "mean_recall10": 1.0, "cold_ms": 183.41, "warm_ms": 183.2}
+
+=== ALL REQUESTED 0.74 VERIFICATIONS PASSED ===
+{
+  "ann": {
+    "status": "passed",
+    "cases": [
+      {
+        "dim": 32,
+        "rows": 20000,
+        "files": 4,
+        "metric": "l2",
+        "pq_chunks": 8,
+        "insert_flush_s": 5.54,
+        "analyze_ms": 368.7,
+        "pq_build_ms": 35110.7,
+        "exact_ms": 192.03,
+        "pq_cold_ms": 226.95,
+        "pq_warm_ms": 225.93,
+        "mean_recall10": 1.0,
+        "min_recall10": 1.0,
+        "natural_seqscan_on_chose_ann": true,
+        "filtered_ok": true
+      },
+      {
+        "dim": 128,
+        "rows": 20000,
+        "files": 4,
+        "metric": "l2",
+        "pq_chunks": 32,
+        "insert_flush_s": 6.88,
+        "analyze_ms": 558.0,
+        "pq_build_ms": 94163.7,
+        "exact_ms": 290.27,
+        "pq_cold_ms": 279.29,
+        "pq_warm_ms": 280.51,
+        "mean_recall10": 1.0,
+        "min_recall10": 1.0,
+        "natural_seqscan_on_chose_ann": true,
+        "filtered_ok": true
+      },
+      {
+        "dim": 128,
+        "rows": 5000,
+        "metric": "ip_raw_cached",
+        "mean_recall10": 1.0,
+        "cold_ms": 183.41,
+        "warm_ms": 183.2
+      }
+    ]
+  }
+}

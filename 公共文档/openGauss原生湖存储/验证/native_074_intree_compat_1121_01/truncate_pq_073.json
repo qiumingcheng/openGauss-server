@@ -1,0 +1,12 @@
+{
+  "status": "passed",
+  "profile": "release",
+  "enable_thread_pool": "off",
+  "stages": {
+    "stage1_upgrade_and_gates": 8,
+    "stage2_truncate_all_types_and_oracle": 17,
+    "stage3_pruning_dml_rewrite_vec_smp": 14,
+    "stage4_vec_projection_and_pq_rescan": 11
+  },
+  "total_checks": 50
+}

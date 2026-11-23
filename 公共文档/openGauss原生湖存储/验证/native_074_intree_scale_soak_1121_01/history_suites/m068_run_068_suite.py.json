@@ -1,0 +1,12 @@
+{
+  "status": "pass",
+  "profile": "release",
+  "postgres_ext_version": "0.68",
+  "enable_thread_pool": "off",
+  "stages": {
+    "stage1_upgrade_067_to_068": 2,
+    "stage2_snapshot_pins_and_expiry_protection": 8,
+    "stage3_terminate_cleanup_and_maintenance_resilience": 3
+  },
+  "total_checks": 13
+}

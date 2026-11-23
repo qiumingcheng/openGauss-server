@@ -229,6 +229,7 @@ list(APPEND gaussdb_objects
     $<TARGET_OBJECTS:gausskernel_storage_xlog_share_storage>
     $<TARGET_OBJECTS:common_timezone>
     $<TARGET_OBJECTS:contrib_file_fdw>
+    $<TARGET_OBJECTS:contrib_og_lake>
     $<TARGET_OBJECTS:contrib_log_fdw>
     $<TARGET_OBJECTS:contrib_jiebatokenizer>
 )
@@ -423,6 +424,24 @@ endif()
 if("${SUPPORT_HOTPATCH}" STREQUAL "yes")
     list(APPEND gaussdb_LINK_LIBS doprapatch)
     list(APPEND gaussdb_LINK_DIRS ${LIBHOTPATCH_LIB_PATH})
+endif()
+# contrib/og_lake is configured first; link its exact private archive into both
+# final targets. Object-library link options alone do not reach gaussdb.
+get_property(OG_LAKE_ROARING_ARCHIVE GLOBAL PROPERTY OG_LAKE_ROARING_ARCHIVE)
+if(OG_LAKE_ROARING_ARCHIVE)
+    list(APPEND gaussdb_LINK_LIBS "${OG_LAKE_ROARING_ARCHIVE}")
+    list(APPEND gaussdb_LINK_OPTIONS "-Wl,--exclude-libs,libroaring.a")
+endif()
+get_property(OG_LAKE_PQ_ARCHIVE GLOBAL PROPERTY OG_LAKE_PQ_ARCHIVE)
+get_property(OG_LAKE_PQ_BLAS_ARCHIVE GLOBAL PROPERTY OG_LAKE_PQ_BLAS_ARCHIVE)
+get_property(OG_LAKE_PQ_IN_TREE_TARGET GLOBAL PROPERTY OG_LAKE_PQ_IN_TREE_TARGET)
+if(OG_LAKE_PQ_ARCHIVE)
+    list(APPEND gaussdb_LINK_LIBS "${OG_LAKE_PQ_ARCHIVE}" "${OG_LAKE_PQ_BLAS_ARCHIVE}")
+    list(APPEND gaussdb_LINK_OPTIONS "-Wl,--exclude-libs,libog_lake_pq_cpu.a"
+                                     "-Wl,--exclude-libs,libog_lake_pq_openblas.a")
+    if(OG_LAKE_PQ_IN_TREE_TARGET)
+        list(APPEND gaussdb_DEPEND_LIST "${OG_LAKE_PQ_IN_TREE_TARGET}")
+    endif()
 endif()
 if(NOT "${ENABLE_UT}" STREQUAL "ON")
     list(APPEND gaussdb_LINK_DIRS ${LIBUWAL_LINK_DIRS})
