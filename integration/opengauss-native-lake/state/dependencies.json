@@ -1,0 +1,200 @@
+{
+  "dependencies": {
+    "DEP-01": {
+      "deliverables": [],
+      "evidence": [],
+      "id": "DEP-01",
+      "next_action": "Freeze product_baseline.ducklake only after N0-SOURCE verifies the same-version protocol mapping and production adaptation contracts; standalone reference success does not satisfy this product-baseline gate.",
+      "reason": "Pinned candidate now builds and explicit 1.1 F/I/N/HISTORY reference fixtures pass REF-01; product_baseline.ducklake remains null and the field-by-field production adaptation review is incomplete.",
+      "required_lock_fields": [
+        {
+          "kind": "commit",
+          "path": "product_baseline.ducklake"
+        }
+      ],
+      "spec_anchors": [
+        "sec-9-2"
+      ],
+      "status": "blocked",
+      "test_ids": [
+        "REF-01"
+      ],
+      "updated_at": "2026-11-06T15:24:52.425470+00:00"
+    },
+    "DEP-02": {
+      "deliverables": [],
+      "evidence": [],
+      "id": "DEP-02",
+      "next_action": "Provide the documented interface and run the matching acceptance cases.",
+      "reason": "Private Parquet SDK headers/library and runtime contract are not supplied.",
+      "required_lock_fields": [
+        {
+          "kind": "nonempty",
+          "path": "sdk"
+        }
+      ],
+      "spec_anchors": [
+        "sec-9-2"
+      ],
+      "status": "blocked",
+      "test_ids": [
+        "SDK-01"
+      ]
+    },
+    "DEP-03": {
+      "deliverables": [],
+      "evidence": [],
+      "id": "DEP-03",
+      "next_action": "Provide the documented interface and run the matching acceptance cases.",
+      "reason": "Target OGRAC source/runtime contracts and cluster verification are not supplied.",
+      "required_lock_fields": [
+        {
+          "kind": "nonempty",
+          "path": "ograc"
+        }
+      ],
+      "spec_anchors": [
+        "sec-9-2"
+      ],
+      "status": "blocked",
+      "test_ids": [
+        "RAC-01",
+        "PORT-01"
+      ]
+    },
+    "DEP-04": {
+      "deliverables": [],
+      "evidence": [],
+      "id": "DEP-04",
+      "next_action": "Provide the documented interface and run the matching acceptance cases.",
+      "reason": "Required real interface/implementation evidence has not been delivered.",
+      "spec_anchors": [
+        "sec-9-2"
+      ],
+      "status": "blocked",
+      "test_ids": [
+        "TX-01",
+        "TX-02",
+        "TX-03",
+        "TX-04",
+        "TX-05"
+      ]
+    },
+    "DEP-05": {
+      "deliverables": [],
+      "evidence": [],
+      "id": "DEP-05",
+      "next_action": "Provide the documented interface and run the matching acceptance cases.",
+      "reason": "Required real interface/implementation evidence has not been delivered.",
+      "spec_anchors": [
+        "sec-9-2"
+      ],
+      "status": "blocked",
+      "test_ids": [
+        "JOB-01",
+        "JOB-02"
+      ]
+    },
+    "DEP-06": {
+      "deliverables": [],
+      "evidence": [],
+      "id": "DEP-06",
+      "next_action": "Provide the documented interface and run the matching acceptance cases.",
+      "reason": "Required real interface/implementation evidence has not been delivered.",
+      "spec_anchors": [
+        "sec-9-2"
+      ],
+      "status": "blocked",
+      "test_ids": [
+        "GC-01",
+        "GC-02",
+        "GC-03",
+        "GC-04",
+        "GC-05"
+      ]
+    },
+    "DEP-07": {
+      "deliverables": [],
+      "evidence": [],
+      "id": "DEP-07",
+      "next_action": "Provide the documented interface and run the matching acceptance cases.",
+      "reason": "Required real interface/implementation evidence has not been delivered.",
+      "spec_anchors": [
+        "sec-9-2"
+      ],
+      "status": "blocked",
+      "test_ids": [
+        "SMP-01",
+        "SMP-02"
+      ]
+    },
+    "DEP-08": {
+      "deliverables": [],
+      "evidence": [],
+      "id": "DEP-08",
+      "next_action": "Provide the documented interface and run the matching acceptance cases.",
+      "reason": "Required real interface/implementation evidence has not been delivered.",
+      "spec_anchors": [
+        "sec-9-2"
+      ],
+      "status": "blocked",
+      "test_ids": [
+        "DDL-02"
+      ]
+    },
+    "DEP-09": {
+      "deliverables": [],
+      "evidence": [],
+      "id": "DEP-09",
+      "next_action": "Provide the documented interface and run the matching acceptance cases.",
+      "reason": "Required real interface/implementation evidence has not been delivered.",
+      "spec_anchors": [
+        "sec-9-2"
+      ],
+      "status": "blocked",
+      "test_ids": [
+        "IDX-01",
+        "IDX-02",
+        "IDX-03",
+        "IDX-04",
+        "IDX-05",
+        "IDX-07",
+        "IDX-06"
+      ]
+    },
+    "DEP-10": {
+      "deliverables": [],
+      "evidence": [],
+      "id": "DEP-10",
+      "next_action": "Provide the documented interface and run the matching acceptance cases.",
+      "reason": "Required real interface/implementation evidence has not been delivered.",
+      "spec_anchors": [
+        "sec-9-2"
+      ],
+      "status": "blocked",
+      "test_ids": [
+        "REC-03",
+        "REC-04"
+      ]
+    },
+    "DEP-11": {
+      "deliverables": [],
+      "evidence": [],
+      "id": "DEP-11",
+      "next_action": "Provide the documented interface and run the matching acceptance cases.",
+      "reason": "Required real interface/implementation evidence has not been delivered.",
+      "spec_anchors": [
+        "sec-9-2"
+      ],
+      "status": "blocked",
+      "test_ids": [
+        "PART-08",
+        "PART-09",
+        "PART-10",
+        "PART-11"
+      ]
+    }
+  },
+  "schema_version": 1,
+  "updated_at": "2026-11-06T15:24:52.425486+00:00"
+}

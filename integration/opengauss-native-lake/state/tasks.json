@@ -1,0 +1,979 @@
+{
+  "description": "Engineering task state; not a product transaction log. No product task is verified.",
+  "schema_version": 1,
+  "tasks": {
+    "API1": {
+      "commands": [],
+      "deliverables": [],
+      "depends_on": [
+        "N6"
+      ],
+      "evidence": [],
+      "id": "API1",
+      "next_action": "External OGRAC/cloud catalog federation APIs remain deferred.",
+      "owned_files": [],
+      "reason": "Complete local Route A SQL API surface 0.55..0.71 verified across Debug and Release (-O2): snapshots/time_travel/table_changes/bind_snapshot, merge_adjacent_files/rewrite_data_files, expire_snapshots/cleanup_orphan_files, verify_catalog_integrity/backup_manifest/retention_status, describe_external_file/path/list_external_files/external_file_info (CSV/Parquet/JSON/JSONL), rebuild_lake_index, host_status, active_snapshot_pins (native_070_type_ops_campaign_01 sha 2710a2bf, native_071_json_smp_campaign_01 sha 6fbfd0c8, native_final_release_campaign_01 sha 3d82dbed). External commercial/cluster scope remains deferred: remote S3/OBS URLs, OGRAC multi-writer cluster (DEP-03/05/06), N7-VECTOR (SMP+Vec), truncate(...) partition transforms, and 72h scale soak.",
+      "source_refs": [],
+      "spec_anchors": [
+        "sec-9-3"
+      ],
+      "status": "implemented_unverified",
+      "test_ids": [
+        "API-01"
+      ],
+      "updated_at": "2026-11-19T18:16:27.704546+00:00"
+    },
+    "COMP1": {
+      "commands": [],
+      "deliverables": [],
+      "depends_on": [
+        "N6"
+      ],
+      "evidence": [],
+      "id": "COMP1",
+      "next_action": "Keep external writer admission closed until OGRAC/remote connector qualification (DEP-03/05/06).",
+      "owned_files": [],
+      "reason": "Real offline DuckDB DuckLake bidirectional parity verified across SQL0.60..SQL0.71 (merges, CSV/Parquet/JSON/JSONL external & COPY FROM/TO, UUID/NUMERIC/DATE/TIMESTAMP/BYTEA partitioned Murmur3 bucket transforms, NUMERIC(p,s) column stats, alter widening reads, physical GC orphan cleanup: native_070_type_ops_campaign_01 2710a2bf, native_071_json_smp_campaign_01 6fbfd0c8, native_final_release_campaign_01 3d82dbed). External shared-writer connector admission and OGRAC multi-writer coordination remain closed.",
+      "source_refs": [],
+      "spec_anchors": [
+        "sec-9-3"
+      ],
+      "status": "in_progress",
+      "test_ids": [
+        "REF-01",
+        "DDL-02"
+      ],
+      "updated_at": "2026-11-19T18:16:27.741358+00:00"
+    },
+    "IX1": {
+      "commands": [],
+      "deliverables": [],
+      "depends_on": [
+        "N2",
+        "N5",
+        "N6"
+      ],
+      "evidence": [],
+      "id": "IX1",
+      "next_action": "Proceed to SQL0.65 (N7-STATS) NUMERIC(p,s) exact column/file stats, ANALYZE/cost parity, and DuckDB DuckLake parity.",
+      "owned_files": [],
+      "reason": "SQL0.64 (IX1~IX5 & N7-SMP) scoped Debug/Debug 4-worker/ann-debug verification passed on native_064_ix_smp_full_01 (build sha 64fdced4, HEAD ed6a1250, diff 78d2027a) and native_064_ix_smp_campaign_01 (index sha 6afcf31f, status passed_scoped_SQL064, ext 0.64: debug_pool_off=26, debug_pool_on=26, debug_ix5=10, anndebug_pool_off=50, anndebug_ix5=14, duckdb_checks=3; SDK54/SDK6/postgresql.conf unchanged; all gaussdb stopped). Covers extended payload scalar/ANN indexes, DiskANN PQ L2 3-PQ+1-fallback+1-inline DOP=4 SMP, boolean/cos multi-file ANN SMP, IX5 index lifecycle, and extended payload row SMP; full commercial/RAC stress remains deferred.",
+      "source_refs": [],
+      "spec_anchors": [
+        "sec-9-3"
+      ],
+      "status": "implemented_unverified",
+      "test_ids": [
+        "IDX-01",
+        "IDX-02",
+        "IDX-03",
+        "IDX-04",
+        "IDX-05",
+        "IDX-07",
+        "IDX-06"
+      ],
+      "updated_at": "2026-11-19T07:29:06.060818+00:00"
+    },
+    "IX2": {
+      "commands": [],
+      "deliverables": [],
+      "depends_on": [
+        "IX1"
+      ],
+      "evidence": [],
+      "id": "IX2",
+      "next_action": "Proceed to SQL0.65 (N7-STATS) NUMERIC(p,s) exact column/file stats, ANALYZE/cost parity, and DuckDB DuckLake parity.",
+      "owned_files": [],
+      "reason": "SQL0.64 (IX1~IX5 & N7-SMP) scoped Debug/Debug 4-worker/ann-debug verification passed on native_064_ix_smp_full_01 (build sha 64fdced4, HEAD ed6a1250, diff 78d2027a) and native_064_ix_smp_campaign_01 (index sha 6afcf31f, status passed_scoped_SQL064, ext 0.64: debug_pool_off=26, debug_pool_on=26, debug_ix5=10, anndebug_pool_off=50, anndebug_ix5=14, duckdb_checks=3; SDK54/SDK6/postgresql.conf unchanged; all gaussdb stopped). Covers extended payload scalar/ANN indexes, DiskANN PQ L2 3-PQ+1-fallback+1-inline DOP=4 SMP, boolean/cos multi-file ANN SMP, IX5 index lifecycle, and extended payload row SMP; full commercial/RAC stress remains deferred.",
+      "source_refs": [],
+      "spec_anchors": [
+        "sec-9-3"
+      ],
+      "status": "implemented_unverified",
+      "test_ids": [
+        "IDX-01",
+        "IDX-02",
+        "IDX-03",
+        "IDX-04",
+        "IDX-05",
+        "IDX-07",
+        "IDX-06"
+      ],
+      "updated_at": "2026-11-19T07:29:06.118899+00:00"
+    },
+    "IX3": {
+      "commands": [],
+      "deliverables": [],
+      "depends_on": [
+        "IX2"
+      ],
+      "evidence": [],
+      "id": "IX3",
+      "next_action": "Proceed to SQL0.65 (N7-STATS) NUMERIC(p,s) exact column/file stats, ANALYZE/cost parity, and DuckDB DuckLake parity.",
+      "owned_files": [],
+      "reason": "SQL0.64 (IX1~IX5 & N7-SMP) scoped Debug/Debug 4-worker/ann-debug verification passed on native_064_ix_smp_full_01 (build sha 64fdced4, HEAD ed6a1250, diff 78d2027a) and native_064_ix_smp_campaign_01 (index sha 6afcf31f, status passed_scoped_SQL064, ext 0.64: debug_pool_off=26, debug_pool_on=26, debug_ix5=10, anndebug_pool_off=50, anndebug_ix5=14, duckdb_checks=3; SDK54/SDK6/postgresql.conf unchanged; all gaussdb stopped). Covers extended payload scalar/ANN indexes, DiskANN PQ L2 3-PQ+1-fallback+1-inline DOP=4 SMP, boolean/cos multi-file ANN SMP, IX5 index lifecycle, and extended payload row SMP; full commercial/RAC stress remains deferred.",
+      "source_refs": [],
+      "spec_anchors": [
+        "sec-9-3"
+      ],
+      "status": "implemented_unverified",
+      "test_ids": [
+        "IDX-01",
+        "IDX-02",
+        "IDX-03",
+        "IDX-04",
+        "IDX-05",
+        "IDX-07",
+        "IDX-06"
+      ],
+      "updated_at": "2026-11-19T07:29:06.160021+00:00"
+    },
+    "IX4": {
+      "commands": [],
+      "deliverables": [],
+      "depends_on": [
+        "IX3"
+      ],
+      "evidence": [],
+      "id": "IX4",
+      "next_action": "Proceed to SQL0.65 (N7-STATS) NUMERIC(p,s) exact column/file stats, ANALYZE/cost parity, and DuckDB DuckLake parity.",
+      "owned_files": [],
+      "reason": "SQL0.64 (IX1~IX5 & N7-SMP) scoped Debug/Debug 4-worker/ann-debug verification passed on native_064_ix_smp_full_01 (build sha 64fdced4, HEAD ed6a1250, diff 78d2027a) and native_064_ix_smp_campaign_01 (index sha 6afcf31f, status passed_scoped_SQL064, ext 0.64: debug_pool_off=26, debug_pool_on=26, debug_ix5=10, anndebug_pool_off=50, anndebug_ix5=14, duckdb_checks=3; SDK54/SDK6/postgresql.conf unchanged; all gaussdb stopped). Covers extended payload scalar/ANN indexes, DiskANN PQ L2 3-PQ+1-fallback+1-inline DOP=4 SMP, boolean/cos multi-file ANN SMP, IX5 index lifecycle, and extended payload row SMP; full commercial/RAC stress remains deferred.",
+      "source_refs": [],
+      "spec_anchors": [
+        "sec-9-3"
+      ],
+      "status": "implemented_unverified",
+      "test_ids": [
+        "IDX-01",
+        "IDX-02",
+        "IDX-03",
+        "IDX-04",
+        "IDX-05",
+        "IDX-07",
+        "IDX-06"
+      ],
+      "updated_at": "2026-11-19T07:29:06.196802+00:00"
+    },
+    "IX5": {
+      "commands": [],
+      "deliverables": [],
+      "depends_on": [
+        "IX4",
+        "N7",
+        "N8"
+      ],
+      "evidence": [],
+      "id": "IX5",
+      "next_action": "Commercial 72h scale soak, remote S3/OBS, OGRAC multi-writer (DEP-03/04/05/06), and frozen commercial regression remain deferred.",
+      "owned_files": [],
+      "reason": "PQ adapter (9 files/938 lines) & vendored DiskANN subset (pq_cpu_ms.cpp 851 lines + MIT license/notice) migrated in-tree under contrib/og_lake/{pq,vendor/diskann_pq}; rebuilt & reverified on --pq-in-tree (153c3370): standalone probes pass (9a514680: 110/46/0 leak, stream shapes 83, parquet d1536 & writer-negative); Release -O2 (6b22d35b: 32D..1536D all Recall@10=1.0, 20k dim32 4.20s, 50k dim32 12.07s PQ warm 77.71ms vs exact 97.53ms Recall 0.96, 1M + datavec 3/3 + 15 history suites, truncate_pq_073 50/50); Debug -O0 -g (ce84057d); ann-debug (58cc10b9: 32D/128D Recall@10=1.0, truncate_pq_073 50/50).",
+      "source_refs": [],
+      "spec_anchors": [
+        "sec-9-3"
+      ],
+      "status": "implemented_unverified",
+      "test_ids": [
+        "IDX-01",
+        "IDX-02",
+        "IDX-03",
+        "IDX-04",
+        "IDX-05",
+        "IDX-07",
+        "IDX-06"
+      ],
+      "updated_at": "2026-11-21T10:58:08.066622+00:00"
+    },
+    "N0": {
+      "commands": [],
+      "deliverables": [],
+      "depends_on": [
+        "N0-ENV",
+        "N0-SOURCE",
+        "N0-REF",
+        "N0-HOST",
+        "N0-SDK",
+        "N0-HARNESS"
+      ],
+      "evidence": [],
+      "id": "N0",
+      "next_action": "Maintain pinned sources and scoped evidence during core development; do not block functional progress on final commercial gates.",
+      "owned_files": [],
+      "reason": "Isolated source/build/reference and local native host slices are implemented. Current c16b official Debug full and112 frozen product inputs pass; actual remote SDK and target RAC qualification remain separate deferred dependencies.",
+      "source_refs": [],
+      "spec_anchors": [
+        "sec-9-10"
+      ],
+      "status": "in_progress",
+      "test_ids": [
+        "BOOT-01",
+        "REF-01",
+        "ABI-01",
+        "SDK-01",
+        "RUN-01"
+      ],
+      "updated_at": "2026-11-08T13:22:38.865412+00:00"
+    },
+    "N0-ENV": {
+      "commands": [],
+      "deliverables": [],
+      "depends_on": [],
+      "evidence": [],
+      "id": "N0-ENV",
+      "next_action": "Reuse the current isolated Debug runtime and official build receipt; repeat only affected checks after changes.",
+      "owned_files": [],
+      "reason": "Current c16ba818af official Debug full, installation, controlled restart and startup SQL passed with112 unchanged native inputs; isolated55560 runtime. Earlier environment receipts remain historical, not current blockers. Full dependency/reproducibility qualification is not claimed.",
+      "source_refs": [],
+      "spec_anchors": [
+        "sec-9-10"
+      ],
+      "status": "implemented_unverified",
+      "test_ids": [
+        "BOOT-01"
+      ],
+      "updated_at": "2026-11-08T13:22:38.923235+00:00"
+    },
+    "N0-HARNESS": {
+      "artifacts": [
+        {
+          "path": "/home/qiumc/data/code/cpp/integration/opengauss-native-lake/lake_harness.py",
+          "sha256": "dc22107f7cced2cfa67af20bc053e27bbd6d1a7724837ed7ce3781d171a52059"
+        },
+        {
+          "path": "/home/qiumc/data/code/cpp/integration/opengauss-native-lake/preflight.sh",
+          "sha256": "4f1adf043b84b60f0094966270faed2f81ff7bc8a88569a2bccbbb81e381fc7a"
+        },
+        {
+          "path": "/home/qiumc/data/code/cpp/integration/opengauss-native-lake/preflight.py",
+          "sha256": "8f65e04f42079bfe4a6b941278052cfd25169088db163062657514b15040d0de"
+        },
+        {
+          "path": "/home/qiumc/data/code/cpp/integration/opengauss-native-lake/fixture.py",
+          "sha256": "b4fd27975cc1640372c802e7a5d732222b5fbf8e2c783f4baea76d57c0566b43"
+        },
+        {
+          "path": "/home/qiumc/data/code/cpp/integration/opengauss-native-lake/run_case.py",
+          "sha256": "e32116774adca58c324742baf701db66af0514fc5186bda7581317fc08bde598"
+        },
+        {
+          "path": "/home/qiumc/data/code/cpp/integration/opengauss-native-lake/run_gate.py",
+          "sha256": "ff688330c4be878a1aad83dd8bfdad897a912de30d2284dacf7916631a7878d7"
+        },
+        {
+          "path": "/home/qiumc/data/code/cpp/integration/opengauss-native-lake/taskctl.py",
+          "sha256": "b8817ccac2ef74c3db4c7746aefbd845758e438b91741e1c56522558751d4bf4"
+        },
+        {
+          "path": "/home/qiumc/data/code/cpp/integration/opengauss-native-lake/tests/harness_selftest.py",
+          "sha256": "f3b7021ae03fa04b57e22fb727cec46c8bdd3eedaf630d527e06cf0c868b2c48"
+        },
+        {
+          "path": "/home/qiumc/data/code/cpp/integration/opengauss-native-lake/tests/reference_case.py",
+          "sha256": "0c0a2fc8b9ef7d103d327ded8947ecf1b95f10f7662f1d3841772ebff3dfacca"
+        }
+      ],
+      "commands": [
+        "python3 integration/opengauss-native-lake/run_gate.py --gate GH --run-id <ID>",
+        "python3 integration/opengauss-native-lake/taskctl.py verify N0-HARNESS --result <immutable-GH-result.json>"
+      ],
+      "deliverables": [
+        "lake_harness.py",
+        "preflight.sh",
+        "preflight.py",
+        "fixture.py",
+        "run_case.py",
+        "run_gate.py",
+        "taskctl.py",
+        "tests/harness_selftest.py",
+        "tests/reference_case.py"
+      ],
+      "depends_on": [],
+      "evidence": [
+        {
+          "path": "/home/qiumc/data/code/cpp/公共文档/openGauss原生湖存储/验证/n0-harness-cleanup-20261106_01/gates/GH/154915149128-55bedea4/result.json",
+          "sha256": "e35f4801a957b9401a94b476a574abfecc2d70767f76c6aeed10cef0765ee061"
+        },
+        {
+          "path": "/home/qiumc/data/code/cpp/公共文档/openGauss原生湖存储/验证/n1_inline_cleanup_kill_20261106_01/cases/RUN-01%2Fowned_database_cleanup/155035937164-e2dfa634/result.json",
+          "sha256": "bba18df4f2f63019dd0e1ddfa8614155e898e022c275601b0c69c6fd7ca39f76"
+        }
+      ],
+      "id": "N0-HARNESS",
+      "next_action": "Rerun the affected acceptance tests and verify fresh evidence.",
+      "owned_files": [
+        "lake_harness.py",
+        "preflight.sh",
+        "preflight.py",
+        "fixture.py",
+        "run_case.py",
+        "run_gate.py",
+        "taskctl.py",
+        "state/tasks.json",
+        "state/dependencies.json",
+        "state/cases.json",
+        "state/gates.json",
+        "tests/harness_selftest.py",
+        "tests/reference_case.py"
+      ],
+      "reason": "Evidence is stale (source/lock/binary/harness changed): /home/qiumc/data/code/cpp/公共文档/openGauss原生湖存储/验证/n0-harness-cleanup-20261106_01/gates/GH/154915149128-55bedea4/result.json",
+      "source_refs": [],
+      "spec_anchors": [
+        "sec-9-10"
+      ],
+      "status": "implemented_unverified",
+      "test_ids": [
+        "RUN-01"
+      ],
+      "updated_at": "2026-11-06T16:13:52.644272+00:00"
+    },
+    "N0-HOST": {
+      "commands": [],
+      "deliverables": [],
+      "depends_on": [],
+      "evidence": [],
+      "id": "N0-HOST",
+      "next_action": "复用已实际验证的Debug构建和ABI；继续现有QQ12原34/111并独立读取，不重复无关宿主/Release检查。真实SDK/OGRAC终验保留后置。",
+      "owned_files": [],
+      "reason": "当前宿主模块为0.43，官方Debug full4c780已安装启动e4d13且285/8/3匹配1772/badbc，原SDK307保持。历史SQL0.35宿主切片证据保留，不能再把0.35/full255称当前源码或二进制；两组定向724通过，当前全34/111尚未独验。",
+      "source_refs": [],
+      "spec_anchors": [
+        "sec-9-10"
+      ],
+      "status": "implemented_unverified",
+      "test_ids": [
+        "ABI-01"
+      ],
+      "updated_at": "2026-11-13T22:32:14.672337+00:00"
+    },
+    "N0-REF": {
+      "artifacts": [
+        {
+          "path": "/home/qiumc/data/code/cpp/integration/opengauss-native-lake/reference.sh",
+          "sha256": "2bc1216984938649386eff20cd4e59b705d80af308a206808a7ca73ff4b965f1"
+        },
+        {
+          "path": "/home/qiumc/data/code/cpp/integration/opengauss-native-lake/source-lock.json",
+          "sha256": "f0d31350621f431fde447f91958aa546c8cbac2fca7d7d9187c68b27c07e9235"
+        },
+        {
+          "path": "/home/qiumc/data/code/cpp/integration/opengauss-native-lake/tests/reference_case.py",
+          "sha256": "0c0a2fc8b9ef7d103d327ded8947ecf1b95f10f7662f1d3841772ebff3dfacca"
+        },
+        {
+          "path": "/home/qiumc/data/code/cpp/.reference/opengauss-native-lake/build/receipt.json",
+          "sha256": "6f898ebc68e4895a9f99899aaf9ba49f404fe5c442c5446e8a61600836550088"
+        }
+      ],
+      "commands": [
+        "bash integration/opengauss-native-lake/reference.sh verify",
+        "python3 integration/opengauss-native-lake/run_case.py --id REF-01 --run-id <ID>"
+      ],
+      "deliverables": [
+        "reference.sh",
+        "source-lock.json",
+        "tests/reference_case.py",
+        "/home/qiumc/data/code/cpp/.reference/opengauss-native-lake/build/receipt.json"
+      ],
+      "depends_on": [],
+      "evidence": [
+        {
+          "path": "/home/qiumc/data/code/cpp/公共文档/openGauss原生湖存储/验证/n0-reference-final-20261106_01/cases/REF-01/155529248684-30014958/result.json",
+          "sha256": "198106a1068f46e377ab1585b1f7e3d98e65d550481ec96629e69fa089eddcc4"
+        }
+      ],
+      "id": "N0-REF",
+      "next_action": "Reuse the pinned reference for newly affected semantic comparisons; complete remaining protocol combinations with their feature work.",
+      "owned_files": [
+        "reference.sh",
+        "source-lock.json"
+      ],
+      "reason": "Current source-lock reference refresh reference_native_options_c16b_20261108_01 passed. Five c16b native option cases106 assertions include actual pinned independent DuckLake reading of standard metadata and full business values. This is offline interread, not a live shared external writer.",
+      "source_refs": [
+        "ducklake@0aaa8e10d4adfe2ca37da77134e991d20106d0e7",
+        "duckdb@d54cbbe3df17e8e5ce68312f483b4155836112aa"
+      ],
+      "spec_anchors": [
+        "sec-9-10"
+      ],
+      "status": "implemented_unverified",
+      "test_ids": [
+        "REF-01"
+      ],
+      "updated_at": "2026-11-08T13:22:39.028324+00:00"
+    },
+    "N0-SDK": {
+      "commands": [],
+      "deliverables": [],
+      "depends_on": [],
+      "evidence": [],
+      "id": "N0-SDK",
+      "next_action": "Continue native functional work against the qualified local provider; integrate the actual remote SDK when available, preserving explicit capability scope.",
+      "owned_files": [],
+      "reason": "Local real Arrow20 Parquet provider supports the exercised scan/write/footer/abort and optional delete ABI components. Actual private remote SDK and target RAC adapters are unavailable here and remain final environment integration, not an excuse to replace them with mocks.",
+      "source_refs": [],
+      "spec_anchors": [
+        "sec-9-10"
+      ],
+      "status": "in_progress",
+      "test_ids": [
+        "SDK-01"
+      ],
+      "updated_at": "2026-11-08T13:22:39.084943+00:00"
+    },
+    "N0-SOURCE": {
+      "commands": [],
+      "deliverables": [],
+      "depends_on": [],
+      "evidence": [],
+      "id": "N0-SOURCE",
+      "next_action": "Keep source lock and exact patch provenance current; retain broader dependency/license packaging in its final gate.",
+      "owned_files": [],
+      "reason": "Native baseline, pinned DuckLake/DuckDB/pg_ducklake sources and patch diff hashes are recorded in source-lock.json. c16b native build and refreshed reference receipt exist; the old another-agent ownership note is obsolete.",
+      "required_lock_fields": [
+        {
+          "kind": "commit",
+          "path": "product_baseline.ducklake"
+        }
+      ],
+      "source_refs": [],
+      "spec_anchors": [
+        "sec-9-10"
+      ],
+      "status": "implemented_unverified",
+      "test_ids": [
+        "REF-01"
+      ],
+      "updated_at": "2026-11-08T13:22:38.977065+00:00"
+    },
+    "N1": {
+      "commands": [],
+      "deliverables": [],
+      "depends_on": [
+        "N0-SOURCE",
+        "N0-HOST"
+      ],
+      "evidence": [],
+      "id": "N1",
+      "next_action": "Continue remaining DDL/type capabilities via N6 and complete only relevant compatibility checks; flush is already functionally closed in its supported scope.",
+      "owned_files": [],
+      "reason": "Native catalog creation/registration/binding and business CREATE are implemented with scoped Debug and independent reference evidence. Current c16b option tests exercise catalog and table creation under SQL0.12; full type/DDL/protocol scope remains incomplete.",
+      "source_refs": [],
+      "spec_anchors": [
+        "sec-9-3"
+      ],
+      "status": "in_progress",
+      "test_ids": [
+        "META-01/read_only"
+      ],
+      "updated_at": "2026-11-08T13:22:39.140016+00:00"
+    },
+    "N2": {
+      "commands": [],
+      "deliverables": [],
+      "depends_on": [
+        "N1"
+      ],
+      "evidence": [],
+      "id": "N2",
+      "next_action": "Extend read capabilities alongside DDL/type/SMP/file feature work; retain current stable identities and visibility semantics.",
+      "owned_files": [],
+      "reason": "Native serial inline plus local Parquet reads, version/deletion filtering, retained RC readers and fixed-reference interread have scoped passes through65cc. Current c16b option tests also pass actual native and independent reads. Full types, schema evolution, native historical query API and remote combinations remain incomplete.",
+      "source_refs": [],
+      "spec_anchors": [
+        "sec-9-3"
+      ],
+      "status": "in_progress",
+      "test_ids": [
+        "META-01/read_only",
+        "SNAP-01/read_only",
+        "SCAN-01/row",
+        "SCAN-02/read_only",
+        "SCAN-04/read_only",
+        "API-01/install_bind"
+      ],
+      "updated_at": "2026-11-08T13:22:39.192694+00:00"
+    },
+    "N3": {
+      "commands": [],
+      "deliverables": [],
+      "depends_on": [
+        "N2"
+      ],
+      "evidence": [],
+      "id": "N3",
+      "next_action": "Continue full bulk/COPY and remaining supported type combinations; preserve RC and transaction boundaries. Current scalarSMP full is separate.",
+      "owned_files": [],
+      "reason": "SQL19 f944 bounded direct-file INSERT passed12 selected cases737 assertions, alongside3 installation/upgrade cases20. Covers conflict retry, candidate cancellation, schema/first carrier, bounded payload, types and real late callbacks. Whole failed prior campaigns retained; not general bulk/spill or full types.",
+      "source_refs": [],
+      "spec_anchors": [
+        "sec-9-3"
+      ],
+      "status": "in_progress",
+      "test_ids": [
+        "ID-01",
+        "ID-02",
+        "ID-03",
+        "ID-04",
+        "TX-01"
+      ],
+      "updated_at": "2026-11-10T08:22:49.171523+00:00"
+    },
+    "N4": {
+      "commands": [],
+      "deliverables": [],
+      "depends_on": [
+        "N3"
+      ],
+      "evidence": [],
+      "id": "N4",
+      "next_action": "接续既有QQ12全部111与独验；保留当前BYTEA RC487单项及旧RC/EPQ限定证据，后续DDL/类型组合逐项验证。真实SDK/OGRAC和商用长稳后置，不把单项通过扩为全特性完成。",
+      "owned_files": [],
+      "reason": "Current execution queue reconciled against actual strict43 acceptance06 and running mixed4/H35; previous task entry retained in task_queue_reconcile_1113_01/before.json. No task is newly accepted or verified. 新43 e4d13整合回归另有BYTEA普通RC专项487项真实PASS：inline/file首次更新、XID等待后重算与条件重检、唯一活版本/稳定R新B/next_row_id不增、完整物理及历史对照，owned清理完成；总111仍在执行。",
+      "source_refs": [],
+      "spec_anchors": [
+        "sec-9-3"
+      ],
+      "status": "in_progress",
+      "test_ids": [
+        "DML-01",
+        "DML-02",
+        "LOC-01",
+        "LOC-02",
+        "TX-02",
+        "TX-03",
+        "TX-04"
+      ],
+      "updated_at": "2026-11-13T23:40:43.791551+00:00"
+    },
+    "N5": {
+      "commands": [],
+      "deliverables": [],
+      "depends_on": [
+        "N4"
+      ],
+      "evidence": [],
+      "id": "N5",
+      "next_action": "Move to the next missing core function. Keep ordinary Debug correctness/regression checks; long soak, scale/performance and production acceptance go to the final stage.",
+      "owned_files": [],
+      "reason": "Functional slice implemented and locally validated:65cc Debug late-DML8/195,27 component/crash/default cases1082 and10 RC cases160. User now explicitly defers commercial qualification; do not keep flush development open for GC, backup, Release performance or long soak. Full declared/external gates remain unverified; scoped passes are retained.",
+      "source_refs": [],
+      "spec_anchors": [
+        "sec-9-3"
+      ],
+      "status": "implemented_unverified",
+      "test_ids": [
+        "FLUSH-01",
+        "FLUSH-02",
+        "FLUSH-03",
+        "FLUSH-04",
+        "FLUSH-05",
+        "FLUSH-06",
+        "FLUSH-07",
+        "LOCK-01",
+        "LOCK-02",
+        "FLUSH-09"
+      ],
+      "updated_at": "2026-11-08T12:48:36.632444+00:00"
+    },
+    "N6": {
+      "commands": [],
+      "deliverables": [],
+      "depends_on": [
+        "N1",
+        "N5"
+      ],
+      "evidence": [],
+      "id": "N6",
+      "next_action": "Commercial frozen-harness qualification, truncate(...) partition transform, and OGRAC/remote S3 remain deferred.",
+      "owned_files": [],
+      "reason": "Core DDL/DML/compaction/evolution/GC/JSON surface across SQL0.60..SQL0.71 verified on Debug 3-runtime campaigns (0.60 d227d748, 0.61 e9199fd0, 0.62 ab410a09, 0.63 454bba02, 0.64 6afcf31f, 0.65 2f0f8a38, 0.66 3b196d93, 0.67 6498fa4b, 0.68 5b187cc9, 0.69 b86edf84, 0.70 2710a2bf, 0.71 6fbfd0c8; HEAD ed6a1250; code_count_current_071_final/raw.json sha 535324a4: existing +1384/-309 across 66 files, lake_module +52112 across 135 files, PQ_OWNED_FILES 938 lines) and Release (-O2) (native_final_release_campaign_01 sha 3d82dbed: release_070_ops_alter 6 checks incl. split single-column ALTER COLUMN TYPE widening, release_071_json 41 checks, release_smp_closure 19 checks, release_perf 8fc8290e). External commercial/cluster scope remains deferred: remote S3/OBS URLs, OGRAC multi-writer cluster (DEP-03/05/06), N7-VECTOR (SMP+Vec), truncate(...) partition transforms, and 72h scale soak.",
+      "source_refs": [],
+      "spec_anchors": [
+        "sec-9-3"
+      ],
+      "status": "implemented_unverified",
+      "test_ids": [
+        "DDL-01",
+        "DDL-02",
+        "CFG-01",
+        "DDL-04"
+      ],
+      "updated_at": "2026-11-19T18:16:27.627147+00:00"
+    },
+    "N7": {
+      "commands": [],
+      "deliverables": [],
+      "depends_on": [
+        "N2",
+        "N6"
+      ],
+      "evidence": [],
+      "id": "N7",
+      "next_action": "Only external/commercial/cluster items remain deferred: upstream DuckLake 1.1 truncate wire interop, remote S3/OBS, OGRAC multi-writer cluster (DEP-03/04/05/06), COMP1 external shared writer, 72h commercial soak, and VARCHAR(n) LIST parser/catalog support.",
+      "owned_files": [],
+      "reason": "Local single-node SQL0.55..0.74 closed with PQ in-tree migration (diff 552932a2, 57,246 in-tree added lines, 0 out-of-tree adapter) verified across Release -O2 (6b22d35b, 153c3370), Debug ASAN -O0 -g (ce84057d), and ann-debug (58cc10b9): standalone PQ probes (9a514680), high-dim DiskANN+PQ 32D..1536D, active-H, PGL-0 (1..64 leaves), 1M scale (Vec DOP=4 377.194ms / 3.19x vs Row DOP=1), 0.56..0.73 compat (15 history suites + 122 checks), datavec 3/3, and thread_pool=on 80-table LRU + pg_cancel_session + GC soak.",
+      "source_refs": [],
+      "spec_anchors": [
+        "sec-9-3"
+      ],
+      "status": "implemented_unverified",
+      "test_ids": [
+        "SCAN-01",
+        "SCAN-02",
+        "SCAN-03",
+        "SCAN-04",
+        "STAT-01",
+        "STAT-02",
+        "STAT-03",
+        "STAT-04",
+        "STAT-05",
+        "STAT-06",
+        "STAT-07",
+        "STAT-08",
+        "STAT-09",
+        "STAT-10",
+        "SMP-01",
+        "VEC-01",
+        "SMP-02"
+      ],
+      "updated_at": "2026-11-21T10:58:08.106870+00:00"
+    },
+    "N7-COPY": {
+      "commands": [],
+      "deliverables": [],
+      "depends_on": [
+        "N2",
+        "N6"
+      ],
+      "evidence": [],
+      "id": "N7-COPY",
+      "next_action": "Proceed to Route D: PGL-3 (SQL0.63 file-partition combinations + explicit truncate boundary) -> IX1~IX5 & N7-SMP -> N7-STATS.",
+      "owned_files": [],
+      "reason": "SQL0.62 (N7-COPY) controlled local Parquet/CSV/TEXT COPY FROM/TO across heap, native lake (inline/spill/direct/file-partitioned identity+bucket(4) + post-COPY DML + time_travel/table_changes), and og_lake_file_fdw external FDW + strict 0.62 version/openat2/EEXIST/privilege/savepoint-rollback atomicity passed official Debug build (native_062_copy_full_02 2bd944bd -> native_062_copy_inc_03 ed4c2514) and 3-runtime campaign (native_062_copy_campaign_01 index sha f1bbb449 receipt: 5 stages, 59 checks x3 runtimes, 81 DuckDB parity checks) with SDK54 (b07ee911), SDK6 (4f2a2cd7), and postgresql.conf (e6e74fe8) unchanged; remote object-store URL COPY and commercial gates remain deferred.",
+      "source_refs": [],
+      "spec_anchors": [
+        "sec-9-3"
+      ],
+      "status": "implemented_unverified",
+      "test_ids": [
+        "API-01"
+      ],
+      "updated_at": "2026-11-19T03:13:13.528392+00:00"
+    },
+    "N7-SMP": {
+      "commands": [],
+      "deliverables": [],
+      "depends_on": [
+        "N2",
+        "N6"
+      ],
+      "evidence": [],
+      "id": "N7-SMP",
+      "next_action": "Multi-node distributed SMP and N7-VECTOR (SMP+Vec) remain deferred.",
+      "owned_files": [],
+      "reason": "SQL0.64 (IX1~IX5 + N7-SMP: native_064_ix_smp_campaign_01 sha 6afcf31f) + SQL0.71 N7-SMP full closure passed across 3-runtime Debug (native_071_json_smp_campaign_01 sha 6fbfd0c8: 170 total checks across debug pool=off/on 4w/ann-debug) and Release (-O2) (native_final_release_campaign_01 sha 3d82dbed: release_smp_closure 19 checks; native_final_release_perf_01 sha 8fc8290e). Covers SMP-01 snapshot isolation under biz.smp_probe paused worker + live flush, fault modes 2/3/4 -> XX000, SMP-02 PREPARE generic-plan enable_lake_smp=off -> 0A000 guard, adaptive DOP=0/2 fallback, partitioned bucket(4) UUID extended-type row SMP DOP=2/4, 4x260 dim=16 DiskANN+PQ format_version=2 DOP=4 boolean filter + LATERAL ReScan, and 240k 8-file natural-cost row SMP scaling (DOP1 281.761ms -> DOP2 208.362ms [1.352x] -> DOP4 175.070ms [1.609x]). Per Release perf receipt, 1,200 dim=32 (4x300) PQ DOP=1/4 had 1.0 Recall@10 but ~1.2-1.6s per-query PQ reopen/IPC cost exceeding 75ms sequential scan on small 300-row segments. External commercial/cluster scope remains deferred: remote S3/OBS URLs, OGRAC multi-writer cluster (DEP-03/05/06), N7-VECTOR (SMP+Vec), truncate(...) partition transforms, and 72h scale soak.",
+      "source_refs": [],
+      "spec_anchors": [
+        "sec-9-3"
+      ],
+      "status": "implemented_unverified",
+      "test_ids": [
+        "SMP-01",
+        "SMP-02"
+      ],
+      "updated_at": "2026-11-19T18:16:27.548902+00:00"
+    },
+    "N7-STATS": {
+      "commands": [],
+      "deliverables": [],
+      "depends_on": [
+        "N2",
+        "N6"
+      ],
+      "evidence": [],
+      "id": "N7-STATS",
+      "next_action": "Route D SQL0.60..SQL0.65 (N9a, PGL-2, N7-COPY, PGL-3, IX1~IX5, N7-SMP, N7-STATS) scoped Debug/ann-debug/DuckLake parity complete; deferred tasks N9b, OPS1, PGL-1, PGL-4, PGL-5, Release perf, commercial soak/stress, and remote SDK/OGRAC await explicit authorization.",
+      "owned_files": [],
+      "reason": "SQL0.65 (N7-STATS) NUMERIC(p,s) exact 128-bit min/max/exactness across ducklake_table_column_stats and ducklake_file_column_stats (inline DML/COPY, direct/partitioned INSERT, flush, identity flush, rewrite_data_files, merge_adjacent_files, ADD COLUMN, all-NULL/malformed-bound fallback), ANALYZE/cost/MCV/range/join selectivity parity, and pinned DuckDB DuckLake parity passed clean full Debug build native_065_stats_full_02 (build.json sha 85b1f0d5, ELF 80656e5d, HEAD ed6a1250, diff c04681e5) and 3-runtime campaign native_065_stats_campaign_01 (index sha 2f0f8a38, status passed_scoped_SQL065, ext 0.65: debug_pool_off=54, debug_pool_on=54, anndebug_pool_off=54, duckdb_checks=24; SDK54 b07ee911 / SDK6 4f2a2cd7 / debug+ann-debug postgresql.conf e6e74fe8/42ccca8d unchanged; zero gaussdb running). Commercial soak/scale/release perf gates remain deferred.",
+      "source_refs": [],
+      "spec_anchors": [
+        "sec-9-3"
+      ],
+      "status": "implemented_unverified",
+      "test_ids": [
+        "STAT-01",
+        "STAT-02",
+        "STAT-03",
+        "STAT-04",
+        "STAT-05",
+        "STAT-06",
+        "STAT-07",
+        "STAT-08",
+        "STAT-09",
+        "STAT-10"
+      ],
+      "updated_at": "2026-11-19T08:26:01.600062+00:00"
+    },
+    "N7-VECTOR": {
+      "commands": [],
+      "deliverables": [],
+      "depends_on": [
+        "N2",
+        "N6"
+      ],
+      "evidence": [],
+      "id": "N7-VECTOR",
+      "next_action": "Remote S3/OBS, OGRAC cluster, and 72h commercial soak remain deferred for final verified gate.",
+      "owned_files": [],
+      "reason": "SQL0.72..0.74 vectorized scan, SMP DOP=4, projection pushdown, and SPI_keepplan LRU reverified after PQ in-tree migration (153c3370): Release -O2 (6b22d35b: 60k vec_vs_row 1.168x/1.233x/1.266x; 1M Vec DOP=4 377.194ms [2.391x vs Vec DOP=1, 3.19x vs Row DOP=1]; 20k/50k dim32 PQ; thread_pool=on 80-table LRU soak), Debug -O0 -g (vec_smp_072 31/31), and ann-debug (58cc10b9).",
+      "source_refs": [],
+      "spec_anchors": [
+        "sec-9-3"
+      ],
+      "status": "implemented_unverified",
+      "test_ids": [
+        "VEC-01"
+      ],
+      "updated_at": "2026-11-21T10:58:08.144550+00:00"
+    },
+    "N8": {
+      "commands": [],
+      "deliverables": [],
+      "depends_on": [
+        "N5",
+        "N6"
+      ],
+      "evidence": [],
+      "id": "N8",
+      "next_action": "Distributed OGRAC transaction coordination remains deferred under DEP-03/04.",
+      "owned_files": [],
+      "reason": "Local single-node MVCC/snapshot isolation, BOUND_SNAPSHOT/STATEMENT_VIEW/TXN_READ pins, tx abort/termination recovery, SMP worker snapshot pinning under concurrent flush (native_068_pgl5_campaign_01 sha 5b187cc9, native_071_json_smp_campaign_01 sha 6fbfd0c8), and Release (-O2) concurrent 20k flush reader check (native_final_release_perf_01 sha 8fc8290e: 2 concurrent reads, median 62.111ms) passed. Distributed multi-writer OGRAC TX (DEP-03/04) remains blocked on external cluster interfaces.",
+      "source_refs": [],
+      "spec_anchors": [
+        "sec-9-3"
+      ],
+      "status": "implemented_unverified",
+      "test_ids": [
+        "JOB-01",
+        "JOB-02"
+      ],
+      "updated_at": "2026-11-19T18:16:27.777468+00:00"
+    },
+    "N9a": {
+      "commands": [],
+      "deliverables": [],
+      "depends_on": [
+        "N5",
+        "N6"
+      ],
+      "evidence": [],
+      "id": "N9a",
+      "next_action": "Preserve scoped SQL0.60 evidence and continue Route C; do not conflate this scoped success with production, physical GC or aggregate harness verification.",
+      "owned_files": [],
+      "reason": "SQL0.60 scoped Debug/Debug four-worker + automatic maintenance/ann-debug passed (9/10/9 stages + 54/63/54 pinned DuckLake checks; one opt-in merge, zero failed; all instances stopped). Evidence: native_060_full_birth_binding_24 and native_060_profile_campaign_02. Formal legacy FLUSH-01–07/09 gates and dependency N5/N6 are not all validated by taskctl, so no verified label.",
+      "source_refs": [],
+      "spec_anchors": [
+        "sec-9-3"
+      ],
+      "status": "implemented_unverified",
+      "test_ids": [
+        "FLUSH-01",
+        "FLUSH-02",
+        "FLUSH-03",
+        "FLUSH-04",
+        "FLUSH-05",
+        "FLUSH-06",
+        "FLUSH-07",
+        "FLUSH-09"
+      ],
+      "updated_at": "2026-11-19T00:02:17.108883+00:00"
+    },
+    "N9b": {
+      "commands": [],
+      "deliverables": [],
+      "depends_on": [
+        "N7",
+        "N8",
+        "N9a"
+      ],
+      "evidence": [],
+      "id": "N9b",
+      "next_action": "Distributed/remote object-store GC (DEP-05/06) and 72h GC soak remain deferred.",
+      "owned_files": [],
+      "reason": "SQL0.69 expire_snapshots + cleanup_orphan_files physical GC + snapshot pin safety (native_069_n9b_campaign_01 sha b86edf84) and SQL0.70/0.71 Release (-O2) retention_status/backup_manifest/verify_catalog_integrity checks passed (native_final_release_campaign_01 sha 3d82dbed). Scheduled daemon physical GC and remote/OGRAC cluster cleanup (DEP-05/06) remain deferred.",
+      "source_refs": [],
+      "spec_anchors": [
+        "sec-9-3"
+      ],
+      "status": "implemented_unverified",
+      "test_ids": [
+        "REC-01",
+        "REC-02",
+        "GC-01",
+        "PERF-01",
+        "SEC-01",
+        "REC-03",
+        "REC-04",
+        "UPG-01",
+        "OPS-01",
+        "GC-02",
+        "GC-03",
+        "GC-04",
+        "GC-05"
+      ],
+      "updated_at": "2026-11-19T18:16:27.816038+00:00"
+    },
+    "OPS1": {
+      "commands": [],
+      "deliverables": [],
+      "depends_on": [
+        "N6"
+      ],
+      "evidence": [],
+      "id": "OPS1",
+      "next_action": "Full physical PITR shipping, OGRAC cluster failure recovery, and 72h scale soak remain deferred.",
+      "owned_files": [],
+      "reason": "SQL0.69 (N9b physical GC) + SQL0.70 (verify_catalog_integrity, backup_manifest, retention_status: native_070_type_ops_campaign_01 sha 2710a2bf) + SQL0.71 local JSON external checks verified in 3-runtime Debug (native_071_json_smp_campaign_01 sha 6fbfd0c8) and Release (-O2) (native_final_release_campaign_01 sha 3d82dbed, release_070_ops_alter backup_manifest/verify_catalog_integrity/retention_status/bind_snapshot + release_perf 8fc8290e concurrent 20k flush read median 62.111ms). External commercial/cluster scope remains deferred: remote S3/OBS URLs, OGRAC multi-writer cluster (DEP-03/05/06), N7-VECTOR (SMP+Vec), truncate(...) partition transforms, and 72h scale soak.",
+      "source_refs": [],
+      "spec_anchors": [
+        "sec-9-3"
+      ],
+      "status": "implemented_unverified",
+      "test_ids": [
+        "REC-01",
+        "REC-02",
+        "SEC-01",
+        "REC-03",
+        "REC-04",
+        "UPG-01",
+        "OPS-01"
+      ],
+      "updated_at": "2026-11-19T18:16:27.664589+00:00"
+    },
+    "PGL-0": {
+      "commands": [],
+      "deliverables": [],
+      "depends_on": [],
+      "evidence": [],
+      "id": "PGL-0",
+      "next_action": "Only VARCHAR(n) LIST parser/catalog gap and external/commercial/OGRAC gates remain deferred.",
+      "owned_files": [],
+      "reason": "SQL0.74 expanded native pg_partition parent/leaf support (1..64 leaves, RANGE/LIST(INT/DATE/TEXT)/HASH(INT/TEXT), ANALYZE/DML/COPY/row-movement/pruning, isolated 0.23..0.73 gates) plus active-H cleanup reverified after PQ in-tree migration across Release -O2 (6b22d35b, e9999710) and Debug ASAN -O0 -g (ce84057d, 4995eff3, 771a23ae).",
+      "source_refs": [],
+      "spec_anchors": [
+        "sec-9-3"
+      ],
+      "status": "implemented_unverified",
+      "test_ids": [],
+      "updated_at": "2026-11-21T10:58:08.182291+00:00"
+    },
+    "PGL-1": {
+      "commands": [],
+      "deliverables": [],
+      "depends_on": [
+        "N6"
+      ],
+      "evidence": [],
+      "id": "PGL-1",
+      "next_action": "Run formal full-harness acceptance suite when authorized; proceed to IX5 remaining gaps + PGL-4 local observability (SQL0.67).",
+      "owned_files": [],
+      "reason": "SQL0.66 scoped campaign passed across 3 runtimes (51/51 debug pool=off, 51/51 debug pool=on, 51/51 ann-debug pool=off, 9 DuckDB checks; build native_066_ext_defaults_inc_02/build.json sha256 58434c04, binary 6f0c98c6, campaign native_066_ext_defaults_campaign_01/index.json sha256 3b196d93): mixed heap + multi-lake transaction/savepoint/self-write/CoW/rollback closure + cross-session relcache/plan-cache invalidation + extended literal defaults & NOT NULL ADD COLUMN. Remaining host-wide full harness soak/acceptance deferred.",
+      "source_refs": [],
+      "spec_anchors": [
+        "sec-9-3"
+      ],
+      "status": "implemented_unverified",
+      "test_ids": [],
+      "updated_at": "2026-11-19T10:01:45.978079+00:00"
+    },
+    "PGL-2": {
+      "commands": [],
+      "deliverables": [],
+      "depends_on": [
+        "N6"
+      ],
+      "evidence": [],
+      "id": "PGL-2",
+      "next_action": "Remote S3/OBS external URLs and OGRAC external writer connectors remain deferred until SDK/cluster qualification.",
+      "owned_files": [],
+      "reason": "SQL0.61 (external CSV/Parquet FDW, explain/scan, DuckDB parity: native_061_pgl2_campaign_01 sha256 e9199fd0) + SQL0.71 local JSON/JSONL schema inference (describe_external_file/path), external JSON/JSONL FDW, COPY FROM/TO FORMAT json/jsonl/ndjson RFC-8259 normalization (LakeCopyJsonOutState/AppendJsonNormalizedNumber in contrib/og_lake/lake_copy.cpp), and DuckDB parity passed 3-runtime Debug (native_071_json_inc_02 build sha ed1b16b9, binary 795c1622; native_071_json_smp_campaign_01 sha 6fbfd0c8, 170 checks total) and Release (-O2) (native_final_release_01 build sha 92dc0171, binary 142c7e17; native_final_release_campaign_01 sha 3d82dbed: release_071_json 41 checks, release_perf sha 8fc8290e COPY 60k JSONL/Parquet). External commercial/cluster scope remains deferred: remote S3/OBS URLs, OGRAC multi-writer cluster (DEP-03/05/06), N7-VECTOR (SMP+Vec), truncate(...) partition transforms, and 72h scale soak.",
+      "source_refs": [],
+      "spec_anchors": [
+        "sec-9-3"
+      ],
+      "status": "implemented_unverified",
+      "test_ids": [],
+      "updated_at": "2026-11-19T18:16:27.507197+00:00"
+    },
+    "PGL-3": {
+      "commands": [],
+      "deliverables": [],
+      "depends_on": [
+        "N6"
+      ],
+      "evidence": [],
+      "id": "PGL-3",
+      "next_action": "Upstream DuckLake 1.1 truncate wire-protocol parity, VARCHAR(n) LIST, and commercial/RAC gates remain external/deferred.",
+      "owned_files": [],
+      "reason": "SQL0.63..0.74 file-partition + PGL-0 native pg_partition (1..64 leaves) reverified after PQ in-tree migration across Release -O2 (6b22d35b, 153c3370: 0.56..0.73 replay + truncate_pq_073 50/50 + 1M 16-file truncate+bucket 15/16 pruning 81.631ms + PGL-0), Debug -O0 -g (ce84057d), and ann-debug (58cc10b9, truncate_pq_073 50/50).",
+      "source_refs": [],
+      "spec_anchors": [
+        "sec-9-3"
+      ],
+      "status": "implemented_unverified",
+      "test_ids": [
+        "PART-01",
+        "PART-02",
+        "PART-03",
+        "PART-04",
+        "PART-05",
+        "PART-06",
+        "PART-07",
+        "PART-08",
+        "PART-09",
+        "PART-10",
+        "PART-11"
+      ],
+      "updated_at": "2026-11-21T10:58:08.217116+00:00"
+    },
+    "PGL-4": {
+      "commands": [],
+      "deliverables": [],
+      "depends_on": [
+        "N6"
+      ],
+      "evidence": [],
+      "id": "PGL-4",
+      "next_action": "Proceed to SQL0.68 (PGL-5 single-node long-read snapshot pin & maintenance cancel/recovery closure).",
+      "owned_files": [],
+      "reason": "SQL0.67 (IX5 + PGL-4) scoped Debug/Debug 4-worker/ann-debug + DuckDB parity passed on native_067_ix5_pgl4_inc_01 (build sha 0e8b80b8, binary 6184585e, diff 9d6d3ffbf5) and native_067_ix5_pgl4_campaign_01 (index sha 6498fa4b1637101b0ad59437747620437c45b17400a72b3f2509c6f0b4142f9b, status passed_scoped_SQL067, ext 0.67: debug_pool_off=11, debug_pool_on=11, anndebug_pool_off=19; SDK54/SDK6/postgresql.conf unchanged; all gaussdb stopped). Covers IX5 PQ v1/v2 background build & cancel recovery, round-robin multi-index cursor discovery/LRU/reset, AnnRescanCache invalidation/poisoning/fallback isolation, host_status maintenance/rescan/autoanalyze JSON telemetry, and PGL-4 EXPLAIN partition-prune/fallback reconciliation; full commercial/RAC stress remains deferred.",
+      "source_refs": [],
+      "spec_anchors": [
+        "sec-9-3"
+      ],
+      "status": "implemented_unverified",
+      "test_ids": [],
+      "updated_at": "2026-11-19T11:27:37.838386+00:00"
+    },
+    "PGL-5": {
+      "commands": [],
+      "deliverables": [],
+      "depends_on": [
+        "N6"
+      ],
+      "evidence": [],
+      "id": "PGL-5",
+      "next_action": "All non-commercial local functional items (SQL0.60..SQL0.68) implemented and scoped Debug-verified; deferred commercial/operational work remains in N9b, OPS1, Release perf/soak, real SDK/OGRAC, and PGL-6.",
+      "owned_files": [],
+      "reason": "SQL0.68 (PGL-5 single-node active reader snapshot pin & session-exit cleanup) scoped Debug/Debug 4-worker/ann-debug + DuckDB parity passed on native_068_pgl5_full_01/build.json (sha c6c29f90, binary 56d8fb9e, HEAD ed6a1250, diff 0abb0ed5) and native_068_pgl5_campaign_01/index.json (sha 5b187cc9, status passed_scoped_SQL068, ext 0.68: debug_pool_off=13, debug_pool_on=13, anndebug_pool_off=13 across 0.67->0.68 upgrade, BOUND_SNAPSHOT/STATEMENT_VIEW/TXN_READ pins in og_lake.active_snapshot_pins(), expire_snapshots exclusion & post-release expiry, pg_terminate_session pin reap, scalar B-tree READY, and DuckDB read_parquet parity; SDK54/SDK6/postgresql.conf unchanged; all gaussdb stopped). Local non-commercial functional scope closed across SQL0.60..SQL0.68; physical GC (N9b), OPS1 backup/PITR/security/recovery, Release performance calibration, 72h scale soak, real remote SDK/OGRAC multi-writer, PGL-6 external protocols, ALTER COLUMN TYPE, and truncate(...) remain deferred.",
+      "source_refs": [],
+      "spec_anchors": [
+        "sec-9-3"
+      ],
+      "status": "implemented_unverified",
+      "test_ids": [],
+      "updated_at": "2026-11-19T11:56:24.753274+00:00"
+    }
+  },
+  "updated_at": "2026-11-21T10:58:08.217127+00:00"
+}

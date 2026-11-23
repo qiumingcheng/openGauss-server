@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "purpose": "sql019_direct_insert_qualification",
+  "ready_for_native_qualification": true,
+  "base_patch_sha256": "538c03cf68410df0b39a45f3668777a209998790f591db8c500d445f9b16652d",
+  "known_blockers": [],
+  "native_inputs": {
+    "contrib/og_lake/CMakeLists.txt": "ff899a3d451dfe7bc2d3ec8c24d39de0323da23faa99b813070379fe53c67789",
+    "contrib/og_lake/Makefile": "08ded330f1b81f79a97f912094a7ae6ddf426ef48c5cba6df5eed3b1b0b7e163",
+    "contrib/og_lake/lake_acl.cpp": "27bb1935050f6b6c9507f0a98b7a774cacf987c725c510df81e4a7ed4bbd2aa3",
+    "contrib/og_lake/lake_analyze.cpp": "7e5c2e6a444e66e04e246ada8e86af53146d855db81c36425b0cbe1aabfcd123",
+    "contrib/og_lake/lake_autoanalyze.cpp": "3b112f8d7ba6a2c7820794892898a62a65e81431f8ce199d01876498dc8165cc",
+    "contrib/og_lake/lake_autoanalyze.h": "3dbe0ddcdf67852bddacf58cf2f28f29cdd2be2b28c8a71a4e85534beea85863",
+    "contrib/og_lake/lake_catalog.cpp": "c31ed9cbb84a5244be11a42b8502b718d0341ba9453c460f27306dae3a07095e",
+    "contrib/og_lake/lake_create_publish.cpp": "fb4dbc90ec595f889c14c6abf238c05d0c07736848196a2e9a056cd9fd478baa",
+    "contrib/og_lake/lake_create_publish.h": "9534181a7f31fcbf5f6e6a6897d926ec3abfbe7774832c8a77b50bcfa0309b84",
+    "contrib/og_lake/lake_flush.cpp": "a187950462ed7e40b4b8f5c8914d1a837d58373b53dff272d5c7488073b1746a",
+    "contrib/og_lake/lake_host.cpp": "928163098c62e38e7e21317ae34db393b435b0f3a7f7ff67790cd160f7ace193",
+    "contrib/og_lake/lake_inline_ann.cpp": "4851d97ddd47e1d4346716c1c6b039218cec15307c2aaa9b52acfca9aea4229a",
+    "contrib/og_lake/lake_inline_index.cpp": "5691446082f02bc744a92a029b7c2788ea31c4d1d69488106c7c2fe9d99cda32",
+    "contrib/og_lake/lake_inline_private.h": "abe0f37b08840625a8b48861e0605ca6dd8a507990107f2613f76e3650254e90",
+    "contrib/og_lake/lake_inline_reader.cpp": "47d87f9b32cef81ce02085e98dab9dc3d832151bf13bf25d12139fb088a9b906",
+    "contrib/og_lake/lake_maintenance.cpp": "b4022a98e7c3aa166bf2c994598db8d275e1b3269ec9325a9fac1b3dd18219ef",
+    "contrib/og_lake/lake_options.cpp": "370b00c8347381912a317b17785e32c783159470e93758eb21119276c3369833",
+    "contrib/og_lake/lake_publish.cpp": "becbc6be5bf749293d0accb4d51bf3c5c6ca383a7b7efb480cd00fab1e0ea73d",
+    "contrib/og_lake/lake_rename.cpp": "99a30fad0b78c30704e15a890e1522a7bbfafcedaa1ef62149a898ed60c24b80",
+    "contrib/og_lake/lake_rename.h": "b28c9825d154eaf4965f43d73c4b994191bad2d431517ad810de11a8f602a178",
+    "contrib/og_lake/lake_row_lock.cpp": "066c914057cd2832c218ef86247f9832112739b741dbbee3ca462169563f8c5b",
+    "contrib/og_lake/lake_stream.cpp": "97115aa5d1df709e939da38f26f3a4b188f2ec250888f7bcc50ca284b43b4e1e",
+    "contrib/og_lake/lake_txn.cpp": "09d2ee4d01158f0802cebf5507d4a8576c84e878299c0c69a125dfe18f85fca4",
+    "contrib/og_lake/lake_version.h": "ed39086e06ef636982bdc95d9e6aff7bb40c4deb213d8cd5788f55f30f66cfd2",
+    "contrib/og_lake/og_lake--0.18--0.19.sql": "c86f6958416ae45b5cea7a6ed2d3e32acde56e0aac5d4c2be245ea3dff1b9f71",
+    "contrib/og_lake/og_lake--0.19.sql": "7d7595652f4157e3a75404926a92e8094afaed6bcd020be7c12384c8c4c91f68",
+    "contrib/og_lake/og_lake.control": "efd5ded31a3b53388683437582520e712dd2b1fea16019724e687d1c7cd1c6d0",
+    "contrib/og_lake/og_lake.cpp": "b0d78b117d9de5ee60e2c770f3a0947b5e784cbabe440935bda819a41b859a9a",
+    "src/common/backend/utils/misc/guc/guc_storage.cpp": "f138c5f2c77a738f42b0d6eb78a0e3f0f58c71ce131e7384ae9a303071e432bd",
+    "src/gausskernel/optimizer/commands/tablecmds.cpp": "b6b0af23bbf89fb26ee88ef61d712ec8e62a1916dadc8d95eb15340106489cd5",
+    "src/include/access/og_lake.h": "8337f5bcadcbe6c6840cfd0a968a804fb49030823adb05a9dc976a2e26517fac",
+    "src/include/knl/knl_guc/knl_instance_attr_storage.h": "e40bcb48d0b1f54329167368701010ae1c16305b5c4919379a04596dbd6170b3"
+  },
+  "review_evidence": {
+    "/home/qiumc/data/code/cpp/.codex_tmp/native_sql019_combined_stage_1110_01/result.json": "ef88ba6f1149031e59a5d232154db233e24b23e58d50e801781f23356b538322",
+    "/home/qiumc/data/code/cpp/.codex_tmp/native_first_inline_schema_fix_1110_01/result.json": "3a4f4210b10042a954d4adc220e99037e161fed98f5c6dcb1dab13e3284128d6",
+    "/home/qiumc/data/code/cpp/.codex_tmp/native_sql019_zero_inline_stage_1110_01/result.json": "b1f8eda828d75d9bcf3c792af1ae2c9f3af9fa7d45aea2563822b06d27fe7303",
+    "/home/qiumc/data/code/cpp/.codex_tmp/native_sql019_registration_stage_1110_01/result.json": "4ee783c70b9d161eb5ee02cbc933c67914d22f370927303c8509ac013638dbf4",
+    "/home/qiumc/data/code/cpp/公共文档/openGauss原生湖存储/验证/native_sql019_install_gate_fix_1110_01/source-change.json": "409f31b8737e5e0e08ddf51f19a1d38495681e811051f8763404f269f420d67a"
+  },
+  "scope": "Reviewed source candidate for future official Native qualification only; zero Native tests executed here.",
+  "requires_future_build": "Root installs module/control0.19 and official exact input receipt; current runtime0.18 is rejected.",
+  "registered_final_patch_sha256": "a2db5708f7fb7469538ae2388d7d835b4dba89133c494d66822c62fa87dae6f7",
+  "shared_helper_inputs": {
+    "native_test_context.py": "da08d5954b40a532393fba1de9ec53f128f356cda281b53b20048d14c64de1c8",
+    "tests/native_table_create.py": "6f7d307b7f25a6063e6b0048d73788f8b44a0680fe9287b84cf06bf5e4973d12"
+  },
+  "parent_contract": {
+    "path": "/home/qiumc/data/code/cpp/integration/opengauss-native-lake/tests/native_direct_source_contract.sql019-candidate.json",
+    "sha256": "0be8cd33f6b70eb79bca0036dc27ca5340df05dde8b900ae093deec015bb69aa"
+  },
+  "followup_scope": "fresh installation empty owner scalar subquery; create_catalog explicit19 closed gate. No header or ABI changes; original failures retained."
+}
