@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "purpose": "sql019_direct_insert_qualification",
+  "ready_for_native_qualification": false,
+  "base_patch_sha256": "538c03cf68410df0b39a45f3668777a209998790f591db8c500d445f9b16652d",
+  "known_blockers": [
+    "Replace historical538c hashes after root merges reviewed first-inline table-local schema fix and creates a new receipt; no old receipt mutation.",
+    "Root must install/module/control19 with matching official build receipt."
+  ],
+  "native_inputs": {
+    "contrib/og_lake/lake_publish.cpp": "276133a2e943450b2202972697528d79075eb6547bb08701a1c7287c8729dcb4",
+    "contrib/og_lake/lake_catalog.cpp": "6883ccb46c0938da9663f09db77d1bbb6349fcada3aae29e90fb0a0a3afb0919",
+    "contrib/og_lake/lake_create_publish.cpp": "fb4dbc90ec595f889c14c6abf238c05d0c07736848196a2e9a056cd9fd478baa",
+    "contrib/og_lake/lake_create_publish.h": "9534181a7f31fcbf5f6e6a6897d926ec3abfbe7774832c8a77b50bcfa0309b84",
+    "contrib/og_lake/lake_inline_private.h": "abe0f37b08840625a8b48861e0605ca6dd8a507990107f2613f76e3650254e90",
+    "contrib/og_lake/lake_autoanalyze.cpp": "3b112f8d7ba6a2c7820794892898a62a65e81431f8ce199d01876498dc8165cc",
+    "contrib/og_lake/lake_autoanalyze.h": "3dbe0ddcdf67852bddacf58cf2f28f29cdd2be2b28c8a71a4e85534beea85863",
+    "contrib/og_lake/og_lake--0.19.sql": "1d59f8ea57cf5102b5a9426d8bbba76be0dc741b0e259c7a8ae491d54c5bc290",
+    "contrib/og_lake/og_lake--0.18--0.19.sql": "506bc31e957d418cd07b3d19bcb614405545805db245cc5b7877ce4c450d51e3"
+  },
+  "review_evidence": {
+    "/home/qiumc/data/code/cpp/.codex_tmp/native_sql019_combined_stage_1110_01/result.json": "ef88ba6f1149031e59a5d232154db233e24b23e58d50e801781f23356b538322"
+  }
+}

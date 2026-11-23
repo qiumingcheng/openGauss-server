@@ -1,0 +1,276 @@
+{
+  "scope": "Bounded first-slice runner coverage; never implies all24 cases implemented/passed",
+  "origin_contract": "/home/qiumc/data/code/cpp/.codex_tmp/native_lake_direct_insert_stage_1110_01/contract.json",
+  "origin_sha256": "c939d5201733337b052fee421be5a8db3a37435de5b3074cb04b9ca8e1b3f817",
+  "modes": [
+    "boundary",
+    "journal",
+    "cancel",
+    "claim",
+    "schema",
+    "carrier",
+    "limits",
+    "interop",
+    "types",
+    "legacy",
+    "carrier-legacy",
+    "callbacks"
+  ],
+  "cases": [
+    {
+      "id": "permanent_empty_first_file",
+      "scope": "first_slice",
+      "status": "prepared_not_executed",
+      "oracle": "CREATE/COMMIT empty permanent table; INSERT above limit; exact Parquet contains only business field IDs, no2147483540/2147483539; one file metadata row with start/end matching exactly allocated N; inline has zero new payload rows",
+      "runner_modes": [
+        "boundary",
+        "journal"
+      ]
+    },
+    {
+      "id": "force_file_zero_limit",
+      "scope": "first_slice",
+      "status": "prepared_not_executed",
+      "oracle": "set row limit0; committed permanent table INSERT1 writes one genuine file; count/allocator advance1 once; oldSQL18 remains0A000 in its existing guarded scenario",
+      "runner_modes": [
+        "boundary",
+        "legacy"
+      ],
+      "extra_oracle": "SQL19 set_option(table/catalog,0) succeeds; catalog0 CREATE alone then committed-table direct works; CREATE-local nonemptyINSERT stays0A000; SQL18 option0 itself0A000."
+    },
+    {
+      "id": "small_inline_boundary",
+      "scope": "first_slice",
+      "status": "prepared_not_executed",
+      "oracle": "N<=configured limit retains inline, N=limit+1 selects direct file; committed-row mixing follows original inline/refusal and never new file path",
+      "runner_modes": [
+        "boundary"
+      ]
+    },
+    {
+      "id": "all_scalar_types_heap_ustore",
+      "scope": "first_slice",
+      "status": "prepared_not_executed",
+      "oracle": "bool/int2/int4/int8/float4/float8/text NULL, NaN/inf/signed0 and UTF8/TOAST; file read values equal ordinary heap; immutable column statistics/count/byte oracle",
+      "runner_modes": [
+        "types"
+      ],
+      "remaining_contract": "Heap mode prepared; Ustore is not yet covered."
+    },
+    {
+      "id": "own_read_update_twice",
+      "scope": "first_slice",
+      "status": "prepared_not_executed",
+      "oracle": "INSERT in explicit TX, SELECT sees journal; UPDATE new row twice before COMMIT preserves private identity; candidate contains only final row; outside observer sees nothing until commit; final N IDs allocated once",
+      "runner_modes": [
+        "journal"
+      ]
+    },
+    {
+      "id": "own_delete_all_some",
+      "scope": "first_slice",
+      "status": "prepared_not_executed",
+      "oracle": "INSERT then delete all makes no file/snapshot/allocation; partial deletes exclude tombstones before writing and allocate only survivors in this first slice",
+      "runner_modes": [
+        "journal"
+      ]
+    },
+    {
+      "id": "savepoint_child_rollback",
+      "scope": "first_slice",
+      "status": "prepared_not_executed",
+      "oracle": "parent rows survive; child INSERT/UPDATE/DELETE and ordinary heap changes roll back; file prepared only after final top-level survivors; no child after-images published",
+      "runner_modes": [
+        "journal",
+        "callbacks"
+      ]
+    },
+    {
+      "id": "ordinary_heap_atomicity",
+      "scope": "first_slice",
+      "status": "prepared_not_executed",
+      "oracle": "injected publication error or cancellation rolls back normal heap marker, snapshot, stats, datafile rows, and candidate files together",
+      "runner_modes": [
+        "cancel",
+        "limits",
+        "callbacks"
+      ]
+    },
+    {
+      "id": "multi_table_file_inline",
+      "scope": "first_slice",
+      "status": "prepared_not_executed",
+      "oracle": "one TX with file tableA/inline tableB/file tableC; one row range per table; exactly one reserved next_file slot per active table and no overlap; per-table autoanalyze delta once",
+      "runner_modes": [
+        "cancel",
+        "claim"
+      ]
+    },
+    {
+      "id": "claim_collision_reuses_payload",
+      "scope": "first_slice",
+      "status": "prepared_not_executed",
+      "oracle": "two writers finish distinct candidate files then contend same snapshot; losing claim internal subtxn rolls back metadata only; same candidate path/SHA reused, no repeated payload or user SQL; final ranges disjoint",
+      "runner_modes": [
+        "claim"
+      ]
+    },
+    {
+      "id": "origin_rc_interaction",
+      "scope": "first_slice",
+      "status": "prepared_not_executed",
+      "oracle": "writer with committed-origin UPDATE retains tuple wait/EPQ + exact source validation; concurrent direct append treated known append only on SQL19; no broad SQLSTATE retry",
+      "runner_modes": [
+        "boundary",
+        "carrier"
+      ],
+      "remaining_contract": "Committed-origin mixing and repeated sameR prepared; concurrent RC wait/EPQ uses existing regression, not this draft."
+    },
+    {
+      "id": "retained_sql_concurrent_append",
+      "scope": "first_slice",
+      "status": "prepared_not_executed",
+      "oracle": "SQL<=18 read can consume implicit-ID file; concurrent unknown/new file append is conservatively40001 for retained writer, not opened by runtime upgrade",
+      "runner_modes": [
+        "legacy"
+      ],
+      "remaining_contract": "RetainedSQL18 limit0 rejection only; concurrent legacy writer vsSQL19 append pending."
+    },
+    {
+      "id": "changes_parser",
+      "scope": "first_slice",
+      "status": "prepared_not_executed",
+      "oracle": "numeric inserted_into_table recognized, repeated categories accepted as pinned AddChangeInfo emits; malformed/overflow/local-boundary/trailing separator rejected; structural and unknown changes never ignored",
+      "runner_modes": [
+        "schema",
+        "claim"
+      ],
+      "remaining_contract": "Real known append and real unsupported created_schema covered; malformed/overflow grammar probe pending."
+    },
+    {
+      "id": "policy_or_path_change",
+      "scope": "first_slice",
+      "status": "prepared_not_executed",
+      "oracle": "change inline limit or canonical table/schema path between file preparation and publication:40001 and precise candidate abort; no SDK under PK claim or wrong-directory registration",
+      "runner_modes": [
+        "schema"
+      ],
+      "remaining_contract": "Actual unpublished set_optionSRE→prepared candidate→publisher ShareLockwait→holdercommit10→40001 prepared; canonicalpath mutation remains pending."
+    },
+    {
+      "id": "ddl_schema_change",
+      "scope": "first_slice",
+      "status": "prepared_not_executed",
+      "oracle": "column ID/type/typmod/name/element/table UUID/read-only/data-root mismatch rejects atomic publication; CREATE+INSERT stays original inline support and does not write unknown field IDs",
+      "runner_modes": [
+        "schema",
+        "carrier",
+        "carrier-legacy"
+      ],
+      "remaining_contract": "Real created_schema rejection plus renamed and legacy original-schema first-carrier; type/typmod/UUID/readonly/path matrix pending."
+    },
+    {
+      "id": "stats_exactly_once",
+      "scope": "first_slice",
+      "status": "prepared_not_executed",
+      "oracle": "N final new identities -> next_row_id+N and record_count+N once; file_size_bytes+actual immutable bytes once; file/column rows once; autoanalyze deltaN once regardless output branch",
+      "runner_modes": [
+        "boundary",
+        "journal",
+        "claim",
+        "cancel"
+      ]
+    },
+    {
+      "id": "rollback_or_cancel_prewrite",
+      "scope": "first_slice",
+      "status": "prepared_not_executed",
+      "oracle": "error/cancel before open, during append, finish, footer validation, after claim and before outer commit closes/aborts every owned candidate; preserve real FAIL receipts",
+      "runner_modes": [
+        "cancel",
+        "limits",
+        "callbacks"
+      ],
+      "remaining_contract": "Post-finish realSPI cancel covered; individualSDK open/append/finish/footer fault injection not added."
+    },
+    {
+      "id": "bounded_journal_copy",
+      "scope": "first_slice",
+      "status": "prepared_not_executed",
+      "oracle": "real text/CSV COPY within64MiB journal can reach same PRE_COMMIT file route; >64MiB still54000 with full statement/savepoint/heap rollback, not client retries or independent commits",
+      "runner_modes": [
+        "limits"
+      ]
+    },
+    {
+      "id": "arrow_or_candidate_limits",
+      "scope": "first_slice",
+      "status": "prepared_not_executed",
+      "oracle": "single Arrow source row beyond16MiB batch budget or >16 simultaneous candidates yields bounded54000; no prefix metadata publication or leaked file",
+      "runner_modes": [
+        "limits"
+      ]
+    },
+    {
+      "id": "ann_bitmap_stats_after_insert",
+      "scope": "first_slice",
+      "status": "pending_not_executed",
+      "oracle": "new immutable files are uncovered: complete exact scan, correct cost/ANALYZE, no invented index READY coverage; explicit builds later include source identity",
+      "runner_modes": [],
+      "remaining_contract": "Explicitly not covered in this runner yet; use later index/ANALYZE affected regression."
+    },
+    {
+      "id": "affected_flush",
+      "scope": "first_slice",
+      "status": "prepared_not_executed",
+      "oracle": "ordinary flush after committed direct file insert remains correct; concurrent direct-file append remains conservative conflict until its separate race matrix is qualified",
+      "runner_modes": [
+        "carrier"
+      ],
+      "remaining_contract": "Cross-schema lazy carrier followed bymanualflush; concurrent direct/flush race pending."
+    },
+    {
+      "id": "ducklake_independent_continuation",
+      "scope": "first_slice",
+      "status": "prepared_not_executed",
+      "oracle": "fixed DuckLake reads resulting catalog/files, reconstructs R=start+P/birth=commit, then appends and updates without ID collisions; native read-back exact",
+      "runner_modes": [
+        "interop"
+      ]
+    },
+    {
+      "id": "spill_payload_not_enough",
+      "scope": "future_spill_not_implemented",
+      "status": "future_not_implemented",
+      "oracle": "prove private metadata/token indexes also bounded for many tiny rows; merely tuplestore-spilling values while keeping O(N) LakeTxnRow/Identity/TokenEntry is insufficient",
+      "runner_modes": []
+    },
+    {
+      "id": "private_file_modify",
+      "scope": "future_spill_not_implemented",
+      "status": "future_not_implemented",
+      "oracle": "future transaction-local files require local dense token ranges/CID/nonce + sparse mutable overrides, correct cursor snapshots, two updates/delete/savepoint and commit mapping; do not reuse committed IDs prematurely",
+      "runner_modes": []
+    }
+  ],
+  "native_executed": 0,
+  "callback_phase_regression": {
+    "mode": "callbacks",
+    "installed_sql": "0.19",
+    "inline_limit": 0,
+    "source_probe": "existing og_lake_internal.test_precommit_insert modes0/1/2",
+    "cases": [
+      "fresh mode0 no prior journal callback denied",
+      "mode1 existingjournal/probe-before-publisher denied",
+      "mode2 publisher-before-probe: actual finished candidate and granted snapshot/file/stats/AA locks observed at last changeset SPI barrier, then late probe0A000 and complete rollback",
+      "same session ordinary direct INSERT recovers after each failure",
+      "rolled-back registration disarms/released registration adopts",
+      "fresh PRE_PREPARE refuses and leaves no exact GID"
+    ],
+    "runtime_status": "prepared_not_run",
+    "limitations": [
+      "No new Native test hook; source order and observed real late SPI barrier establish the mode2 window.",
+      "SMP/RAC/performance and other privileged C-extension callback behaviors not qualified."
+    ]
+  }
+}

@@ -1,0 +1,3 @@
+test: og_lake_release_campaign_bin
+test: og_lake_extra_perf_bin
+test: og_lake_scale_bin

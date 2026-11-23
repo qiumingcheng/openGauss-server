@@ -351,9 +351,36 @@ fastcheck_parallel_initdb: all tablespace-setup
 	$(call exception_arm_cases) && \
 	$(pg_regress_check) $(REGRESS_OPTS) --parallel_initdb -d 1 -c 0 -p $(p) -r $(runtest) -b $(dir) -n $(n) --abs_gausshome=$(abs_gausshome) --single_node --schedule=$(srcdir)/parallel_schedule$(PART) -w --keep_last_data=${keep_last_data} $(MAXCONNOPT) --temp-config=$(srcdir)/make_fastcheck_postgresql.conf $(EXTRA_TESTS) $(REG_CONF)
 
+OG_LAKE_FASTCHECK_PARTS := .og_lake .og_lake_sdk6 .og_lake_functional .og_lake_history \
+                          .og_lake_components .og_lake_long .og_lake_registry .og_lake_gates .og_lake_smoke \
+                          .og_lake_standalone .og_lake_standalone_smoke
+ifneq ($(filter $(PART),$(OG_LAKE_FASTCHECK_PARTS)),)
+fastcheck: fastcheck_og_lake
+else
 fastcheck: all tablespace-setup
 	export LD_LIBRARY_PATH=$(SSL_LIB_PATH):$(LD_LIBRARY_PATH) && \
 	$(pg_regress_check) $(REGRESS_OPTS) -d 1 -c 0 -p $(p) -r $(runtest) -b $(dir) -n $(n) --abs_gausshome=$(abs_gausshome) --single_node --schedule=$(srcdir)/parallel_schedule$(PART) -w --keep_last_data=${keep_last_data} $(MAXCONNOPT) --temp-config=$(srcdir)/make_fastcheck_postgresql.conf $(EXTRA_TESTS) $(REG_CONF)
+endif
+
+# Lake schedules use their own qualified runtimes. Run them through the
+# regular pg_regress schedule and diff without creating a launcher cluster.
+OG_LAKE_SDK6_FASTCHECK_OUTPUT_ROOT ?= $(CURDIR)/results
+OG_LAKE_FASTCHECK_OUTPUT_ROOT ?= $(OG_LAKE_SDK6_FASTCHECK_OUTPUT_ROOT)
+.PHONY: fastcheck_og_lake fastcheck_og_lake_sdk6
+fastcheck_og_lake fastcheck_og_lake_sdk6: pg_regress$(X)
+	@set -eu; \
+	mkdir -p "$(OG_LAKE_FASTCHECK_OUTPUT_ROOT)"; \
+	out=$$(mktemp -d "$(abspath $(OG_LAKE_FASTCHECK_OUTPUT_ROOT))/lake_fastcheck.XXXXXX"); \
+	for spec in input:sql output:expected; do \
+	  (cd "$(srcdir)/$${spec%:*}" && find . -type d) | while IFS= read -r subdir; do \
+	    mkdir -p "$$out/$${spec#*:}/$$subdir"; \
+	  done; \
+	done; \
+	echo "Lake FastCheck results: $$out"; \
+	export OG_LAKE_SDK6_FASTCHECK_ARTIFACTS="$$out/results"; \
+	export OG_LAKE_FASTCHECK_ARTIFACTS="$$out/results"; \
+	$(pg_regress_installcheck) --top-builddir="$(top_builddir)" --outputdir="$$out" \
+	  --use-existing --single_node -d 1 -c 0 -r 1 --schedule="$(srcdir)/parallel_schedule$(if $(filter fastcheck_og_lake_sdk6,$@),.og_lake_sdk6,$(if $(PART),$(PART),.og_lake))" $(EXTRA_TESTS)
 
 #Support QUnit check
 qunitcheck: all tablespace-setup

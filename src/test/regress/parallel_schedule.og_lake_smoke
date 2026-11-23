@@ -1,0 +1,6 @@
+test: og_lake_registry_harness_bin
+test: og_lake_sdk6_sql_bin
+test: og_lake_sdk6_probes_bin
+test: og_lake_sdk54_reader_budget_bin
+test: og_lake_pq_stream_shapes_bin
+test: og_lake_release_truncate_pq_bin

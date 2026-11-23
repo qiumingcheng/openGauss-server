@@ -1,0 +1,83 @@
+ISOLATED DRAFT; NOT APPLIED OR NATIVE-BUILD QUALIFIED.
+Prerequisites: real ResourceOwner/MemoryContext cleanup, authenticated graph+PQ
+roots under a versioned descriptor, and exact normalized query binding. The
+caller must pass NULL until these hooks are installed. Raw graph I/O remains
+unchanged. Final source/address/delete checks and SQL exact rerank remain in
+LakeSelectAnnFiles/LakeFileReader/Executor. This patch supplies no publication,
+owner registry, catalog eligibility or global cache.
+
+--- a/contrib/og_lake/lake_file_ann.h
++++ b/contrib/og_lake/lake_file_ann.h
+@@ -27,6 +27,7 @@
+  * scalar predicates, uncovered-source scan and global SQL distance rerank.
+  * beam controls the existing DiskANN frontier, not a row visibility limit.
+  * The result is allocated in the caller's current native memory context. */
++struct PqParquetFrontier;
+ extern LakeFileAnnCandidates* LakeSearchAnnFile(OgLakeAnnReader*,Datum query,uint32 beam,
+-    const LakeAnnFileMask* mask = NULL);
++    const LakeAnnFileMask* mask = NULL,PqParquetFrontier* borrowedPq = NULL);
+ #endif
+--- a/contrib/og_lake/lake_file_ann.cpp
++++ b/contrib/og_lake/lake_file_ann.cpp
+@@ -3,6 +3,7 @@
+ #include "postgres.h"
+ #include "knl/knl_variable.h"
+ #include "lake_file_ann.h"
++#include "pq_parquet_frontier_draft.h"
+ #include "lake_file_sdk.h"
+ #include "access/datavec/diskann_graph_search.h"
+ #include "utils/memutils.h"
+@@ -18,6 +19,9 @@
+     uint32 visited_nodes;
+     uint32 visit_limit;
+     bool budget_exhausted;
++    PqParquetFrontier* pq;
++    OgLakeSdkLimits pq_limits;
++    bool pq_failed;
+ 
+     bool Admitted(const OgLakeAnnAddress& address)
+     {return !mask||(address.row_position>=0&&address.row_position<=INT_MAX&&bms_is_member((int)address.row_position,mask->positions));}
+@@ -34,6 +38,17 @@
+     float EntryDistance(BlockNumber id,Neighbor& candidate)
+     {
+         const OgLakeAnnNode* node=Read(id);candidate.heaptidsLength=0;
++        if(pq&&!pq_failed){
++            float approximate=0;OgLakeSdkError error;
++            HOLD_INTERRUPTS();
++            int status=pq_parquet_frontier_distance(pq,&pq_limits,id,&approximate,&error);
++            RESUME_INTERRUPTS();CHECK_FOR_INTERRUPTS();
++            if(status==OG_LAKE_SDK_OK)return approximate;
++            if(pq_parquet_frontier_fallback(status)==PQ_PARQUET_ABORT_QUERY)
++                LakeFileCheckStatus(status,&error);
++            /* Discard the complete mixed queue before exposing candidates. */
++            pq_failed=true;pq_parquet_frontier_disable(pq);
++        }
+         /* These are exactly the native opclass kernels: squared L2, or
+          * negative inner product on stored/query vectors. Cosine graph
+          * construction must have already normalized its stored vectors. */
+@@ -63,7 +78,7 @@
+     }
+ };
+ 
+-LakeFileAnnCandidates* LakeSearchAnnFile(OgLakeAnnReader* reader,Datum argument,uint32 beam,const LakeAnnFileMask* mask)
++LakeFileAnnCandidates* LakeSearchAnnFile(OgLakeAnnReader* reader,Datum argument,uint32 beam,const LakeAnnFileMask* mask,PqParquetFrontier* borrowedPq)
+ {
+     const OgLakeAnnSpec* spec=og_lake_ann_reader_spec(reader);
+     if(!spec||!DatumGetPointer(argument)||beam<1||beam>1000)
+@@ -93,8 +108,15 @@
+         if(entryCount<=visitLimit)for(uint32 i=0;i<entryCount;++i)entries.push_back(sourceEntries[i]);
+         blockhash_hash* visited=blockhash_create(work,mask?visitLimit:VAMANA_CAP,NULL);
+         NeighborPriorityQueue queue={};queue.clear();
+-        LakeAnnFileStorage storage={reader,spec,query,visited,mask,entryCount,visitLimit,entryCount>visitLimit};
++        LakeAnnFileStorage storage={reader,spec,query,visited,mask,entryCount,visitLimit,entryCount>visitLimit,
++            borrowedPq,LakeFileLimits(),false};
+         if(!storage.budget_exhausted)DiskAnnSearchGraph(&queue,visited,&entries,beam,storage);
++        if(storage.pq_failed){
++            queue.clear();storage.pq=NULL;storage.visited_nodes=entryCount;
++            storage.budget_exhausted=entryCount>visitLimit;
++            /* Existing traversal resets visited and restarts at entries. */
++            if(!storage.budget_exhausted)DiskAnnSearchGraph(&queue,visited,&entries,beam,storage);
++        }
+         auto* temporary=(LakeFileAnnCandidate*)palloc0(sizeof(LakeFileAnnCandidate)*beam*OG_LAKE_ANN_MAX_POSTINGS);
+         uint32 count=0;
+         for(size_t i=0;i<queue.size();++i){const OgLakeAnnNode* node=storage.Read(queue._data[i].id);
