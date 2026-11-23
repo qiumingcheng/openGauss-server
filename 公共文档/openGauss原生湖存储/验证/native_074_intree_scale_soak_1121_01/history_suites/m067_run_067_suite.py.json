@@ -1,0 +1,13 @@
+{
+  "status": "pass",
+  "profile": "release",
+  "postgres_ext_version": "0.67",
+  "enable_thread_pool": "off",
+  "stages": {
+    "stage1_upgrade_066_to_067": 2,
+    "stage2_ix5_bg_and_cancel_rebuild": 8,
+    "stage3_ann_rescan_invalidate_and_metrics": 4,
+    "stage4_pgl4_explain_and_status": 5
+  },
+  "total_checks": 19
+}

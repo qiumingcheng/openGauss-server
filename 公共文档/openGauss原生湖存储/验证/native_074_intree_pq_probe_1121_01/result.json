@@ -1,0 +1,56 @@
+{
+  "status": "pass",
+  "source": "/home/qiumc/data/code/cpp/.worktrees/opengauss-native-lake",
+  "pq_dir": "/home/qiumc/data/code/cpp/.worktrees/opengauss-native-lake/contrib/og_lake/pq",
+  "vendor_dir": "/home/qiumc/data/code/cpp/.worktrees/opengauss-native-lake/contrib/og_lake/vendor/diskann_pq",
+  "sdk54_so": "/home/qiumc/data/code/cpp/.install/opengauss-native-lake-sdk-decimal128/native_decimal54_rfix_full_sdk_1115_01/lib/libog_lake_sdk_arrow.so",
+  "symbol_isolation": {
+    "total_defined_globals": 110,
+    "public_pq_symbols": 46,
+    "unisolated_globals": []
+  },
+  "probes": {
+    "pq_cpu_stream_shapes": {
+      "status": "pass",
+      "checks": 83,
+      "dimensions": [
+        3,
+        1536
+      ],
+      "chunks": [
+        1,
+        16
+      ]
+    },
+    "pq_parquet_d1536_produce": {
+      "status": "pass",
+      "checks": 29,
+      "metric": 1,
+      "manifest": "756ed3e194c4dc02b00916765ce487f6c8e756eb59b94ebcd827e4a2c86ae80e",
+      "model_hash": "db31b2fbb944d8d6becd33599aa3e3444290946f7db4e6f7215308d2547324d1",
+      "codebook_hash": "22312fb38a517ddd8ba9b253a3e0d5f445dafe3ad752d19f5d3beb0f3b75651d",
+      "codes_hash": "4efbebf496d8e214913a6222000d119e88a389d26946749230037e87fc53a1e9",
+      "cleanup_failures": 0
+    },
+    "pq_parquet_d1536_consume": {
+      "status": "pass",
+      "checks": 48,
+      "metric": 1,
+      "dimension": 1536,
+      "nodes": 17,
+      "maximum_reconstructed_error": 0.000163253850815
+    },
+    "pq_parquet_d1536_negative": {
+      "status": "pass",
+      "checks": 76,
+      "expected_identity_cases": 13,
+      "legal_schema_damage_cases": 7
+    },
+    "pq_parquet_metric1_writer_negative": {
+      "status": "pass",
+      "checks": 117,
+      "writer_error_cases": 9,
+      "cleanup_failures": 0
+    }
+  }
+}

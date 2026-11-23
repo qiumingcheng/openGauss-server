@@ -1,0 +1,12 @@
+{
+  "status": "passed",
+  "profile": "debug",
+  "enable_thread_pool": "off",
+  "stages": {
+    "stage1_upgrade_legacy_gates": 4,
+    "stage2_vec_smp_core_ops": 7,
+    "stage3_extended_temporal_partition_vec_smp": 7,
+    "stage4_wide_cache_fallback_probe": 13
+  },
+  "total_checks": 31
+}

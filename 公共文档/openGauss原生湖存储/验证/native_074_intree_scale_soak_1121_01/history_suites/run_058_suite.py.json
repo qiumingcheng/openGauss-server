@@ -1,0 +1,25 @@
+{
+  "suite": "native_058_table_changes_22",
+  "status": "passed",
+  "profile": "release",
+  "port": 55570,
+  "enable_thread_pool": "off",
+  "postmaster_start_time": "2026-11-21 18:17:47.325341+08:00",
+  "binary_path": "/home/qiumc/data/code/cpp/.install/opengauss-native-lake-release/bin/gaussdb",
+  "binary_sha256": "6b22d35b6d467a81b34bf5b29f63affa8bf879147275c50e02324772ec1d01eb",
+  "started_at": "2026-11-21T10:18:17.480180+00:00",
+  "completed_at": "2026-11-21T10:18:30.166232+00:00",
+  "check_count": 10,
+  "checks": [
+    "sql057_pre_upgrade_gate_and_057_to_058_alter_extension",
+    "rich_15_types_inline_flush_delete_rewrite_cdc_version_and_lineage_forms",
+    "timestamp_bounds_lower_upper_empty_tail_and_start_gt_end",
+    "schema_evolution_rename_add_default_drop_column_cdc_projection",
+    "partition_evolution_identity_bucket_reset_cdc",
+    "self_join_lateral_prepared_and_strict_descriptor_validation",
+    "own_transaction_journal_and_uncommitted_ddl_isolation",
+    "boundary_errors_isolation_gate_and_expire_snapshots_rejection",
+    "ordinary_user_schema_table_and_column_acl_with_dropped_column_fence",
+    "independent_pinned_ducklake_reference_cdc_parity"
+  ]
+}

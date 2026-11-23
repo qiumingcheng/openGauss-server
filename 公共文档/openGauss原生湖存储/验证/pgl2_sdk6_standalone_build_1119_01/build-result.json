@@ -1,0 +1,88 @@
+{
+  "status": "provider_built_unqualified",
+  "scope": "standalone real Parquet provider; not native file path qualification",
+  "provider_source": "/home/qiumc/data/code/cpp/.codex_tmp/pgl2_sdk6_native_source_1119_01/sdk",
+  "provider_prefix": "/home/qiumc/data/code/cpp/.install/opengauss-native-lake-sdk-pgl2/pgl2_sdk6_standalone_build_1119_01",
+  "started_at": "2026-11-19T00:03:29.152681+00:00",
+  "sources_before": {
+    "CMakeLists.txt": "e1e7dfe7d8b95f9918dd9ee72e3bf9647fa2cca9ff902498ae6c0dcfd7daf2a9",
+    "arrow_parquet_provider.cpp": "305f2ede4fa1fe09baf5d8d2ee2231f80f1a5b8e17d8736a41a9cb585c6fbe00",
+    "exports.map": "a2ea629b18487de1bb62b0aff8b290ea28435cc5aa213dad0eadfa63e150cc46",
+    "lake_parquet_fd_sdk.h": "917ad9dc608c1c8658b9076d6d44b747a27ddc43834fefb57e459a7000da22d8",
+    "lake_parquet_sdk.h": "6dbe78174680de7830ed45cfee957fefa38fc3d5dda0429b04e99436da28e759",
+    "lake_temporal_codec.h": "07879fc21faf4d6fd4c7e3dab7f531f7050b7216c5774841016a9024c2a43a87"
+  },
+  "dependencies_before": {
+    "shared_libraries": {
+      "libarrow.so": "1775534d6399bdcb018ff8483e846265c1b28c8397212be70085b0910ae4b8c6",
+      "libparquet.so": "9458f19fe84d341df5cc27005d81f47b1bdaad670f836ed0fe5c223e8d3ad465"
+    },
+    "static_archives": {
+      "libarrow.a": "951022b93061a5d6b6a96ef5ba3c21861a174df807d1f5ba36b95fdb0e9bb49d",
+      "libparquet.a": "0b910bef39054c7b59c71e0649625f32b04794ad282c939b46af4af4946f1de2",
+      "libarrow_bundled_dependencies.a": "f93c151a429f57f8bd5007545174b8ac2a6058a5edbedf596a781bb62e1f7716"
+    },
+    "installed_header_count": 316,
+    "installed_headers_sha256": "120a17d9bbdb6a796504abde278bbb951e22429fa6225f5d991f643b563c942e",
+    "compiler_sha256": "72f4d6760fbe7400509633ed4f1735da7727553c57b4c5f068c12abe9a277d46"
+  },
+  "script_sha256": "97bb4a916c2dc97cea241c68ba01c1e09c3ba3ad2f9e7cca70dc13c6d44b9851",
+  "commands": [
+    [
+      "/home/qiumc/data/code/cpp/.reference/opengauss-native-lake/sdk/build-tools/bin/cmake",
+      "-S",
+      "/home/qiumc/data/code/cpp/.codex_tmp/pgl2_sdk6_native_source_1119_01/sdk",
+      "-B",
+      "/home/qiumc/data/code/cpp/.codex_tmp/pgl2_sdk6_standalone_build_1119_01/cmake",
+      "-G",
+      "Ninja",
+      "-DCMAKE_BUILD_TYPE=Release",
+      "-DCMAKE_C_COMPILER=/home/qiumc/data/code/cpp/binarylibs/buildtools/gcc10.3/gcc/bin/gcc",
+      "-DCMAKE_CXX_COMPILER=/home/qiumc/data/code/cpp/binarylibs/buildtools/gcc10.3/gcc/bin/g++",
+      "-DCMAKE_CXX_FLAGS_RELEASE=-O2 -DNDEBUG",
+      "-DCMAKE_PREFIX_PATH=/home/qiumc/data/code/cpp/.reference/opengauss-native-lake/sdk/install/arrow-20.0.0",
+      "-DCMAKE_INSTALL_PREFIX=/home/qiumc/data/code/cpp/.install/opengauss-native-lake-sdk-pgl2/pgl2_sdk6_standalone_build_1119_01"
+    ],
+    [
+      "/home/qiumc/data/code/cpp/.reference/opengauss-native-lake/sdk/build-tools/bin/cmake",
+      "--build",
+      "/home/qiumc/data/code/cpp/.codex_tmp/pgl2_sdk6_standalone_build_1119_01/cmake",
+      "--parallel",
+      "2"
+    ],
+    [
+      "/home/qiumc/data/code/cpp/.reference/opengauss-native-lake/sdk/build-tools/bin/cmake",
+      "--install",
+      "/home/qiumc/data/code/cpp/.codex_tmp/pgl2_sdk6_standalone_build_1119_01/cmake"
+    ]
+  ],
+  "dependency_notices": {
+    "LICENSE.txt": "36f65c663f1c9c910af64c73cb4302667d6513c3f0a617e42bd896d767ff4604",
+    "NOTICE.txt": "b62ea242642d3a18f1e29b0c1fe082415a6943fe158ee22b48cff3762f354009"
+  },
+  "sources_after": {
+    "CMakeLists.txt": "e1e7dfe7d8b95f9918dd9ee72e3bf9647fa2cca9ff902498ae6c0dcfd7daf2a9",
+    "arrow_parquet_provider.cpp": "305f2ede4fa1fe09baf5d8d2ee2231f80f1a5b8e17d8736a41a9cb585c6fbe00",
+    "exports.map": "a2ea629b18487de1bb62b0aff8b290ea28435cc5aa213dad0eadfa63e150cc46",
+    "lake_parquet_fd_sdk.h": "917ad9dc608c1c8658b9076d6d44b747a27ddc43834fefb57e459a7000da22d8",
+    "lake_parquet_sdk.h": "6dbe78174680de7830ed45cfee957fefa38fc3d5dda0429b04e99436da28e759",
+    "lake_temporal_codec.h": "07879fc21faf4d6fd4c7e3dab7f531f7050b7216c5774841016a9024c2a43a87"
+  },
+  "dependencies_after": {
+    "shared_libraries": {
+      "libarrow.so": "1775534d6399bdcb018ff8483e846265c1b28c8397212be70085b0910ae4b8c6",
+      "libparquet.so": "9458f19fe84d341df5cc27005d81f47b1bdaad670f836ed0fe5c223e8d3ad465"
+    },
+    "static_archives": {
+      "libarrow.a": "951022b93061a5d6b6a96ef5ba3c21861a174df807d1f5ba36b95fdb0e9bb49d",
+      "libparquet.a": "0b910bef39054c7b59c71e0649625f32b04794ad282c939b46af4af4946f1de2",
+      "libarrow_bundled_dependencies.a": "f93c151a429f57f8bd5007545174b8ac2a6058a5edbedf596a781bb62e1f7716"
+    },
+    "installed_header_count": 316,
+    "installed_headers_sha256": "120a17d9bbdb6a796504abde278bbb951e22429fa6225f5d991f643b563c942e",
+    "compiler_sha256": "72f4d6760fbe7400509633ed4f1735da7727553c57b4c5f068c12abe9a277d46"
+  },
+  "library": "/home/qiumc/data/code/cpp/.install/opengauss-native-lake-sdk-pgl2/pgl2_sdk6_standalone_build_1119_01/lib/libog_lake_sdk_arrow.so",
+  "sha256": "4f2a2cd79d50f3f2c3b1350ac58b4868b20b727a5141ae49ec1033b4d3a20368",
+  "elapsed_seconds": 9.983038217003923
+}

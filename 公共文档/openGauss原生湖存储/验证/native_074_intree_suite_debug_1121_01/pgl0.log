@@ -1,0 +1,31 @@
+
+=== [Part C] PGL-0 Expanded Native pg_partition Suite (debug) ===
+0.73 pre-upgrade gate & 0.73->0.74 upgrade + 4-leaf RANGE bind PASSED
+[range_4leaf_ext] bind+enable: 8.81s
+[range_4leaf_ext] insert+copy: 35.53s
+[range_4leaf_ext] analyze: 10.84s
+[range_4leaf_ext] rollback_del: 27.71s
+[range_4leaf_ext] update_move: 34.83s
+[range_4leaf_ext] delete: 29.01s
+[range_4leaf_ext] (4 leaves) DML/COPY/ANALYZE/RowMovement/Prune PASSED!
+[list_4leaf_date] bind+enable: 8.61s
+[list_4leaf_date] insert+copy: 24.58s
+[list_4leaf_date] analyze: 10.81s
+[list_4leaf_date] rollback_del: 34.23s
+[list_4leaf_date] update_move: 37.88s
+[list_4leaf_date] delete: 34.24s
+[list_4leaf_date] (4 leaves) DML/COPY/ANALYZE/RowMovement/Prune PASSED!
+[hash_4leaf_text] bind+enable: 8.48s
+[hash_4leaf_text] insert+copy: 22.57s
+[hash_4leaf_text] analyze: 10.49s
+[hash_4leaf_text] rollback_del: 26.67s
+[hash_4leaf_text] update_move: 32.62s
+[hash_4leaf_text] delete: 26.88s
+[hash_4leaf_text] (4 leaves) DML/COPY/ANALYZE/RowMovement/Prune PASSED!
+
+=== ALL REQUESTED 0.74 VERIFICATIONS PASSED ===
+{
+  "pgl0": {
+    "status": "passed"
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "status": "pass",
+  "profile": "release",
+  "postgres_ext_version": "0.66",
+  "enable_thread_pool": "off",
+  "stages": {
+    "stage1_version_gate_and_upgrade": 11,
+    "stage2_extended_literal_defaults": 12,
+    "stage3_add_not_null_default": 10,
+    "stage4_cache_invalidation_and_pgl1_mainline": 15,
+    "stage5_duckdb_parity_and_interop": 3
+  },
+  "total_checks": 51,
+  "duckdb_checks": 3
+}

@@ -1,0 +1,16 @@
+diff --git a/src/roaring_array.c b/src/roaring_array.c
+--- a/src/roaring_array.c
++++ b/src/roaring_array.c
+@@ -773,7 +773,11 @@ bool ra_portable_deserialize(roaring_array_t *answer, const char *buf,
+             }
+             // it is now safe to read
+ 
+-            run_container_t *c = run_container_create();
++            // Pre-size from the already bounds-checked wire run count. The
++            // constructor handles allocation failure; run_container_read must
++            // not enter the unchecked run_container_grow allocation path.
++            run_container_t *c =
++                run_container_create_given_capacity(n_runs);
+             if (c == NULL) {  // memory allocation failure
+                 // Failed to allocate memory for a run container.
+                 ra_clear(answer);  // we need to clear the containers already

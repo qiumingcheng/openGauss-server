@@ -1,0 +1,4 @@
+comment = 'Native DuckLake 1.1 inline DML, ordinary-user ACL, local catalog and business table creation'
+default_version = '0.74'
+module_pathname = '$libdir/og_lake'
+relocatable = false

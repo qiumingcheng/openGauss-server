@@ -1,0 +1,29 @@
+{
+  "binary_sha256": "6b22d35b6d467a81b34bf5b29f63affa8bf879147275c50e02324772ec1d01eb",
+  "check_group_count": 13,
+  "check_groups": [
+    "sql055_pre_upgrade_gate_and_055_to_056_alter_extension",
+    "fresh_056_pg_proc_signature_and_unprivileged_rejection",
+    "input_guards_null_missing_and_non_lake_fdw",
+    "readonly_txn_seed0_returns_single_null_row",
+    "publisher_create_foreign_table_commit_and_session_catalog_isolation",
+    "combined_create_insert_and_multicatalog_independence",
+    "publisher_inline_dml_rollback_and_two_session_isolation",
+    "savepoint_release_and_rollback_to_savepoint_semantics",
+    "publishers_flush_noop_flush_and_rewrite_data_files",
+    "publishers_schema_evolution_partition_ddl_and_repeatable_read",
+    "publishers_rename_drop_and_subtransaction_error_recovery",
+    "six_session_interleaving_u_sess_isolation",
+    "drop_server_and_drop_extension_rollback_commit_reset"
+  ],
+  "completed_at_UTC": "2026-11-21T10:18:07.283309+00:00",
+  "enable_thread_pool": "off",
+  "module_version": "0.56",
+  "port": 55570,
+  "postmaster_start": "2026-11-21 18:17:47.325341+08:00",
+  "profile": "release",
+  "schema": "native-lake-056-last-committed-snapshot-verification-v1",
+  "source": "/home/qiumc/data/code/cpp/.worktrees/opengauss-native-lake",
+  "started_at_UTC": "2026-11-21T10:18:00.956660+00:00",
+  "status": "pass"
+}

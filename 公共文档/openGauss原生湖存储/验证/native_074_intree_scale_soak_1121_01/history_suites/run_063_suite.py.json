@@ -1,0 +1,15 @@
+{
+  "status": "passed",
+  "profile": "release",
+  "enable_thread_pool": "off",
+  "thread_pool_attr": "16, 2, (nobind)",
+  "postgres_ext_version": null,
+  "stages": {
+    "stage1_version_and_truncate_boundary": 10,
+    "stage2_partition_keys_pruning_duckdb": 15,
+    "stage3_partition_extended_payload_rewrite": 8,
+    "stage4_partition_indexes_pruning_smp": 14
+  },
+  "total_checks": 47,
+  "duckdb_checks": 5
+}

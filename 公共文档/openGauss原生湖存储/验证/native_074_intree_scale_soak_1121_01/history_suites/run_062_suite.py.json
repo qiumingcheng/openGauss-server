@@ -1,0 +1,16 @@
+{
+  "status": "passed",
+  "profile": "release",
+  "enable_thread_pool": "off",
+  "thread_pool_attr": "16, 2, (nobind)",
+  "postgres_ext_version": null,
+  "stages": {
+    "stage1_version_gating": 10,
+    "stage2_security_and_options": 17,
+    "stage3_heap_parquet": 12,
+    "stage4_lake_partition_and_ext_fdw": 14,
+    "stage5_xact_savepoint_atomicity": 6
+  },
+  "total_checks": 59,
+  "duckdb_checks": 27
+}

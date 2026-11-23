@@ -1,0 +1,12 @@
+{
+  "status": "passed",
+  "profile": "release",
+  "enable_thread_pool": "off",
+  "stages": {
+    "stage1_upgrade_capabilities_ops": 5,
+    "stage2_describe_and_info_json": 10,
+    "stage3_external_fdw_json": 11,
+    "stage4_copy_from_to_duckdb_parity": 15
+  },
+  "total_checks": 41
+}

@@ -24,7 +24,7 @@ override CXXFLAGS += $(PTHREAD_CFLAGS)
 #
 SUBDIRS = ../common/backend bootstrap cbb optimizer process dbmind runtime  security  storage ddes \
 	$(top_builddir)/src/common/timezone $(top_builddir)/src/common/interfaces/libpq \
-	$(top_builddir)/contrib/file_fdw $(top_builddir)/contrib/log_fdw \
+	$(top_builddir)/contrib/file_fdw $(top_builddir)/contrib/og_lake $(top_builddir)/contrib/log_fdw \
 	$(top_builddir)/contrib/test_decoding $(top_builddir)/contrib/mppdb_decoding \
 	$(top_builddir)/contrib/postgres_fdw $(top_builddir)/contrib/jieba_tokenizer
 
@@ -318,7 +318,31 @@ endif
 
 ##########################################################################
 
+# Keep the lake decoder independent of any CRoaring exported by a loaded SDK.
+# --exclude-libs hides every symbol in this archive, including container helpers.
+ifneq ($(strip $(OG_LAKE_ROARING_ARCHIVE)),)
+LIBS += $(OG_LAKE_ROARING_ARCHIVE) -Wl,--exclude-libs,libroaring.a
+endif
+
+# Native PQ/BLAS are private static dependencies; the CPU archive precedes
+# BLAS and every archive global is hidden even under --export-dynamic.
+OG_LAKE_PQ_EFFECTIVE_ARCHIVE := $(strip $(OG_LAKE_PQ_ARCHIVE))
+ifeq ($(OG_LAKE_PQ_EFFECTIVE_ARCHIVE),)
+ifneq ($(filter 1 yes true,$(OG_LAKE_PQ_IN_TREE)),)
+OG_LAKE_PQ_EFFECTIVE_ARCHIVE := $(top_builddir)/contrib/og_lake/pq/libog_lake_pq_cpu.a
+$(OG_LAKE_PQ_EFFECTIVE_ARCHIVE): $(top_builddir)/contrib/og_lake-recursive ;
+endif
+endif
+ifneq ($(OG_LAKE_PQ_EFFECTIVE_ARCHIVE),)
+LIBS += $(OG_LAKE_PQ_EFFECTIVE_ARCHIVE) $(OG_LAKE_PQ_BLAS_ARCHIVE) -Wl,--exclude-libs,libog_lake_pq_cpu.a -Wl,--exclude-libs,libog_lake_pq_openblas.a
+gaussdb db: | $(OG_LAKE_PQ_EFFECTIVE_ARCHIVE) $(OG_LAKE_PQ_BLAS_ARCHIVE)
+endif
+
 all: submake-libpgport submake-schemapg libgstrace submake-libalarmclient gaussdb $(POSTGRES_IMP)
+
+ifneq ($(strip $(OG_LAKE_ROARING_ARCHIVE)),)
+gaussdb db: | $(OG_LAKE_ROARING_ARCHIVE)
+endif
 
 ifneq ($(PORTNAME), cygwin)
 ifneq ($(PORTNAME), win32)
@@ -594,6 +618,7 @@ install: all installdirs install-bin
 	$(MAKE) -C ../common/backend/tsearch install-data
 	$(MAKE) -C storage/bulkload install-data
 	$(MAKE) -C $(top_builddir)/contrib/file_fdw install
+	$(MAKE) -C $(top_builddir)/contrib/og_lake install
 	$(MAKE) -C $(top_builddir)/contrib/log_fdw install
 	$(MAKE) -C $(top_builddir)/contrib/jieba_tokenizer install
 ifeq ($(enable_multiple_nodes), yes)
@@ -844,6 +869,7 @@ endif
 	$(MAKE) -C ../common/backend/tsearch uninstall-data
 	$(MAKE) -C storage/bulkload uninstall-data
 	$(MAKE) -C $(top_builddir)/contrib/file_fdw uninstall
+	$(MAKE) -C $(top_builddir)/contrib/og_lake uninstall
 ifeq ($(enable_multiple_nodes), yes)
 	$(MAKE) -C $(top_builddir)/../distribute/kernel/extension/gauss_connector uninstall
 	$(MAKE) -C $(top_builddir)/../distribute/kernel/extension/roach_api uninstall

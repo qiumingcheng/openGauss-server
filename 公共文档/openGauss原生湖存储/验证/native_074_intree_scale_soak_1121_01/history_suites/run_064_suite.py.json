@@ -1,0 +1,15 @@
+{
+  "status": "passed",
+  "profile": "release",
+  "ix5_only": false,
+  "enable_thread_pool": "off",
+  "thread_pool_attr": "16, 2, (nobind)",
+  "postgres_ext_version": null,
+  "stages": {
+    "stage1_version_064_upgrade_contract": 8,
+    "stage2_extended_indexes_row_smp": 18,
+    "stage3_pq_boolean_ann_smp": 24
+  },
+  "total_checks": 50,
+  "duckdb_checks": 1
+}
