@@ -225,7 +225,7 @@ preprocess_union_all_required_columns(PlannerInfo *root)
          oldNcols,
          newNcols,
          wherePushed ? "true" : "false",
-         wherePushed ? "false" : "true");
+         outer->jointree != NULL && outer->jointree->quals != NULL ? "true" : "false");
 
     return true;
 }
@@ -243,8 +243,9 @@ required_columns_outer_query_is_safe(Query *query)
     if (query == NULL || query->commandType != CMD_SELECT)
         return false;
 
-    if (query->jointree == NULL || query->jointree->quals == NULL)
-        return false; /* WHERE is mandatory for the initial feature contract */
+    /* An absent predicate needs no pushdown; keep the same projection checks. */
+    if (query->jointree == NULL)
+        return false;
 
     if (query->setOperations != NULL || query->hasAggs || query->groupClause != NIL ||
         query->havingQual != NULL || query->distinctClause != NIL ||
