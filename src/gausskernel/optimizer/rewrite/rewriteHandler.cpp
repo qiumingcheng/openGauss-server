@@ -1845,6 +1845,7 @@ void rewriteTargetListMerge(Query* parsetree, Index result_relation, List* range
     const char* attrname = NULL;
     TargetEntry* tle = NULL;
     Relation rel;
+    RangeTblEntry* target_rte = NULL;
 
     /*
      * The rewriter should have already ensured that the TLEs are in correct
@@ -1857,9 +1858,23 @@ void rewriteTargetListMerge(Query* parsetree, Index result_relation, List* range
      */
     rel = heap_open(getrelid(result_relation, range_table), NoLock);
 
-    Assert(rel->rd_rel->relkind == RELKIND_RELATION);
-
     parsetree->targetList = expandTargetTL(parsetree->targetList, parsetree);
+
+    /* Foreign MERGE targets do not have a heap ctid. Let the FDW add a
+     * stable row identity and any old-row value required by its callbacks. */
+    if (rel->rd_rel->relkind == RELKIND_FOREIGN_TABLE || rel->rd_rel->relkind == RELKIND_STREAM) {
+        FdwRoutine* fdwroutine = GetFdwRoutineForRelation(rel, false);
+        target_rte = rt_fetch(result_relation, range_table);
+        if (fdwroutine == NULL || fdwroutine->AddForeignUpdateTargets == NULL)
+            ereport(ERROR,
+                (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                    errmsg("MERGE target foreign table does not provide a row identity callback")));
+        fdwroutine->AddForeignUpdateTargets(parsetree, target_rte, rel);
+        heap_close(rel, NoLock);
+        return;
+    }
+
+    Assert(rel->rd_rel->relkind == RELKIND_RELATION);
 
     /*
      * Emit CTID so that executor can find the row to update or delete.
@@ -4781,6 +4796,7 @@ List* RewriteQuery(Query* parsetree, List* rewrite_events)
 
                 switch (action->commandType) {
                     case CMD_DELETE: /* Nothing to do here */
+                    case CMD_NOTHING:
                         break;
                     case CMD_UPDATE:
                         action->targetList = rewriteTargetListMergeInto(action->targetList,

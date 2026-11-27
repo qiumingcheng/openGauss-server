@@ -351,7 +351,8 @@ static void LakeInlineGetForeignRelSizeImpl(PlannerInfo* root, RelOptInfo* baser
 {
     LakeCheckQueryPermissions(root->parse);
     if ((root->parse->commandType != CMD_SELECT && root->parse->commandType != CMD_INSERT &&
-         root->parse->commandType != CMD_UPDATE && root->parse->commandType != CMD_DELETE) || root->parse->rowMarks != NIL)
+         root->parse->commandType != CMD_UPDATE && root->parse->commandType != CMD_DELETE &&
+         root->parse->commandType != CMD_MERGE) || root->parse->rowMarks != NIL)
         ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED), errmsg("native lake inline access does not support row locks")));
     for (AttrNumber attr = baserel->min_attr; attr < 0; ++attr) {
         if (!bms_is_empty(baserel->attr_needed[attr - baserel->min_attr]))

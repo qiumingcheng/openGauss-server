@@ -227,6 +227,9 @@ void ExecInitJunkAttr(EState* estate, CmdType operation, List* targetlist, Resul
         if(LakeHasNativePartitionMarker(result_rel_info->ri_RelationDesc)) {
             /* The native lake mutation adapter consumes its typed locator,
              * never a synthetic ctid/tableoid from a local leaf heap. */
+            if (operation == CMD_MERGE)
+                ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                    errmsg("MERGE on a native lake partition parent is not enabled")));
         } else if (relkind == RELKIND_RELATION) {
             j->jf_junkAttNo = ExecFindJunkAttribute(j, "ctid");
             if (!AttributeNumberIsValid(j->jf_junkAttNo)) {
@@ -277,7 +280,19 @@ void ExecInitJunkAttr(EState* estate, CmdType operation, List* targetlist, Resul
             }
 #endif
         } else if (relkind == RELKIND_FOREIGN_TABLE || relkind == RELKIND_STREAM) {
-            /* FDW must fetch any junk attrs it wants */
+            /* MERGE needs a nullable identity to distinguish MATCHED from
+             * NOT MATCHED. Native lake uses its logical locator. Existing
+             * foreign tables use the standard ctid identity supplied by
+             * their FDW callback. */
+            if (operation == CMD_MERGE) {
+                j->jf_junkAttNo = ExecFindJunkAttribute(j, "og_lake_row_locator");
+                if (!AttributeNumberIsValid(j->jf_junkAttNo))
+                    j->jf_junkAttNo = ExecFindJunkAttribute(j, "ctid");
+                if (!AttributeNumberIsValid(j->jf_junkAttNo))
+                    ereport(ERROR,
+                        (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                            errmsg("MERGE foreign target has no row identity junk column")));
+            }
         } else {
             j->jf_junkAttNo = ExecFindJunkAttribute(j, "wholerow");
             if (!AttributeNumberIsValid(j->jf_junkAttNo)) {

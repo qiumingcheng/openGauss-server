@@ -86,7 +86,8 @@ bool LakeIsLocatorPlaceholder(Expr* expression, Index target)
 void LakePrepareDmlLocatorPlaceholders(PlannerInfo* root, List* tlist)
 {
     Query* query = root->parse;
-    if (query->commandType != CMD_UPDATE && query->commandType != CMD_DELETE) return;
+    if (query->commandType != CMD_UPDATE && query->commandType != CMD_DELETE && query->commandType != CMD_MERGE)
+        return;
     if (list_length(query->resultRelations) != 1) return;
     Index target = linitial_int(query->resultRelations);
     RangeTblEntry* rte = rt_fetch(target, query->rtable);
@@ -164,7 +165,9 @@ void LakeValidateDmlLocatorPlan(PlannedStmt* plan)
     /* A SELECT/INSERT parent can contain a modifying CTE whose child Query
      * has no hasModifyingCTE flag of its own. Inspect its final target groups
      * too; reject only if one of those actual targets is a lake table. */
-    if (plan->commandType != CMD_UPDATE && plan->commandType != CMD_DELETE && !plan->hasModifyingCTE) return;
+    if (plan->commandType != CMD_UPDATE && plan->commandType != CMD_DELETE && plan->commandType != CMD_MERGE &&
+        !plan->hasModifyingCTE)
+        return;
     bool lake = false;
     int targetCount = 0;
     ListCell* cell = NULL;

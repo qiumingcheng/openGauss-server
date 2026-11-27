@@ -19,6 +19,7 @@
 /* flags for mt_merge_subcommands */
 #define MERGE_INSERT 0x01
 #define MERGE_UPDATE 0x02
+#define MERGE_DELETE 0x04
 
 struct VecModifyTableState;
 

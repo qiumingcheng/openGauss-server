@@ -1016,7 +1016,7 @@ void LakeTxnCheckModify(LakeTxnTable* table, Relation hostRelation, CmdType oper
     LakeHostReserveDeferredPublish(table->binding, GetCurrentSubTransactionId());
     state->writable_server = table->binding->server_oid;
     table=LakeTxnJournalTable(table);
-    if (operation == CMD_UPDATE || operation == CMD_DELETE) {
+    if (operation == CMD_UPDATE || operation == CMD_DELETE || operation == CMD_MERGE) {
         /* BeginForeignModify calls this before fetching candidate rows, so
          * WHERE false and zero-match attempts enter the same conflict set.
          * One marker per live subtransaction bounds repeated statements. */

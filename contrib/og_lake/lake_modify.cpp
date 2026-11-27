@@ -28,6 +28,11 @@ struct LakeModifyState {
     TupleTableSlot* latest_slot;
     TupleDesc epq_scan_descriptor;
     bool prepared;
+    CmdType operation;
+    bool recheck_failed;
+    bool recheck_retry;
+    TupleTableSlot* retry_slot;
+    bool retry_prepared;
     CommandId command_id;
     uint64 statement_token;
     AttrNumber locator_attnum;
@@ -88,10 +93,11 @@ static bool LakeReturningHasSystemColumn(Node* node, void*)
 static List* LakePlanForeignModifyImpl(PlannerInfo* root, ModifyTable* plan, Index, int subplanIndex)
 {
     LakeCheckQueryPermissions(root->parse);
-    if ((plan->operation != CMD_INSERT && plan->operation != CMD_UPDATE && plan->operation != CMD_DELETE) ||
+    if ((plan->operation != CMD_INSERT && plan->operation != CMD_UPDATE && plan->operation != CMD_DELETE &&
+         plan->operation != CMD_MERGE) ||
         plan->upsertAction != UPSERT_NONE || root->parse->hasModifyingCTE || list_length(root->parse->resultRelations) != 1)
         ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-            errmsg("native lake supports single-target INSERT, UPDATE and DELETE without UPSERT or modifying CTE")));
+            errmsg("native lake supports single-target INSERT, UPDATE, DELETE and MERGE without UPSERT or modifying CTE")));
     LakeRequireWriteVersion(plan->operation);
     if (plan->returningLists != NIL &&
         LakeReturningHasSystemColumn((Node*)list_nth(plan->returningLists, subplanIndex), NULL))
@@ -135,8 +141,13 @@ static void LakeBeginForeignModifyImpl(ModifyTableState* node, ResultRelInfo* in
 {
     if (node!=NULL) LakeCheckExecutorPermissions(node->ps.state);
     if (eflags & EXEC_FLAG_EXPLAIN_ONLY) return;
-    if (node == NULL || StreamThreadAmI() || (node->operation != CMD_INSERT && node->operation != CMD_UPDATE && node->operation != CMD_DELETE))
+    if (node == NULL || StreamThreadAmI() ||
+        (node->operation != CMD_INSERT && node->operation != CMD_UPDATE && node->operation != CMD_DELETE &&
+         node->operation != CMD_MERGE))
         ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED), errmsg("unsupported native lake modification execution mode")));
+    if (node->operation == CMD_MERGE && !LakeRowLocksEnabled())
+        ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+            errmsg("native lake MERGE requires row-lock support")));
     if (list_length(privateData) != 1 || intVal(linitial(privateData)) != LAKE_MODIFY_PRIVATE_VERSION)
         ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED), errmsg("unsupported native lake modification plan version")));
     EState* estate = node->ps.state;
@@ -145,6 +156,7 @@ static void LakeBeginForeignModifyImpl(ModifyTableState* node, ResultRelInfo* in
     MemoryContext previous = MemoryContextSwitchTo(estate->es_query_cxt);
     LakeModifyState* state = (LakeModifyState*)palloc0(sizeof(LakeModifyState));
     state->table = table;
+    state->operation = node->operation;
     state->command_id = estate->es_output_cid;
     state->statement_token = LakeTxnNextStatementToken();
     if (node->operation != CMD_INSERT) {
@@ -164,9 +176,19 @@ static void LakeBeginForeignModifyImpl(ModifyTableState* node, ResultRelInfo* in
             state->latest_slot = MakeSingleTupleTableSlot(table->descriptor);
             LakeTargetScan target = {info->ri_RangeTableIndex, NULL};
             (void)LakeFindTargetScan(node->mt_plans[subplanIndex], &target);
-            if (target.descriptor == NULL || target.descriptor->natts != table->descriptor->natts + 2)
+            /* A MERGE target scan is the inner side of the join and uses the
+             * base business-row descriptor.  The whole-row value and row
+             * locator are produced by the join targetlist.  UPDATE/DELETE
+             * keep the traditional N+2 scan tuple. */
+            int business_attrs = table->descriptor->natts;
+            bool complete_scan = target.descriptor != NULL &&
+                (target.descriptor->natts == business_attrs + 2 ||
+                 (node->operation == CMD_MERGE && target.descriptor->natts == business_attrs));
+            if (!complete_scan)
                 ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-                    errmsg("native lake RC update requires a complete target scan tuple")));
+                    errmsg("native lake RC update requires a complete target scan tuple (got %d attributes, expected %d)",
+                        target.descriptor == NULL ? 0 : target.descriptor->natts,
+                        business_attrs + 2)));
             state->epq_scan_descriptor = CreateTupleDescCopy(target.descriptor);
         }
     }
@@ -272,7 +294,13 @@ static bool LakeReadOldLocator(LakeModifyState* state, TupleTableSlot* planSlot,
         locator->local_version_token, locator->file_id, locator->file_row_position};
     bool found = false;
     (void)hash_search(state->seen, &key, HASH_FIND, &found);
-    if (found) return false;
+    if (found) {
+        if (state->operation == CMD_MERGE)
+            ereport(ERROR, (errcode(ERRCODE_CARDINALITY_VIOLATION),
+                errmsg("MERGE command cannot affect a native lake row a second time"),
+                errhint("Ensure that not more than one source row matches any one target row.")));
+        return false;
+    }
     state->scanned_locator = *locator;
     state->have_scanned_locator = true;
     return true;
@@ -304,13 +332,26 @@ bool LakeRecheckModifyTarget(EState* estate, ResultRelInfo* info,
     if (info == NULL || info->ri_FdwRoutine == NULL ||
         !LakeIsNativeForeignRelation(info->ri_RelationDesc) || !LakeRowLocksEnabled()) return true;
     LakeModifyState* state = LakeModifyStateFor(info);
+    if (node != NULL && node->operation == CMD_MERGE && state->retry_prepared) {
+        /* The previous EPQ supplied a fresh joined tuple and locator.  Let
+         * the retried action consume that prepared target without validating
+         * it against the statement's old read view a second time. */
+        state->retry_prepared = false;
+        return true;
+    }
+    state->recheck_failed = false;
+    state->recheck_retry = false;
+    state->retry_slot = NULL;
     LakeReleasePreparedTarget(state);
-    if (node == NULL || (node->operation != CMD_UPDATE && node->operation != CMD_DELETE) ||
+    if (node == NULL || (node->operation != CMD_UPDATE && node->operation != CMD_DELETE && node->operation != CMD_MERGE) ||
         planSlot == NULL || TupIsNull(*planSlot) || state->latest_slot == NULL)
         ereport(ERROR, (errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
             errmsg("native lake RC modification target was not initialized")));
     LakeRowLocator scanned;
-    if (!LakeReadOldLocator(state, *planSlot, &scanned)) return false;
+    if (!LakeReadOldLocator(state, *planSlot, &scanned)) {
+        state->recheck_failed = true;
+        return false;
+    }
     if (scanned.source == LAKE_LOCATOR_TXN) {
         state->prepared_locator = scanned;
         state->prepared_table = state->table;
@@ -319,32 +360,48 @@ bool LakeRecheckModifyTarget(EState* estate, ResultRelInfo* info,
     }
     bool alreadySeen = false;
     (void)hash_search(state->seen_rows, &scanned.row_id, HASH_FIND, &alreadySeen);
-    if (alreadySeen) return false; /* Same command must not update its own output. */
+    if (alreadySeen) {
+        if (node->operation == CMD_MERGE)
+            ereport(ERROR, (errcode(ERRCODE_CARDINALITY_VIOLATION),
+                errmsg("MERGE command cannot affect a native lake row a second time"),
+                errhint("Ensure that not more than one source row matches any one target row.")));
+        return false; /* Same command must not update its own output. */
+    }
     LakeLockLogicalRow(state->table, scanned.row_id);
     ExecClearTuple(state->latest_slot);
     LakeRowLocator latest;
     LakeTxnTable* latestTable = NULL;
     if (!LakeTxnResolveLatestRow(state->table, scanned.row_id, state->command_id,
-        state->latest_slot, &latest, &latestTable)) return false;
+        state->latest_slot, &latest, &latestTable)) {
+        state->recheck_failed = true;
+        return false;
+    }
     if (latestTable == NULL)
         ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR), errmsg("native lake latest row has no read binding")));
     LakeValidateInlineLocator(&latest, latestTable, LakeTxnNonce(), state->command_id);
 
     if (latest.source == LAKE_LOCATOR_TXN || latest.begin_snapshot != scanned.begin_snapshot) {
-        /* EPQ consumes the same N+2 tuple layout as the original target scan,
-         * including both the whole business row and its refreshed locator. */
+        /* EPQ consumes the target scan tuple layout captured at begin. MERGE
+         * may use the base N-column scan, while UPDATE/DELETE include the
+         * whole business row and refreshed locator as N+2 attributes. */
         MemoryContext caller = MemoryContextSwitchTo(GetPerTupleMemoryContext(estate));
         int columns = state->table->descriptor->natts;
-        Datum* values = (Datum*)palloc0(sizeof(Datum) * (columns + 2));
-        bool* nulls = (bool*)palloc0(sizeof(bool) * (columns + 2));
+        int scan_attrs = state->epq_scan_descriptor->natts;
+        if (scan_attrs != columns && scan_attrs != columns + 2)
+            ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                errmsg("native lake RC update has an unsupported target scan tuple shape")));
+        Datum* values = (Datum*)palloc0(sizeof(Datum) * scan_attrs);
+        bool* nulls = (bool*)palloc0(sizeof(bool) * scan_attrs);
         tableam_tslot_getallattrs(state->latest_slot);
         for (int i = 0; i < columns; ++i) {
             values[i] = state->latest_slot->tts_values[i];
             nulls[i] = state->latest_slot->tts_isnull[i];
         }
         HeapTuple business = heap_form_tuple(state->table->descriptor, values, nulls);
-        values[columns] = HeapTupleGetDatum(business);
-        values[columns + 1] = PointerGetDatum(LakeEncodeRowLocator(&latest));
+        if (scan_attrs == columns + 2) {
+            values[columns] = HeapTupleGetDatum(business);
+            values[columns + 1] = PointerGetDatum(LakeEncodeRowLocator(&latest));
+        }
         HeapTuple injected = heap_form_tuple(state->epq_scan_descriptor, values, nulls);
         MemoryContextSwitchTo(caller);
         volatile bool installed = false;
@@ -369,6 +426,31 @@ bool LakeRecheckModifyTarget(EState* estate, ResultRelInfo* info,
         PG_END_TRY();
         if (TupIsNull(checked)) {
             if (latestTable != state->table) LakeTxnReleaseReadView(latestTable);
+            state->recheck_failed = true;
+            return false;
+        }
+        /* A MERGE EPQ plan is an outer join.  A non-NULL result can still
+         * represent NOT MATCHED when the refreshed target side is NULL.
+         * Treat the missing locator as a rejected MATCHED candidate so the
+         * caller can run the NOT MATCHED action list. */
+        if (node->operation == CMD_MERGE) {
+            bool locator_is_null = false;
+            (void)ExecGetJunkAttribute(checked, state->locator_attnum, &locator_is_null);
+            if (locator_is_null) {
+                if (latestTable != state->table) LakeTxnReleaseReadView(latestTable);
+                state->recheck_failed = true;
+                return false;
+            }
+            /* The matched action was projected before the row lock.  If EPQ
+             * refreshed the target, restart action selection with the fresh
+             * joined tuple so WHEN predicates and target references are
+             * evaluated against the committed version. */
+            state->retry_slot = checked;
+            state->recheck_retry = true;
+            state->prepared_locator = latest;
+            state->prepared_table = latestTable;
+            state->prepared = true;
+            state->retry_prepared = true;
             return false;
         }
         *planSlot = checked;
@@ -382,6 +464,42 @@ bool LakeRecheckModifyTarget(EState* estate, ResultRelInfo* info,
     state->prepared_table = latestTable;
     state->prepared = true;
     return true;
+}
+
+bool LakeMergeRecheckFailed(ResultRelInfo* info)
+{
+    if (info == NULL || info->ri_FdwRoutine == NULL ||
+        !LakeIsNativeForeignRelation(info->ri_RelationDesc))
+        return false;
+    LakeModifyState* state = LakeModifyStateFor(info);
+    return state != NULL && state->operation == CMD_MERGE && state->recheck_failed;
+}
+
+bool LakeMergeRecheckRetry(ResultRelInfo* info, TupleTableSlot** slot)
+{
+    if (info == NULL || info->ri_FdwRoutine == NULL ||
+        !LakeIsNativeForeignRelation(info->ri_RelationDesc))
+        return false;
+    LakeModifyState* state = LakeModifyStateFor(info);
+    if (state == NULL || state->operation != CMD_MERGE || !state->recheck_retry)
+        return false;
+    if (slot != NULL)
+        *slot = state->retry_slot;
+    state->retry_slot = NULL;
+    state->recheck_retry = false;
+    return true;
+}
+
+void LakeMergeRecheckDiscard(ResultRelInfo* info)
+{
+    if (info == NULL || info->ri_FdwRoutine == NULL ||
+        !LakeIsNativeForeignRelation(info->ri_RelationDesc))
+        return;
+    LakeModifyState* state = LakeModifyStateFor(info);
+    if (state->operation == CMD_MERGE && state->retry_prepared) {
+        LakeReleasePreparedTarget(state);
+        state->retry_prepared = false;
+    }
 }
 
 static TupleTableSlot* LakeExecForeignUpdate(EState*, ResultRelInfo* info, TupleTableSlot* slot, TupleTableSlot* planSlot)

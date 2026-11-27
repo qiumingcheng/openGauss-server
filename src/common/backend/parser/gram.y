@@ -205,6 +205,7 @@ static Node *makeFloatConst(char *str, int location);
 static Node *makeBitStringConst(char *str, int location);
 Node *makeAConst(Value *v, int location);
 Node *makeBoolAConst(bool state, int location);
+static Node *makeMergeWhenCondition(Node *when_condition, Node *where_condition);
 static void check_qualified_name(List *names, core_yyscan_t yyscanner);
 static List *check_func_name(List *names, core_yyscan_t yyscanner);
 static List *check_setting_name(List *names, core_yyscan_t yyscanner);
@@ -853,8 +854,9 @@ static bool is_temp_table(const char relpst);
 %type <str>	pgxcgroup_parent
 
 /* MERGE INTO */
-%type <node> merge_when_clause opt_merge_where_condition
+%type <node> merge_when_clause opt_merge_when_condition opt_merge_where_condition
 %type <list> merge_when_list
+%type <mergewhen> merge_delete merge_nothing
 
 /* ENCRYPTION */
 %type <node> algorithm_desc CreateMasterKeyStmt CreateColumnKeyStmt master_key_elem column_key_elem with_algorithm
@@ -25073,22 +25075,51 @@ merge_when_list:
 			;
 
 merge_when_clause:
-			WHEN MATCHED THEN merge_update opt_merge_where_condition
+			WHEN MATCHED opt_merge_when_condition THEN merge_update opt_merge_where_condition
 				{
-					$4->matched = true;
-					$4->commandType = CMD_UPDATE;
-					$4->condition = $5;
-
-					$$ = (Node *) $4;
-				}
-			| WHEN NOT MATCHED THEN merge_insert opt_merge_where_condition
-				{
-					$5->matched = false;
-					$5->commandType = CMD_INSERT;
-					$5->condition = $6;
+					$5->matched = true;
+					$5->commandType = CMD_UPDATE;
+					$5->condition = makeMergeWhenCondition($3, $6);
 
 					$$ = (Node *) $5;
 				}
+			| WHEN MATCHED opt_merge_when_condition THEN merge_delete opt_merge_where_condition
+				{
+					$5->matched = true;
+					$5->commandType = CMD_DELETE;
+					$5->condition = makeMergeWhenCondition($3, $6);
+
+					$$ = (Node *) $5;
+				}
+			| WHEN MATCHED opt_merge_when_condition THEN merge_nothing opt_merge_where_condition
+				{
+					$5->matched = true;
+					$5->commandType = CMD_NOTHING;
+					$5->condition = makeMergeWhenCondition($3, $6);
+
+					$$ = (Node *) $5;
+				}
+			| WHEN NOT MATCHED opt_merge_when_condition THEN merge_insert opt_merge_where_condition
+				{
+					$6->matched = false;
+					$6->commandType = CMD_INSERT;
+					$6->condition = makeMergeWhenCondition($4, $7);
+
+					$$ = (Node *) $6;
+				}
+			| WHEN NOT MATCHED opt_merge_when_condition THEN merge_nothing opt_merge_where_condition
+				{
+					$6->matched = false;
+					$6->commandType = CMD_NOTHING;
+					$6->condition = makeMergeWhenCondition($4, $7);
+
+					$$ = (Node *) $6;
+				}
+			;
+
+opt_merge_when_condition:
+			AND a_expr			{ $$ = $2; }
+			| 						{ $$ = NULL; }
 			;
 
 opt_merge_where_condition:
@@ -25102,6 +25133,28 @@ merge_update:
 					MergeWhenClause *n = makeNode(MergeWhenClause);
 					n->targetList = $3;
 
+					$$ = n;
+				}
+			;
+
+merge_delete:
+			DELETE_P
+				{
+					MergeWhenClause *n = makeNode(MergeWhenClause);
+					n->targetList = NIL;
+					n->cols = NIL;
+					n->values = NIL;
+					$$ = n;
+				}
+			;
+
+merge_nothing:
+			DO NOTHING
+				{
+					MergeWhenClause *n = makeNode(MergeWhenClause);
+					n->targetList = NIL;
+					n->cols = NIL;
+					n->values = NIL;
 					$$ = n;
 				}
 			;
@@ -33549,6 +33602,16 @@ makeBoolAConst(bool state, int location)
 	n->location = location;
 
 	return makeTypeCast((Node *)n, SystemTypeName("bool"), NULL, NULL, NULL, -1);
+}
+
+static Node *
+makeMergeWhenCondition(Node *when_condition, Node *where_condition)
+{
+	if (when_condition == NULL)
+		return where_condition;
+	if (where_condition == NULL)
+		return when_condition;
+	return (Node *)makeBoolExpr(AND_EXPR, list_make2(when_condition, where_condition), -1);
 }
 
 /* check_qualified_name --- check the result of qualified_name production

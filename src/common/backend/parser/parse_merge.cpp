@@ -23,6 +23,7 @@
 
 #include "pgstat.h"
 
+#include "access/og_lake.h"
 #include "access/sysattr.h"
 #include "nodes/nodeFuncs.h"
 #include "nodes/makefuncs.h"
@@ -816,8 +817,10 @@ static void checkUnsupportedCases(ParseState* pstate, MergeStmt* stmt)
                 errmsg("internal relation doesn't allow %s",
                     stmt->is_insert_update ? "INSERT ... ON DUPLICATE KEY UPDATE" : "MERGE INTO")));
 
-    /* Check unsupported relation kind */
-    if (!(RelationIsCUFormat(targetrel) || RelationIsRowFormat(targetrel)))
+    /* Check unsupported relation kind. Only a native lake foreign target has
+     * the complete MERGE planner and executor contract in this branch. */
+    bool foreign_merge_target = LakeIsNativeForeignRelation(targetrel);
+    if (!(RelationIsCUFormat(targetrel) || RelationIsRowFormat(targetrel) || foreign_merge_target))
         ereport(ERROR,
             (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
                 errmsg("Target relation type is not supported for %s",
@@ -950,6 +953,11 @@ Query* transformMergeStmt(ParseState* pstate, MergeStmt* stmt)
                 break;
             case CMD_UPDATE:
                 targetPerms |= ACL_UPDATE;
+                break;
+            case CMD_DELETE:
+                targetPerms |= ACL_DELETE;
+                break;
+            case CMD_NOTHING:
                 break;
             default:
                 ereport(ERROR, (errcode(ERRCODE_UNEXPECTED_NODE_STATE), errmsg("unknown action in MERGE WHEN clause")));
@@ -1100,26 +1108,6 @@ Query* transformMergeStmt(ParseState* pstate, MergeStmt* stmt)
     qry->jointree = makeFromExpr(pstate->p_joinlist, NULL);
     qry->rtable = pstate->p_rtable;
 
-    /* Check unsupported merge when clauses */
-    if (list_length(stmt->mergeWhenClauses) > 2)
-        ereport(
-            ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED), errmsg("More than two MERGE WHEN clauses are specified")));
-
-    if (list_length(stmt->mergeWhenClauses) == 2) {
-        MergeWhenClause* mergeWhenClause1 = (MergeWhenClause*)linitial(stmt->mergeWhenClauses);
-        MergeWhenClause* mergeWhenClause2 = (MergeWhenClause*)lsecond(stmt->mergeWhenClauses);
-
-        if (mergeWhenClause1->matched == true && mergeWhenClause2->matched == true)
-            ereport(ERROR,
-                (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-                    errmsg("Two WHEN MATCHED clauses are not supported for MERGE INTO")));
-
-        if (mergeWhenClause1->matched == false && mergeWhenClause2->matched == false)
-            ereport(ERROR,
-                (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-                    errmsg("Two WHEN NOT MATCHED clauses are not supported for MERGE INTO")));
-    }
-
     /*
      * We now have a good query shape, so now look at the when conditions and
      * action targetlists.
@@ -1144,9 +1132,7 @@ Query* transformMergeStmt(ParseState* pstate, MergeStmt* stmt)
         action->commandType = mergeWhenClause->commandType;
         action->matched = mergeWhenClause->matched;
 
-        /*
-         * Transform target lists for each INSERT and UPDATE action stmt
-         */
+        /* Transform target lists and WHEN conditions for each action. */
         switch (action->commandType) {
             case CMD_INSERT: {
                 List* exprList = NIL;
@@ -1306,6 +1292,27 @@ Query* transformMergeStmt(ParseState* pstate, MergeStmt* stmt)
                 checkUpdateOnDistributeKey(rte, action->targetList);
                 checkUpdateOnJoinKey(pstate, mergeWhenClause, join_var_list, stmt->is_insert_update);
 
+            } break;
+            case CMD_DELETE:
+            case CMD_NOTHING: {
+                List* save_relnamespace = pstate->p_relnamespace;
+                List* save_varnamespace = pstate->p_varnamespace;
+
+                /* NOT MATCHED actions can only see the source row. MATCHED
+                 * actions can inspect both sides of the join. */
+                if (!mergeWhenClause->matched) {
+                    RangeTblEntry* sourceRelRTE =
+                        rt_fetch(list_length(pstate->p_rtable) - 1, pstate->p_rtable);
+                    pstate->p_relnamespace = list_make1(makeNamespaceItem(sourceRelRTE, false, true));
+                    pstate->p_varnamespace = get_varnamespace(pstate, 2);
+                } else {
+                    pstate->p_varnamespace = get_varnamespace(pstate);
+                }
+
+                action->qual = transformWhereClause(pstate, mergeWhenClause->condition,
+                    EXPR_KIND_MERGE_WHEN, "WHEN");
+                pstate->p_relnamespace = save_relnamespace;
+                pstate->p_varnamespace = save_varnamespace;
             } break;
             default:
                 ereport(ERROR, (errcode(ERRCODE_UNEXPECTED_NODE_STATE), errmsg("unknown action in MERGE WHEN clause")));
@@ -1982,22 +1989,16 @@ bool check_update_action_targetlist(List* merge_action_list, List* source_target
 void check_insert_action_targetlist(List* merge_action_list, List* source_targetlist)
 {
     ListCell* action_cell = NULL;
-    List* insert_action_targetlist = NIL;
-
-    /* first let's locate the insert action */
     foreach (action_cell, merge_action_list) {
         MergeAction* action = (MergeAction*)lfirst(action_cell);
         if (action->commandType == CMD_INSERT) {
-            insert_action_targetlist = action->targetList;
-
-            break;
+            if (!check_action_targetlist_condition(action->targetList, source_targetlist, true)) {
+                ereport(ERROR,
+                    (errcode(ERRCODE_UNDEFINED_COLUMN),
+                        errmsg("Invalid column reference in the INSERT VALUES Clause"),
+                        errhint("You may have referenced target table's column")));
+            }
         }
-    }
-    if (!check_action_targetlist_condition(insert_action_targetlist, source_targetlist, true)) {
-        ereport(ERROR,
-            (errcode(ERRCODE_UNDEFINED_COLUMN),
-                errmsg("Invalid column reference in the INSERT VALUES Clause"),
-                errhint("You may have referenced target table's column")));
     }
 }
 #endif /* FRONTEND_PARSER */

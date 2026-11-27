@@ -1774,6 +1774,25 @@ void CheckValidResultRel(Relation resultRel, CmdType operation)
                             errmsg("foreign table \"%s\" does not allow deletes", RelationGetRelationName(resultRel))));
                     }
                     break;
+                case CMD_MERGE:
+                    /* MERGE may dispatch matched rows through update or delete
+                     * and unmatched rows through insert. Require the complete
+                     * callback set before execution starts. */
+                    if (fdwroutine->ExecForeignInsert == NULL || fdwroutine->ExecForeignUpdate == NULL ||
+                        fdwroutine->ExecForeignDelete == NULL) {
+                        ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                            errmsg("MERGE target foreign table must support inserts, updates and deletes")));
+                    }
+                    if (fdwroutine->IsForeignRelUpdatable != NULL) {
+                        int capabilities = fdwroutine->IsForeignRelUpdatable(resultRel);
+                        if ((capabilities & (1 << CMD_INSERT)) == 0 ||
+                            (capabilities & (1 << CMD_UPDATE)) == 0 ||
+                            (capabilities & (1 << CMD_DELETE)) == 0) {
+                            ereport(ERROR, (errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+                                errmsg("MERGE target foreign table must allow inserts, updates and deletes")));
+                        }
+                    }
+                    break;
                 default:
                     ereport(ERROR, (errcode(ERRCODE_UNRECOGNIZED_NODE_TYPE),
                         errmsg("unrecognized CmdType: %d when perform operation on foreign table.", (int)operation)));

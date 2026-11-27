@@ -118,6 +118,9 @@ extern void LakeValidateDmlLocatorPlan(PlannedStmt* plan);
 extern bool LakeRecheckModifyTarget(EState* estate, ResultRelInfo* info,
     TupleTableSlot** valueSlot, TupleTableSlot** planSlot,
     EPQState* epqstate, ModifyTableState* node);
+extern bool LakeMergeRecheckFailed(ResultRelInfo* info);
+extern bool LakeMergeRecheckRetry(ResultRelInfo* info, TupleTableSlot** slot);
+extern void LakeMergeRecheckDiscard(ResultRelInfo* info);
 extern void LakePrepareStreamBindings(PlannedStmt* plan, EState* estate, StreamNodeGroup* group);
 /* Called by the top consumer only, after every Stream participant exited. */
 extern void LakeStreamThreadStarted(StreamNodeGroup*,const Plan*,unsigned int);
