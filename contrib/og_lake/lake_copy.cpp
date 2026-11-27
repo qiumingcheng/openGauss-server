@@ -1475,7 +1475,13 @@ static bool LakeJsonIsDateStr(const char* tok, Size len)
     int y = (tok[0] - '0') * 1000 + (tok[1] - '0') * 100 + (tok[2] - '0') * 10 + (tok[3] - '0');
     int m = (tok[5] - '0') * 10 + (tok[6] - '0');
     int d = (tok[8] - '0') * 10 + (tok[9] - '0');
-    return y >= 1 && m >= 1 && m <= 12 && d >= 1 && d <= 31;
+    if (y < 1 || m < 1 || m > 12 || d < 1)
+        return false;
+    static const int daysInMonth[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    int maxDay = daysInMonth[m - 1];
+    if (m == 2 && (y % 4 == 0 && (y % 100 != 0 || y % 400 == 0)))
+        maxDay = 29;
+    return d <= maxDay;
 }
 
 static LakeJsonInferKind LakeJsonClassifyVal(const JsonbValue* v)

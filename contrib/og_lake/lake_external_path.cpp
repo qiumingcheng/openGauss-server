@@ -33,7 +33,7 @@ static bool LakeHasValidSegments(const char* path)
         return false;
     while (*path != '\0') {
         size_t len = strcspn(path, "/");
-        if (len == 0 || len > NAME_MAX || (len == 1 && path[0] == '.') ||
+        if (len == 0 || len > NAME_MAX || path[0] == '.' ||
             (len == 2 && path[0] == '.' && path[1] == '.'))
             return false;
         for (size_t i = 0; i < len; ++i) {
@@ -55,7 +55,7 @@ static bool LakeEndsWithInsensitive(const char* value, const char* suffix)
         return false;
     Size vlen = strlen(value);
     Size slen = strlen(suffix);
-    return vlen > slen && pg_strcasecmp(value + (vlen - slen), suffix) == 0;
+    return vlen >= slen && pg_strcasecmp(value + (vlen - slen), suffix) == 0;
 }
 
 static int LakeOpenBeneath(int dirfd, const char* path, uint64 flags, uint64 resolve)
@@ -207,7 +207,7 @@ bool LakeExternalValidRelativePath(const char* relative, const char* requiredFor
     /* Reject hidden dot segments or sensitive key/config suffixes at the basename. */
     const char* base = strrchr(relative, '/');
     base = (base != NULL) ? base + 1 : relative;
-    if (base[0] == '\0' || strcmp(base, "openssl.cnf") == 0 ||
+    if (base[0] == '\0' || base[0] == '.' || strcmp(base, "openssl.cnf") == 0 ||
         LakeEndsWithInsensitive(base, ".key.cipher") ||
         LakeEndsWithInsensitive(base, ".key.rand") ||
         LakeEndsWithInsensitive(base, "_adt"))
