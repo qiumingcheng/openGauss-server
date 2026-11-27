@@ -607,7 +607,7 @@ void LakeRequireWriteVersion(CmdType operation)
     bool writable=version!=NULL && ((strcmp(version,"0.10")==0||strcmp(version,"0.11")==0||strcmp(version,"0.12")==0||strcmp(version,"0.13")==0||(strcmp(version,"0.14")==0||(strcmp(version,"0.15")==0||(strcmp(version,"0.16")==0||(strcmp(version,"0.17")==0||(strcmp(version,"0.18")==0||(strcmp(version,"0.19")==0||(strcmp(version,"0.20")==0||(strcmp(version,"0.21")==0||(strcmp(version,"0.22")==0||(strcmp(version,"0.23")==0||LakeNativeFutureContractEnabled(version)))))))))))) || strcmp(version,"0.9")==0 || strcmp(version,"0.8")==0 || strcmp(version,"0.7")==0 || strcmp(version,"0.6")==0 || strcmp(version,"0.5")==0 || strcmp(version,"0.4")==0 ||
         (operation==CMD_INSERT && strcmp(version,"0.3")==0));
     if(!writable)
-        ereport(ERROR,(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),errmsg("native lake INSERT requires extension 0.3 or later; UPDATE/DELETE require extension 0.4 or later")));
+        ereport(ERROR,(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),errmsg("native lake INSERT requires extension 0.3 or later; UPDATE/DELETE/MERGE require extension 0.4 or later")));
 }
 
 static Snapshot LakeCatalogSnapshot(void)
